@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}{{ dba }} - NYC Food Search{% endblock %}
+
+{% block content %}
+<p><a href="{% url 'search:index' %}">&larr; Back to search</a></p>
+<h1>{{ dba }}</h1>
+<p class="muted">{{ street }}, {{ boro }} {{ zipcode }} &middot; CAMIS {{ camis }}</p>
+
+<h2>Inspection history</h2>
+<table>
+  <thead>
+    <tr><th>Date</th><th>Grade</th><th>Violation</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    {% for inspection in inspections %}
+      <tr>
+        <td>{{ inspection.inspection_date|default:"—" }}</td>
+        <td>{{ inspection.grade|default:"—" }}</td>
+        <td>{{ inspection.violation_code|default:"—" }}</td>
+        <td>{{ inspection.violation_description|default:"—" }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

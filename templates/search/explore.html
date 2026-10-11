@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}{{ config.title }} - NYC Food Search{% endblock %}
+
+{% block content %}
+<p><a href="{% url 'search:explore_index' %}">&larr; All datasets</a></p>
+<h1>{{ config.title }}</h1>
+<p class="muted">{{ config.description }}</p>
+
+<form class="filters" method="get" action="{% url 'search:explore' slug %}">
+  <input type="text" name="q" value="{{ query }}" placeholder="Search {{ config.search_label }}">
+  <button type="submit">Search</button>
+</form>
+
+{% if page_obj.object_list %}
+  <p class="muted">{{ page_obj.paginator.count }} row{{ page_obj.paginator.count|pluralize }}.</p>
+  <table>
+    <thead>
+      <tr>{% for field, label in columns %}<th>{{ label }}</th>{% endfor %}</tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>{% for value in row %}<td>{{ value }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include "search/_pagination.html" %}
+{% else %}
+  <p class="empty">No rows matched.</p>
+{% endif %}
+{% endblock %}

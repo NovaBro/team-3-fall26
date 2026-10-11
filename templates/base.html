@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}NYC Food Search{% endblock %}</title>
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'search/style.css' %}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="{% url 'search:index' %}">NYC Food Search</a>
+      <nav>
+        <a href="{% url 'search:index' %}">Restaurants</a>
+        <a href="{% url 'search:explore_index' %}">Explore datasets</a>
+      </nav>
+    </div>
+  </header>
+  <main class="wrap">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="wrap site-footer">
+    Data from <a href="https://opendata.cityofnewyork.us/">NYC Open Data</a>.
+  </footer>
+</body>
+</html>
