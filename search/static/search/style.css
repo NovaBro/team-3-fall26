@@ -147,3 +147,73 @@ tbody tr:hover { background: #f2f6fc; }
   color: var(--muted);
   font-size: 0.85rem;
 }
+
+.map-note { margin-top: -12px; }
+.map-status { margin-bottom: 8px; }
+
+.farmers-market-map {
+  height: min(68vh, 720px);
+  min-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #e9eef2;
+  z-index: 0;
+}
+
+.farmers-market-map .maplibregl-ctrl-attrib {
+  font-size: 11px;
+}
+
+.market-popup h2 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+.market-popup p { margin: 4px 0; }
+
+.market-popup__hours {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.market-popup__hours p { min-width: 0; }
+
+.market-status {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.market-status--open {
+  color: #176b37;
+  background: #e4f5e9;
+}
+
+.market-status--closed {
+  color: #a12626;
+  background: #fde8e7;
+}
+
+.market-status--closing-soon {
+  color: #795400;
+  background: #fff2c2;
+}
+
+@media (max-width: 640px) {
+  .site-header .wrap {
+    height: auto;
+    min-height: 60px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  nav a { margin-left: 0; margin-right: 14px; }
+  .farmers-market-map { min-height: 360px; }
+}
