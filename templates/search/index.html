@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Restaurant search - NYC Food Search{% endblock %}
+
+{% block content %}
+<h1>Restaurant search</h1>
+<p class="muted">Search NYC restaurant inspection records by name, borough, ZIP, or grade.</p>
+
+<form class="filters" method="get" action="{% url 'search:index' %}">
+  <input type="text" name="q" value="{{ name }}" placeholder="Restaurant name">
+  <select name="boro">
+    <option value="">All boroughs</option>
+    {% for option in boro_options %}
+      <option value="{{ option }}" {% if option == boro %}selected{% endif %}>{{ option }}</option>
+    {% endfor %}
+  </select>
+  <input type="text" name="zip" value="{{ zip }}" placeholder="ZIP code">
+  <select name="grade">
+    <option value="">Any grade</option>
+    {% for option in grade_options %}
+      <option value="{{ option }}" {% if option == grade %}selected{% endif %}>{{ option }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Search</button>
+</form>
+
+{% if searched %}
+  {% if page_obj.object_list %}
+    <p class="muted">{{ page_obj.paginator.count }} restaurant{{ page_obj.paginator.count|pluralize }} found.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th><th>Borough</th><th>Address</th><th>ZIP</th><th>Latest grade</th><th>Last inspected</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in page_obj %}
+          <tr>
+            <td><a href="{% url 'search:restaurant_detail' row.camis %}">{{ row.name }}</a></td>
+            <td>{{ row.boro }}</td>
+            <td>{{ row.street }}</td>
+            <td>{{ row.zipcode }}</td>
+            <td>{{ row.grade|default:"—" }}</td>
+            <td>{{ row.last_date|default:"—" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include "search/_pagination.html" %}
+  {% else %}
+    <p class="empty">No restaurants matched your search.</p>
+  {% endif %}
+{% else %}
+  <p class="muted">Enter a filter above to search.</p>
+{% endif %}
+{% endblock %}

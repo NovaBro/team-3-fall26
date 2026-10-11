@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Explore datasets - NYC Food Search{% endblock %}
+
+{% block content %}
+<h1>Explore datasets</h1>
+<p class="muted">Browse the other NYC Open Data sources loaded into this project.</p>
+
+<div class="cards">
+  {% for slug, config in datasets.items %}
+    <a class="card" href="{% url 'search:explore' slug %}">
+      <h2>{{ config.title }}</h2>
+      <p>{{ config.description }}</p>
+    </a>
+  {% endfor %}
+</div>
+{% endblock %}

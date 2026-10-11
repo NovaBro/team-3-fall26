@@ -1,2 +1,21 @@
 # testing change
-#test
+AGENTS.md
+TODO.md
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Django
+*.log
+db.sqlite3
+database/*.db
+database/*.sqlite3
