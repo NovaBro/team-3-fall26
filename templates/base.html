@@ -6,6 +6,7 @@
   <title>{% block title %}NYC Food Search{% endblock %}</title>
   {% load static %}
   <link rel="stylesheet" href="{% static 'search/style.css' %}">
+  {% block extra_head %}{% endblock %}
 </head>
 <body>
   <header class="site-header">
@@ -13,6 +14,7 @@
       <a class="brand" href="{% url 'search:index' %}">NYC Food Search</a>
       <nav>
         <a href="{% url 'search:index' %}">Restaurants</a>
+        <a href="{% url 'restaurants:search' %}">Find restaurants</a>
         <a href="{% url 'search:explore_index' %}">Explore datasets</a>
       </nav>
     </div>

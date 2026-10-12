@@ -19,6 +19,20 @@ Then open http://127.0.0.1:8000/.
 - `/` — search restaurant inspections by name, borough, ZIP, or grade.
 - `/restaurant/<camis>/` — full inspection/violation history for one restaurant.
 - `/explore/` — browse the other five datasets with text search and pagination.
+- `/restaurants/` — find restaurants by area, price range, diet, and walking distance
+  from your location (live Google Places data; see below).
+
+## Restaurant filters (`/restaurants/`)
+
+Needs a Google API key with **Places API (New)** enabled (and billing on the Google
+Cloud project). Copy `.env.example` to `.env` and fill in `GOOGLE_API_KEY`; add
+`GOOGLE_MAPS_JS_KEY` (Maps JavaScript API) to also show the results map. Never commit `.env`.
+
+- Searches are limited to NYC unless you use "Use my location".
+- Distance filters need "Use my location"; results are then sorted by distance.
+- Invalid filter values (e.g. `?price=cheap`) show an error instead of searching.
+- Results come from Google at request time and are not stored (Google's terms
+  restrict caching Places data). Each search is one billable Text Search request.
 
 ## Data
 
