@@ -1,8 +1,16 @@
 from django import forms
-from django.core.validators import RegexValidator
 
 from restaurants.places import METERS_PER_MILE, PRICE_LEVELS
 
+# The five boroughs. The value is sent to Google as the search area.
+AREA_CHOICES = [
+    ("", "All boroughs"),
+    ("Bronx", "Bronx"),
+    ("Brooklyn", "Brooklyn"),
+    ("Manhattan", "Manhattan"),
+    ("Queens", "Queens"),
+    ("Staten Island", "Staten Island"),
+]
 PRICE_CHOICES = [(p, p) for p in PRICE_LEVELS]
 DIET_CHOICES = [("", "Any"), ("vegetarian", "Vegetarian"), ("vegan", "Vegan"), ("halal", "Halal")]
 # Miles; labels are roughly walking time for a student between classes.
@@ -16,17 +24,10 @@ DISTANCE_CHOICES = [
 
 
 class RestaurantFilterForm(forms.Form):
-    area = forms.CharField(
+    area = forms.ChoiceField(
         required=False,
-        max_length=100,
-        strip=True,
-        validators=[
-            RegexValidator(
-                r"^[\w\s,.'&#/-]*$",
-                "Area can only contain letters, numbers, spaces and , . ' & # / -",
-            )
-        ],
-        widget=forms.TextInput(attrs={"placeholder": "Neighborhood or street, e.g. East Village"}),
+        choices=AREA_CHOICES,
+        error_messages={"invalid_choice": "%(value)s is not a valid borough. Choose one from the list."},
     )
     price = forms.MultipleChoiceField(
         required=False,

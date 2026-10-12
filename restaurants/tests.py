@@ -117,7 +117,7 @@ class FilterFormTests(SimpleTestCase):
         return form.errors
 
     def test_valid_filters(self):
-        form = RestaurantFilterForm({"area": "East Village", "price": ["$", "$$"], "diet": "halal",
+        form = RestaurantFilterForm({"area": "Manhattan", "price": ["$", "$$"], "diet": "halal",
                                      "distance": "0.5", "lat": "40.73", "lng": "-73.99"})
         self.assertTrue(form.is_valid(), form.errors)
         self.assertAlmostEqual(form.radius_m, 804.672)
@@ -143,8 +143,8 @@ class FilterFormTests(SimpleTestCase):
     def test_incomplete_location(self):
         self.assertIn("__all__", self.errors({"lat": "40.7"}))
 
-    def test_area_too_long(self):
-        self.assertIn("area", self.errors({"area": "x" * 101}))
+    def test_area_not_in_list(self):
+        self.assertIn("area", self.errors({"area": "East Village"}))
 
     def test_area_bad_characters(self):
         self.assertIn("area", self.errors({"area": "<script>"}))
@@ -161,9 +161,9 @@ class SearchViewTests(SimpleTestCase):
 
     def test_filters_are_passed_together(self, gr):
         gr.return_value = []
-        self.client.get(self.url, {"area": "SoHo", "price": ["$", "$$"], "diet": "vegan",
+        self.client.get(self.url, {"area": "Manhattan", "price": ["$", "$$"], "diet": "vegan",
                                    "distance": "1", "lat": "40.73", "lng": "-73.99"})
-        gr.assert_called_once_with(area="SoHo", prices=["$", "$$"], diet="vegan",
+        gr.assert_called_once_with(area="Manhattan", prices=["$", "$$"], diet="vegan",
                                    lat=40.73, lng=-73.99, radius_m=1609.344)
 
     def test_results_are_shown(self, gr):
@@ -188,7 +188,7 @@ class SearchViewTests(SimpleTestCase):
 
     def test_data_source_error_is_shown(self, gr):
         gr.side_effect = PlacesError("boom")
-        resp = self.client.get(self.url, {"area": "x"})
+        resp = self.client.get(self.url, {"area": "Queens"})
         self.assertContains(resp, "boom")
         self.assertNotContains(resp, "No results")
 
@@ -204,7 +204,7 @@ class SearchViewTests(SimpleTestCase):
         gr.return_value = [{"name": "P", "address": "", "price": "", "vegetarian": None,
                             "lat": 40.7, "lng": -74.0, "maps_url": "", "distance_mi": None}]
         with patch.dict("os.environ", {"GOOGLE_MAPS_JS_KEY": ""}):
-            resp = self.client.get(self.url, {"area": "x"})
+            resp = self.client.get(self.url, {"area": "Queens"})
         self.assertContains(resp, "Map not shown")
         self.assertNotContains(resp, 'class="error"')
 
