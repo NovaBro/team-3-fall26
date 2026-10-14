@@ -79,3 +79,91 @@ class ExploreTests(TestCase):
     def test_explore_unknown_dataset_404(self):
         response = self.client.get(reverse("search:explore", args=["nope"]))
         self.assertEqual(response.status_code, 404)
+
+
+class FarmersMarketMapTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        FarmersMarket.objects.create(
+            year=2025,
+            market_name="Older Market Listing",
+            borough="Manhattan",
+            latitude=40.7,
+            longitude=-74.0,
+        )
+        FarmersMarket.objects.create(
+            year=2026,
+            market_name="Union Square Greenmarket",
+            borough="Manhattan",
+            street_address="E 17th St",
+            latitude=40.737,
+            longitude=-73.99,
+            days_of_operation="Monday",
+            hours_of_operations="8 a.m. - 6 p.m.",
+        )
+        FarmersMarket.objects.create(
+            year=2026,
+            market_name="Market Without Coordinates",
+            borough="Queens",
+        )
+        FarmersMarket.objects.create(
+            year=2026,
+            market_name="Saratoga Farm Stand",
+            borough="Brooklyn",
+            street_address="1965-1971 Fulton St.",
+            latitude=40.68,
+            longitude=-0.00008,
+            days_of_operation="Tuesday-Saturday",
+            hours_of_operations="10 a.m. - 2 p.m.",
+        )
+
+    def test_map_shows_latest_year_markets_and_corrects_saratoga_location(self):
+        response = self.client.get(reverse("search:farmers_markets_map"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["market_year"], 2026)
+        self.assertEqual(len(response.context["markets"]), 2)
+        markets_by_name = {
+            market["market_name"]: market for market in response.context["markets"]
+        }
+        self.assertIn("Union Square Greenmarket", markets_by_name)
+        saratoga = markets_by_name["Saratoga Farm Stand"]
+        self.assertEqual(saratoga["street_address"], "1965 Fulton St, Brooklyn, NY 11233")
+        self.assertEqual(saratoga["zip_code"], "11233")
+        self.assertEqual(saratoga["latitude"], 40.6785)
+        self.assertEqual(saratoga["longitude"], -73.916194)
+
+    def test_map_can_filter_by_market_name(self):
+        response = self.client.get(
+            reverse("search:farmers_markets_map"), {"q": "union"}
+        )
+        self.assertEqual(len(response.context["markets"]), 1)
+        self.assertEqual(response.context["name"], "union")
+        self.assertContains(response, 'value="union"')
+
+    def test_map_can_filter_by_zip_code(self):
+        response = self.client.get(
+            reverse("search:farmers_markets_map"), {"zip": "11233"}
+        )
+        self.assertEqual(len(response.context["markets"]), 1)
+        self.assertEqual(
+            response.context["markets"][0]["market_name"], "Saratoga Farm Stand"
+        )
+        self.assertEqual(response.context["zip"], "11233")
+
+    def test_map_can_filter_by_day_of_week(self):
+        response = self.client.get(
+            reverse("search:farmers_markets_map"), {"day": "Wednesday"}
+        )
+        self.assertEqual(len(response.context["markets"]), 1)
+        self.assertEqual(
+            response.context["markets"][0]["market_name"], "Saratoga Farm Stand"
+        )
+        self.assertEqual(response.context["day"], "Wednesday")
+        self.assertContains(response, '<option value="Wednesday" selected>')
+
+    def test_map_renders_popup_data_script(self):
+        response = self.client.get(reverse("search:farmers_markets_map"))
+        self.assertContains(response, 'id="farmers-market-data"')
+        self.assertContains(response, "farmers_markets_map.js")
+        self.assertNotContains(response, "Listings not shown on the map")
+        self.assertNotContains(response, "Market Without Coordinates")

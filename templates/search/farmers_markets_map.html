@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Farmers market map - NYC Food Search{% endblock %}
+
+{% block content %}
+<h1>Farmers market map</h1>
+<p class="muted map-note">Search farmers markets by name, ZIP code, or day of the week. Select a point to see its details.</p>
+
+{% if market_year %}
+  <form class="filters" method="get" action="{% url 'search:farmers_markets_map' %}">
+    <input type="text" name="q" value="{{ name }}" placeholder="Farmers market name">
+    <input type="text" name="zip" value="{{ zip }}" placeholder="ZIP code"
+           inputmode="numeric" maxlength="5" pattern="[0-9]{5}" aria-label="ZIP code">
+    <select name="day" aria-label="Day of the week">
+      <option value="">Any day</option>
+      {% for option in day_options %}
+        <option value="{{ option }}"{% if day == option %} selected{% endif %}>{{ option }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Search</button>
+  </form>
+
+  <p id="map-status" class="muted map-status" role="status">Loading map…</p>
+  <div id="farmers-market-map" class="farmers-market-map" role="region"
+       aria-label="Map of New York City farmers markets"></div>
+  {{ markets|json_script:"farmers-market-data" }}
+{% else %}
+  <p class="empty">No farmers market data is available yet.</p>
+{% endif %}
+{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.css">
+{% endblock %}
+
+{% block scripts %}
+{% if market_year %}
+  <script src="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.js"></script>
+  <script src="{% static 'search/farmers_markets_map.js' %}" defer></script>
+{% endif %}
+{% endblock %}
