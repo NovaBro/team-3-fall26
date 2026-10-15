@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Find restaurants - NYC Food Search{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'restaurants/style.css' %}">
+{% endblock %}
+
+{% block content %}
+<h1>Find restaurants</h1>
+<p class="muted">Filter by area, price, diet, and how far you can walk between classes.</p>
+
+<form class="filters restaurant-filters" method="get" action="{% url 'restaurants:search' %}" id="filter-form">
+  <label>Area
+    {{ form.area }}
+  </label>
+  <fieldset class="price-group">
+    <legend>Price</legend>
+    {% for choice in form.price %}
+      <label class="check">{{ choice.tag }} {{ choice.choice_label }}</label>
+    {% endfor %}
+  </fieldset>
+  <label>Diet
+    {{ form.diet }}
+  </label>
+  <label>Distance
+    {{ form.distance }}
+  </label>
+  {{ form.lat }}
+  {{ form.lng }}
+  <div class="actions">
+    <button type="submit">Search</button>
+    <button type="button" class="secondary" id="use-location">Use my location</button>
+    {% if location %}
+      <button type="button" class="secondary" id="clear-location">Clear location</button>
+    {% endif %}
+  </div>
+</form>
+<p class="muted" id="loc-status">{% if location %}Using your location — results are sorted by distance.{% endif %}</p>
+
+{% if form.errors %}
+  <div class="error" role="alert">
+    <strong>Please fix these filters:</strong>
+    <ul>
+      {% for message in form.non_field_errors %}<li>{{ message }}</li>{% endfor %}
+      {% for field in form %}{% for message in field.errors %}<li>{{ message }}</li>{% endfor %}{% endfor %}
+    </ul>
+  </div>
+{% elif error %}
+  <p class="error" role="alert">{{ error }}</p>
+{% elif searched %}
+  {% if restaurants %}
+    <p class="muted">{{ restaurants|length }} restaurant{{ restaurants|length|pluralize }} found.</p>
+    <div class="results-layout">
+      <div class="results-list">
+        {% for r in restaurants %}
+          <div class="result" data-index="{{ forloop.counter0 }}">
+            <h2>{% if r.maps_url %}<a href="{{ r.maps_url }}" target="_blank" rel="noopener">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</h2>
+            <div class="muted">{{ r.address }}</div>
+            <div class="tags">
+              <span class="tag">{{ r.price|default:"price n/a" }}</span>
+              {% if r.vegetarian is True %}<span class="tag">vegetarian</span>{% endif %}
+              {% if r.distance_mi is not None %}<span class="tag">{{ r.distance_mi|floatformat:2 }} mi away</span>{% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      <div class="results-map">
+        {% if maps_key %}
+          <div id="map"></div>
+        {% else %}
+          <p class="muted map-off">Map not shown (set GOOGLE_MAPS_JS_KEY in .env to enable it).</p>
+        {% endif %}
+      </div>
+    </div>
+  {% else %}
+    <p class="empty">No results: no restaurants match these filters. Try a wider distance, another price, or a different area.</p>
+  {% endif %}
+{% else %}
+  <p class="muted">Choose filters and press Search.</p>
+{% endif %}
+
+{% if maps_key and searched and restaurants %}
+  {{ map_points|json_script:"map-points" }}
+  {{ location|json_script:"user-location" }}
+  <script>
+    const points = JSON.parse(document.getElementById("map-points").textContent);
+    const userPos = JSON.parse(document.getElementById("user-location").textContent);
+    function setActive(i, scroll) {
+      document.querySelectorAll(".result").forEach((c) => c.classList.toggle("active", Number(c.dataset.index) === i));
+      const card = document.querySelector('.result[data-index="' + i + '"]');
+      if (card && scroll) card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    async function initMap() {
+      const { Map, InfoWindow } = await google.maps.importLibrary("maps");
+      const { AdvancedMarkerElement, PinElement } = await google.maps.importLibrary("marker");
+      const map = new Map(document.getElementById("map"), {
+        center: userPos || (points[0] ? { lat: points[0].lat, lng: points[0].lng } : { lat: 40.7295, lng: -73.9965 }),
+        zoom: 14,
+        mapId: "DEMO_MAP_ID",
+      });
+      const info = new InfoWindow();
+      const bounds = new google.maps.LatLngBounds();
+      points.forEach((p, i) => {
+        const marker = new AdvancedMarkerElement({ map, position: { lat: p.lat, lng: p.lng }, title: p.name });
+        marker.addListener("click", () => {
+          const content = document.createElement("div");
+          const name = document.createElement("strong");
+          name.textContent = p.name;
+          content.append(name, document.createElement("br"), p.price || "");
+          info.setContent(content);
+          info.open({ map, anchor: marker });
+          setActive(i, true);
+        });
+        bounds.extend(marker.position);
+      });
+      if (userPos) {
+        const pin = new PinElement({ background: "#1a73e8", borderColor: "#0b4fa8", glyphColor: "#ffffff" });
+        new AdvancedMarkerElement({ map, position: userPos, title: "You are here", content: pin.element, zIndex: 999 });
+        bounds.extend(userPos);
+      }
+      if (points.length > 1 || (points.length && userPos)) map.fitBounds(bounds);
+      document.querySelectorAll(".result").forEach((card) => {
+        card.addEventListener("click", (e) => {
+          if (e.target.tagName === "A") return;
+          const i = Number(card.dataset.index);
+          if (!points[i]) return;
+          map.panTo({ lat: points[i].lat, lng: points[i].lng });
+          map.setZoom(16);
+          setActive(i, false);
+        });
+      });
+    }
+  </script>
+  <script async src="https://maps.googleapis.com/maps/api/js?key={{ maps_key|urlencode }}&loading=async&language=en&region=US&callback=initMap"></script>
+{% endif %}
+
+<script>
+  (function () {
+    const form = document.getElementById("filter-form");
+    const status = document.getElementById("loc-status");
+    document.getElementById("use-location").addEventListener("click", () => {
+      if (!navigator.geolocation) { status.textContent = "Your browser does not support location."; return; }
+      status.textContent = "Getting your location...";
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          form.elements.lat.value = pos.coords.latitude;
+          form.elements.lng.value = pos.coords.longitude;
+          form.submit();
+        },
+        () => { status.textContent = "Could not get your location. Allow location access in the browser and try again."; }
+      );
+    });
+    const clear = document.getElementById("clear-location");
+    if (clear) {
+      clear.addEventListener("click", () => {
+        form.elements.lat.value = "";
+        form.elements.lng.value = "";
+        form.elements.distance.value = "";
+        form.submit();
+      });
+    }
+  })();
+</script>
+{% endblock %}

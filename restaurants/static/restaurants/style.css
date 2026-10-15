@@ -1,0 +1,78 @@
+.restaurant-filters { align-items: flex-end; }
+
+.restaurant-filters label,
+.price-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.price-group {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.price-group legend { padding: 0 4px; }
+.price-group label.check { flex-direction: row; align-items: center; color: var(--ink); font-size: 0.95rem; }
+
+.restaurant-filters .actions { display: flex; gap: 8px; }
+.restaurant-filters button.secondary { background: #fff; color: var(--accent); border: 1px solid var(--accent); }
+.restaurant-filters button.secondary:hover { background: #eef3fb; }
+
+.error {
+  padding: 10px 14px;
+  border-left: 3px solid #b8431b;
+  background: #faf3f0;
+  border-radius: 4px;
+}
+.error ul { margin: 6px 0 0; padding-left: 20px; }
+
+.results-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 400px) 1fr;
+  gap: 18px;
+  height: calc(100vh - 320px);
+  min-height: 420px;
+}
+
+.results-list { overflow-y: auto; padding-right: 6px; }
+
+.result {
+  padding: 12px 12px 12px 10px;
+  margin-bottom: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.result.active { border-left-color: var(--accent); background: #f2f6fc; }
+.result h2 { margin: 0 0 4px; font-size: 1.05rem; }
+
+.tags { margin-top: 6px; }
+.tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.8rem;
+}
+
+.results-map { min-height: 0; }
+#map { height: 100%; width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.map-off { padding: 16px; border: 1px dashed var(--border); border-radius: 8px; }
+
+@media (max-width: 800px) {
+  .results-layout { grid-template-columns: 1fr; height: auto; }
+  .results-list { max-height: 45vh; }
+  #map { height: 340px; }
+}
