@@ -308,6 +308,7 @@ tbody tr:hover { background: #f2f6fc; }
   }
 
   nav a { margin-left: 0; margin-right: 14px; }
+  .nav-form { margin-left: 0; margin-right: 14px; }
   .farmers-market-map,
   .combined-map { min-height: 360px; }
 }
@@ -369,3 +370,76 @@ tbody tr:hover { background: #f2f6fc; }
 
 .btn:hover { background: #17489a; }
 
+.nav-form { display: inline; margin-left: 18px; }
+
+.nav-link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--muted);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.nav-link-button:hover { color: var(--accent); }
+
+.form-section {
+  margin: 22px 0;
+  padding: 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.form-section h2:first-child { margin-top: 0; }
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  margin: 14px 0 18px;
+}
+
+.field--wide { grid-column: 1 / -1; }
+
+.field label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 4px;
+}
+
+.field input[type="text"],
+.field input[type="number"],
+.field input[type="password"],
+.field select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background: #fff;
+}
+
+.field ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.field ul li { margin: 4px 0; }
+
+.field-errors { color: #a12626; font-size: 0.85rem; margin: 4px 0 0; }
+.field-hint { font-size: 0.85rem; margin: 4px 0 0; }
+
+.errorlist {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  color: #a12626;
+  font-size: 0.9rem;
+}
+
+.auth-form { max-width: 380px; margin-top: 18px; }
+.auth-form .field { margin-bottom: 14px; }

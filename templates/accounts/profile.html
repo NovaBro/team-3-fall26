@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Your profile - NYC Food Search{% endblock %}
+
+{% block content %}
+<h1>Your profile</h1>
+<p class="muted">Your answers help us tailor restaurant and menu recommendations.</p>
+
+<section class="form-section">
+  <h2>Fixed user inputs</h2>
+  <p class="muted">Basics about you. Update these whenever something changes.</p>
+  <form method="post" action="{% url 'accounts:profile' %}">
+    {% csrf_token %}
+    {% if fixed_form.non_field_errors %}
+      <ul class="errorlist">{{ fixed_form.non_field_errors }}</ul>
+    {% endif %}
+    <div class="field-grid">
+      {% for field in fixed_form %}
+        <div class="field{% if field.name in wide_fields %} field--wide{% endif %}">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% for error in field.errors %}
+            <p class="field-errors">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+    <button type="submit" class="btn" name="action" value="save_fixed">Save fixed inputs</button>
+  </form>
+</section>
+
+<section class="form-section">
+  <h2>Variable user inputs</h2>
+  <p class="muted">A quick daily check-in. Every save is added to your history.</p>
+  <form method="post" action="{% url 'accounts:profile' %}">
+    {% csrf_token %}
+    {% if mood_form.non_field_errors %}
+      <ul class="errorlist">{{ mood_form.non_field_errors }}</ul>
+    {% endif %}
+    <div class="field-grid">
+      {% for field in mood_form %}
+        <div class="field field--wide">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% for error in field.errors %}
+            <p class="field-errors">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+    <button type="submit" class="btn" name="action" value="log_mood">Save check-in</button>
+  </form>
+
+  <h2>Recent check-ins</h2>
+  {% if mood_history %}
+    <table>
+      <thead>
+        <tr><th>When</th><th>Mood</th><th>Energy level</th></tr>
+      </thead>
+      <tbody>
+        {% for log in mood_history %}
+          <tr>
+            <td>{{ log.created_at|date:"N j, Y, P" }}</td>
+            <td>{{ log.mood_display_label }}</td>
+            <td>{{ log.energy_display_label }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty">No check-ins yet. Log your first one above.</p>
+  {% endif %}
+</section>
+{% endblock %}
