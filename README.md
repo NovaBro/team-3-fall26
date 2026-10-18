@@ -19,6 +19,11 @@ Then open http://127.0.0.1:8000/.
 - `/` — search restaurant inspections by name, borough, ZIP, or grade.
 - `/restaurant/<camis>/` — full inspection/violation history for one restaurant.
 - `/explore/` — browse the other five datasets with text search and pagination.
+- `/farmers-markets/` — map of NYC farmers markets.
+- `/combined-map/` — Google Map of farmers markets, Shop Healthy stores, DOHMH
+  restaurants with saved Places enrichment, and (on demand) live Google
+  restaurants. Needs `GOOGLE_MAPS_JS_KEY`; live Google layer also needs
+  `GOOGLE_API_KEY` and is off until you load it.
 - `/restaurants/` — find restaurants by area, price range, diet, and walking distance
   from your location (live Google Places data; see below).
 

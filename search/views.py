@@ -1,13 +1,17 @@
+import os
 import re
 
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import Max, Q, Subquery, OuterRef
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
-from django.views.decorators.http import require_POST
+from django.urls import reverse
+from django.views.decorators.http import require_GET, require_POST
 
-from search.models import FarmersMarket, PlaceEnrichment, RestaurantInspection
+from restaurants.forms import AREA_CHOICES, DIET_CHOICES, PRICE_CHOICES, RestaurantFilterForm
+from restaurants.places import PlacesError, get_restaurants
+from search.models import FarmersMarket, HealthyStore, PlaceEnrichment, RestaurantInspection
 from search.registry import DATASETS
 from search.services.places import PlacesAPIError, enrich_camis
 
@@ -271,3 +275,178 @@ def explore(request, slug):
         },
     )
 
+
+def _in_nyc(lat, lng):
+    return (
+        lat is not None
+        and lng is not None
+        and NYC_LATITUDE_RANGE[0] <= lat <= NYC_LATITUDE_RANGE[1]
+        and NYC_LONGITUDE_RANGE[0] <= lng <= NYC_LONGITUDE_RANGE[1]
+    )
+
+
+def _matches_text(value, query):
+    return not query or query.casefold() in (value or "").casefold()
+
+
+def _matches_zip(value, zipcode):
+    return not zipcode or (value or "").startswith(zipcode)
+
+
+def _combined_static_points(name="", boro="", zipcode=""):
+    points = []
+
+    latest_year = FarmersMarket.objects.aggregate(latest_year=Max("year"))[
+        "latest_year"
+    ]
+    if latest_year is not None:
+        for market in FarmersMarket.objects.filter(year=latest_year).order_by(
+            "market_name"
+        ):
+            data = {
+                "market_name": market.market_name,
+                "borough": market.borough,
+                "street_address": market.street_address,
+                "latitude": market.latitude,
+                "longitude": market.longitude,
+                "zip_code": "",
+            }
+            override = FARMERS_MARKET_LOCATION_OVERRIDES.get(market.market_name)
+            if override:
+                data.update(override)
+            if not _in_nyc(data["latitude"], data["longitude"]):
+                continue
+            if boro and data["borough"] != boro:
+                continue
+            if not _matches_text(data["market_name"], name):
+                continue
+            if zipcode and not (
+                _matches_zip(data["zip_code"], zipcode)
+                or zipcode in (data["street_address"] or "")
+            ):
+                continue
+            points.append(
+                {
+                    "name": data["market_name"],
+                    "lat": data["latitude"],
+                    "lng": data["longitude"],
+                    "category": "farmers_market",
+                    "address": data["street_address"] or "",
+                    "url": None,
+                }
+            )
+
+    stores = HealthyStore.objects.exclude(latitude__isnull=True).exclude(
+        longitude__isnull=True
+    )
+    if boro:
+        stores = stores.filter(borough=boro)
+    if name:
+        stores = stores.filter(store_name__icontains=name)
+    if zipcode:
+        stores = stores.filter(zip_code__startswith=zipcode)
+    for store in stores.order_by("store_name"):
+        if not _in_nyc(store.latitude, store.longitude):
+            continue
+        points.append(
+            {
+                "name": store.store_name,
+                "lat": store.latitude,
+                "lng": store.longitude,
+                "category": "grocery",
+                "address": store.street_address or "",
+                "url": None,
+            }
+        )
+
+    enrichments = PlaceEnrichment.objects.exclude(latitude__isnull=True).exclude(
+        longitude__isnull=True
+    )
+    if name:
+        enrichments = enrichments.filter(
+            Q(display_name__icontains=name) | Q(camis__icontains=name)
+        )
+    if zipcode:
+        enrichments = enrichments.filter(formatted_address__icontains=zipcode)
+    for place in enrichments.order_by("display_name"):
+        if not _in_nyc(place.latitude, place.longitude):
+            continue
+        if boro:
+            inspection = (
+                RestaurantInspection.objects.filter(camis=place.camis)
+                .order_by("-inspection_date")
+                .first()
+            )
+            if inspection is None or inspection.boro != boro:
+                continue
+        points.append(
+            {
+                "name": place.display_name or place.camis,
+                "lat": place.latitude,
+                "lng": place.longitude,
+                "category": "restaurant_dohmh",
+                "address": place.formatted_address or "",
+                "url": reverse("search:restaurant_detail", args=[place.camis]),
+            }
+        )
+
+    return points
+
+
+def combined_map(request):
+    name = request.GET.get("q", "").strip()
+    boro = request.GET.get("boro", "").strip()
+    zipcode = request.GET.get("zip", "").strip()
+    static_points = _combined_static_points(name=name, boro=boro, zipcode=zipcode)
+    return render(
+        request,
+        "search/combined_map.html",
+        {
+            "name": name,
+            "boro": boro,
+            "zip": zipcode,
+            "boro_options": BOROUGHS,
+            "static_points": static_points,
+            "maps_key": os.environ.get("GOOGLE_MAPS_JS_KEY", ""),
+            "google_url": reverse("search:combined_map_google"),
+            "area_choices": AREA_CHOICES,
+            "price_choices": PRICE_CHOICES,
+            "diet_choices": DIET_CHOICES,
+        },
+    )
+
+
+@require_GET
+def combined_map_google(request):
+    form = RestaurantFilterForm(request.GET)
+    if not form.is_valid():
+        return JsonResponse(
+            {"error": "Invalid filters.", "points": []},
+            status=400,
+        )
+    data = form.cleaned_data
+    try:
+        restaurants = get_restaurants(
+            area=data["area"],
+            prices=data["price"],
+            diet=data["diet"],
+            lat=data["lat"],
+            lng=data["lng"],
+            radius_m=form.radius_m,
+        )
+    except PlacesError as exc:
+        return JsonResponse({"error": str(exc), "points": []}, status=502)
+
+    points = [
+        {
+            "name": restaurant["name"],
+            "lat": restaurant["lat"],
+            "lng": restaurant["lng"],
+            "category": "restaurant_google",
+            "address": restaurant.get("address") or "",
+            "url": restaurant.get("maps_url") or None,
+        }
+        for restaurant in restaurants
+        if restaurant.get("lat") is not None and restaurant.get("lng") is not None
+    ]
+    return JsonResponse({"error": "", "points": points})

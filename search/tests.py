@@ -3,8 +3,10 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from restaurants.places import PlacesError
 from search.models import (
     FarmersMarket,
+    HealthyStore,
     PlaceEnrichment,
     PlaceReview,
     RestaurantInspection,
@@ -337,3 +339,131 @@ class RestaurantDetailGoogleTests(TestCase):
         self.assertEqual(response.status_code, 405)
 
 
+class CombinedMapTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        FarmersMarket.objects.create(
+            year=2026,
+            market_name="Union Square Greenmarket",
+            borough="Manhattan",
+            street_address="E 17th St",
+            latitude=40.737,
+            longitude=-73.99,
+        )
+        FarmersMarket.objects.create(
+            year=2026,
+            market_name="Market Without Coordinates",
+            borough="Queens",
+        )
+        HealthyStore.objects.create(
+            store_name="Healthy Corner",
+            street_address="100 Main St",
+            borough="Brooklyn",
+            zip_code="11201",
+            latitude=40.69,
+            longitude=-73.98,
+        )
+        HealthyStore.objects.create(
+            store_name="Queens Pantry",
+            street_address="200 Queens Blvd",
+            borough="Queens",
+            zip_code="11375",
+            latitude=40.72,
+            longitude=-73.84,
+        )
+        RestaurantInspection.objects.create(
+            camis="1",
+            dba="Joe's Pizza",
+            boro="Brooklyn",
+            street="1 Main St",
+            zipcode="11201",
+        )
+        PlaceEnrichment.objects.create(
+            camis="1",
+            place_id="ChIJtest",
+            display_name="Joe's Pizza",
+            formatted_address="1 Main St, Brooklyn, NY 11201",
+            latitude=40.695,
+            longitude=-73.985,
+            rating=4.5,
+        )
+
+    def test_nav_link_and_page_load(self):
+        response = self.client.get(reverse("search:combined_map"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Combined map")
+        self.assertContains(response, reverse("search:combined_map"))
+        self.assertContains(response, "combined_map.js")
+
+    def test_static_points_include_expected_categories(self):
+        response = self.client.get(reverse("search:combined_map"))
+        points = response.context["static_points"]
+        by_category = {}
+        for point in points:
+            by_category.setdefault(point["category"], []).append(point)
+
+        self.assertEqual(len(by_category["farmers_market"]), 1)
+        self.assertEqual(
+            by_category["farmers_market"][0]["name"], "Union Square Greenmarket"
+        )
+        self.assertEqual(len(by_category["grocery"]), 2)
+        self.assertEqual(len(by_category["restaurant_dohmh"]), 1)
+        self.assertEqual(by_category["restaurant_dohmh"][0]["name"], "Joe's Pizza")
+        self.assertEqual(
+            by_category["restaurant_dohmh"][0]["url"],
+            reverse("search:restaurant_detail", args=["1"]),
+        )
+        self.assertNotIn("restaurant_google", by_category)
+
+    def test_filters_narrow_results(self):
+        response = self.client.get(
+            reverse("search:combined_map"), {"boro": "Brooklyn", "q": "Healthy"}
+        )
+        points = response.context["static_points"]
+        self.assertEqual(len(points), 1)
+        self.assertEqual(points[0]["category"], "grocery")
+        self.assertEqual(points[0]["name"], "Healthy Corner")
+
+        zip_response = self.client.get(
+            reverse("search:combined_map"), {"zip": "11201"}
+        )
+        zip_points = zip_response.context["static_points"]
+        categories = {point["category"] for point in zip_points}
+        self.assertIn("grocery", categories)
+        self.assertIn("restaurant_dohmh", categories)
+        self.assertNotIn("farmers_market", categories)
+
+    @patch("search.views.get_restaurants")
+    def test_google_endpoint_returns_google_category(self, get_restaurants):
+        get_restaurants.return_value = [
+            {
+                "name": "Live Spot",
+                "lat": 40.73,
+                "lng": -73.99,
+                "address": "123 Ave A",
+                "maps_url": "https://maps.google.com/?cid=9",
+            }
+        ]
+        response = self.client.get(
+            reverse("search:combined_map_google"), {"area": "Manhattan"}
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["error"], "")
+        self.assertEqual(len(payload["points"]), 1)
+        self.assertEqual(payload["points"][0]["category"], "restaurant_google")
+        self.assertEqual(payload["points"][0]["name"], "Live Spot")
+        get_restaurants.assert_called_once()
+
+        static = self.client.get(reverse("search:combined_map")).context[
+            "static_points"
+        ]
+        self.assertTrue(
+            all(point["category"] != "restaurant_google" for point in static)
+        )
+
+    @patch("search.views.get_restaurants", side_effect=PlacesError("missing key"))
+    def test_google_endpoint_reports_places_error_as_502(self, _get_restaurants):
+        response = self.client.get(reverse("search:combined_map_google"))
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("missing key", response.json()["error"])
