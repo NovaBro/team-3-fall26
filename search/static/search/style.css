@@ -151,13 +151,106 @@ tbody tr:hover { background: #f2f6fc; }
 .map-note { margin-top: -12px; }
 .map-status { margin-bottom: 8px; }
 
-.farmers-market-map {
+.farmers-market-map,
+.combined-map {
   height: min(68vh, 720px);
   min-height: 420px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #e9eef2;
   z-index: 0;
+}
+
+.combined-map-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.layer-toggles,
+.google-load-controls {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.layer-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  align-items: center;
+}
+
+.layer-toggles legend,
+.google-load-controls legend {
+  padding: 0 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.layer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.95rem;
+}
+
+.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  flex: 0 0 auto;
+}
+
+.swatch--farmers_market { background: #1f5fbf; }
+.swatch--grocery { background: #2e8b57; }
+.swatch--restaurant_dohmh { background: #e67e22; }
+.swatch--restaurant_google { background: #9b59b6; }
+
+.google-load-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.google-load-controls select,
+.google-load-controls button {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background: #fff;
+}
+
+.google-load-controls button {
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  padding: 8px 18px;
+}
+
+.google-load-controls button:hover { background: #17489a; }
+.google-load-controls button:disabled { opacity: 0.65; cursor: wait; }
+
+.price-checks {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.combined-map-popup {
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
 }
 
 .farmers-market-map .maplibregl-ctrl-attrib {
@@ -215,5 +308,138 @@ tbody tr:hover { background: #f2f6fc; }
   }
 
   nav a { margin-left: 0; margin-right: 14px; }
-  .farmers-market-map { min-height: 360px; }
+  .nav-form { margin-left: 0; margin-right: 14px; }
+  .farmers-market-map,
+  .combined-map { min-height: 360px; }
 }
+
+.messages { list-style: none; margin: 0 0 20px; padding: 0; }
+
+.message {
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  margin-bottom: 8px;
+  font-size: 0.92rem;
+}
+
+.message.success { border-color: #9ad3a3; background: #eefaf0; }
+.message.error { border-color: #e5a3a3; background: #fdeeee; }
+
+.place-panel {
+  margin: 18px 0 8px;
+  padding: 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.place-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
+.place-rating { font-weight: 700; font-size: 1.15rem; }
+.place-price { color: var(--muted); }
+.place-links { margin: 8px 0 0; }
+
+.reviews { list-style: none; padding: 0; margin: 10px 0 0; }
+
+.review {
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.review-meta { color: var(--muted); font-size: 0.85rem; }
+.review-text { margin: 4px 0 0; }
+
+.attr {
+  display: block;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.btn {
+  display: inline-block;
+  padding: 8px 18px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.btn:hover { background: #17489a; }
+
+.nav-form { display: inline; margin-left: 18px; }
+
+.nav-link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--muted);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.nav-link-button:hover { color: var(--accent); }
+
+.form-section {
+  margin: 22px 0;
+  padding: 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.form-section h2:first-child { margin-top: 0; }
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  margin: 14px 0 18px;
+}
+
+.field--wide { grid-column: 1 / -1; }
+
+.field label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 4px;
+}
+
+.field input[type="text"],
+.field input[type="number"],
+.field input[type="password"],
+.field select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background: #fff;
+}
+
+.field ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.field ul li { margin: 4px 0; }
+
+.field-errors { color: #a12626; font-size: 0.85rem; margin: 4px 0 0; }
+.field-hint { font-size: 0.85rem; margin: 4px 0 0; }
+
+.errorlist {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  color: #a12626;
+  font-size: 0.9rem;
+}
+
+.auth-form { max-width: 380px; margin-top: 18px; }
+.auth-form .field { margin-bottom: 14px; }
