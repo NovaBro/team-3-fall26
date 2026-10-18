@@ -1,12 +1,15 @@
 import re
 
+from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import Max, Q, Subquery, OuterRef
 from django.http import Http404
-from django.shortcuts import render
+from django.shortcuts import redirect, render
+from django.views.decorators.http import require_POST
 
-from search.models import FarmersMarket, RestaurantInspection
+from search.models import FarmersMarket, PlaceEnrichment, RestaurantInspection
 from search.registry import DATASETS
+from search.services.places import PlacesAPIError, enrich_camis
 
 PAGE_SIZE = 25
 NYC_LATITUDE_RANGE = (40.3, 41.1)
@@ -137,6 +140,11 @@ def restaurant_detail(request, camis):
     latest = inspections.first()
     if latest is None:
         raise Http404("Restaurant not found")
+    place = (
+        PlaceEnrichment.objects.filter(camis=camis)
+        .prefetch_related("reviews")
+        .first()
+    )
     return render(
         request,
         "search/restaurant_detail.html",
@@ -147,8 +155,20 @@ def restaurant_detail(request, camis):
             "street": latest.street,
             "zipcode": latest.zipcode,
             "inspections": inspections,
+            "place": place,
         },
     )
+
+
+@require_POST
+def refresh_place(request, camis):
+    try:
+        enrich_camis(camis)
+    except PlacesAPIError as exc:
+        messages.error(request, f"Could not fetch Google data: {exc}")
+    else:
+        messages.success(request, "Google data updated.")
+    return redirect("search:restaurant_detail", camis=camis)
 
 
 def explore_index(request):
@@ -250,3 +270,4 @@ def explore(request, slug):
             "rows": rows,
         },
     )
+

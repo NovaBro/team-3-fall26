@@ -7,7 +7,6 @@
   {% load static %}
   {% block extra_head %}{% endblock %}
   <link rel="stylesheet" href="{% static 'search/style.css' %}">
-  {% block extra_head %}{% endblock %}
 </head>
 <body>
   <header class="site-header">
@@ -22,6 +21,13 @@
     </div>
   </header>
   <main class="wrap">
+    {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}
+          <li class="message {{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
   <footer class="wrap site-footer">

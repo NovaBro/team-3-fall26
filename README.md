@@ -34,6 +34,23 @@ Cloud project). Copy `.env.example` to `.env` and fill in `GOOGLE_API_KEY`; add
 - Results come from Google at request time and are not stored (Google's terms
   restrict caching Places data). Each search is one billable Text Search request.
 
+## Google Places enrichment
+
+Set a Google Maps Platform API key (with the **Places API (New)** enabled) as an
+environment variable, then either click **Get Google data** on a restaurant page
+or seed in bulk:
+
+```bash
+export GOOGLE_PLACES_API_KEY="your-key"
+.venv/bin/python manage.py enrich_places --limit 25 --sleep 0.5
+```
+
+`enrich_places` skips restaurants that already have stored data; pass
+`--refresh` to overwrite. Each restaurant costs two API calls (Text Search +
+Place Details) and the result is stored in the `PlaceEnrichment`/`PlaceReview`
+tables. Ratings, price level, location, website, and reviews are then served
+from the local database without further API calls.
+
 ## Data
 
 The SQLite database (`database/nyc_food.db`) is generated, not committed. Rebuild it
