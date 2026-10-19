@@ -5,7 +5,7 @@
 {% block content %}
 <p><a href="{% url 'search:index' %}">&larr; Back to search</a></p>
 <h1>{{ dba }}</h1>
-<p class="muted">{{ street }}, {{ boro }} {{ zipcode }} &middot; CAMIS {{ camis }}</p>
+<p class="muted">{% if cuisine %}{{ cuisine }} &middot; {% endif %}{{ street }}, {{ boro }} {{ zipcode }} &middot; CAMIS {{ camis }}</p>
 
 <h2>Inspection history</h2>
 <table>

@@ -4,7 +4,7 @@
 
 {% block content %}
 <h1>Restaurant search</h1>
-<p class="muted">Search NYC restaurant inspection records by name, borough, ZIP, or grade.</p>
+<p class="muted">Search NYC restaurant inspection records by name, borough, ZIP, grade, or diet.</p>
 
 <form class="filters" method="get" action="{% url 'search:index' %}">
   <input type="text" name="q" value="{{ name }}" placeholder="Restaurant name">
@@ -21,22 +21,35 @@
       <option value="{{ option }}" {% if option == grade %}selected{% endif %}>{{ option }}</option>
     {% endfor %}
   </select>
+  <select name="diet">
+    <option value="">Any diet</option>
+    {% for value, label in diet_options %}
+      <option value="{{ value }}" {% if value == diet %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  {% for value, label in allergy_options %}
+    <label class="check"><input type="checkbox" name="avoid" value="{{ value }}" {% if value in avoid %}checked{% endif %}> {{ label }}</label>
+  {% endfor %}
   <button type="submit">Search</button>
 </form>
 
 {% if searched %}
+  {% if avoid %}
+    <p class="allergy-note" role="note">Allergy filters skip cuisines where the allergen is common. They can't guarantee a dish is safe. Always confirm allergies with the restaurant.</p>
+  {% endif %}
   {% if page_obj.object_list %}
     <p class="muted">{{ page_obj.paginator.count }} restaurant{{ page_obj.paginator.count|pluralize }} found.</p>
     <table>
       <thead>
         <tr>
-          <th>Name</th><th>Borough</th><th>Address</th><th>ZIP</th><th>Latest grade</th><th>Last inspected</th>
+          <th>Name</th><th>Cuisine</th><th>Borough</th><th>Address</th><th>ZIP</th><th>Latest grade</th><th>Last inspected</th>
         </tr>
       </thead>
       <tbody>
         {% for row in page_obj %}
           <tr>
             <td><a href="{% url 'search:restaurant_detail' row.camis %}">{{ row.name }}</a></td>
+            <td>{{ row.cuisine|default:"—" }}</td>
             <td>{{ row.boro }}</td>
             <td>{{ row.street }}</td>
             <td>{{ row.zipcode }}</td>
