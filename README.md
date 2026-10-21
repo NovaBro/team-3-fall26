@@ -16,10 +16,10 @@ Then open http://127.0.0.1:8000/.
 
 ## Web interface
 
-- `/` — search restaurant inspections by name, borough, ZIP, or grade.
+- `/` — search restaurant inspections by name, borough, ZIP, grade, diet, or allergy.
 - `/restaurant/<camis>/` — full inspection/violation history for one restaurant.
 - `/explore/` — browse the other five datasets with text search and pagination.
-- `/restaurants/` — find restaurants by area, price range, diet, and walking distance
+- `/restaurants/` — find restaurants by area, price range, diet, allergy, and walking distance
   from your location (live Google Places data; see below).
 
 ## Restaurant filters (`/restaurants/`)
@@ -34,6 +34,35 @@ Cloud project). Copy `.env.example` to `.env` and fill in `GOOGLE_API_KEY`; add
 - Results come from Google at request time and are not stored (Google's terms
   restrict caching Places data). Each search is one billable Text Search request.
 
+## Diet and allergy filters
+
+Both searches share one set of definitions in `restaurants/diet_filters.py`. Each
+diet or allergy is a single entry there; the dropdowns and checkboxes on both pages
+are built from it, so adding one (e.g. gluten-free) needs no template changes.
+
+Diets match restaurants that **specialize** in them, not places with one matching dish:
+
+| Diet | Homepage (`/`, NYC cuisine) | `/restaurants/` (Google Places) |
+|---|---|---|
+| Vegetarian | Vegetarian, Vegan | Google's `servesVegetarianFood` |
+| Vegan | Vegan | `vegan_restaurant` place type |
+| Pescatarian | Seafood, Vegetarian, Vegan | `seafood_restaurant` place type |
+| Keto | Steakhouse, Barbecue, Seafood | "keto-friendly restaurants" text search |
+| Halal | not available (no NYC cuisine category) | `halal_restaurant` place type |
+| Kosher | Jewish/Kosher | not available (no Google place type) |
+
+Keto is approximate: no data source labels restaurants as keto.
+
+Allergy filters ("Avoid nut-heavy cuisines", "Avoid shellfish-heavy cuisines") skip
+restaurants whose cuisine or Google place type commonly uses the allergen. On the
+Google page they check every place type, not just the main one. **No data source
+lists what is in a restaurant's food**, so these filters can't promise a place is
+safe. The results always show a note telling users to confirm allergies with the
+restaurant. Restaurants with no cuisine listed are kept.
+
+The cuisine and place-type lists are a best guess; review them in
+`restaurants/diet_filters.py`.
+
 ## Data
 
 The SQLite database (`database/nyc_food.db`) is generated, not committed. Rebuild it
@@ -42,11 +71,31 @@ any time with `import_datasets`; the command is idempotent.
 | Dataset | Imported as |
 |---|---|
 | `restaurant_data_set_2_*.csv` | `RestaurantInspection` |
+| `restaurant_cuisines_*.csv` | `RestaurantInspection.cuisine` (matched on CAMIS) |
 | `DOHMH_MenuStat_(Historical)_*.csv` | `MenuItem` |
 | `Good_Food_Purchasing_Data_*.csv` | `AgencyPurchase` |
 | `NYC_Farmers_Markets_*.csv` | `FarmersMarket` |
 | `Recognized_Shop_Healthy_Stores_*.csv` | `HealthyStore` |
 | `DPR_Eateries_001.json` | `ParkEatery` |
+
+`restaurant_cuisines_*.csv` is a small CAMIS → cuisine lookup from NYC Open Data
+("DOHMH New York City Restaurant Inspection Results", dataset `43nn-pn8j`). It is kept
+separate because the full export is too large for GitHub. To refresh it:
+
+```bash
+curl -G -o database/datasets/restaurant_cuisines_$(date +%Y%m%d).csv \
+  "https://data.cityofnewyork.us/resource/43nn-pn8j.csv" \
+  --data-urlencode '$select=camis,cuisine_description' \
+  --data-urlencode '$group=camis,cuisine_description' \
+  --data-urlencode '$limit=100000'
+```
+
+After pulling changes to the models or datasets, rebuild your local database:
+
+```bash
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py import_datasets
+```
 
 ## Tests
 

@@ -1,5 +1,6 @@
 from django import forms
 
+from restaurants.diet_filters import ALLERGY_CHOICES, GOOGLE_DIET_CHOICES
 from restaurants.places import METERS_PER_MILE, PRICE_LEVELS
 
 # The five boroughs. The value is sent to Google as the search area.
@@ -12,7 +13,7 @@ AREA_CHOICES = [
     ("Staten Island", "Staten Island"),
 ]
 PRICE_CHOICES = [(p, p) for p in PRICE_LEVELS]
-DIET_CHOICES = [("", "Any"), ("vegetarian", "Vegetarian"), ("vegan", "Vegan"), ("halal", "Halal")]
+DIET_CHOICES = [("", "Any"), *GOOGLE_DIET_CHOICES]
 # Miles; labels are roughly walking time for a student between classes.
 DISTANCE_CHOICES = [
     ("", "Any distance"),
@@ -39,6 +40,12 @@ class RestaurantFilterForm(forms.Form):
         required=False,
         choices=DIET_CHOICES,
         error_messages={"invalid_choice": "%(value)s is not a valid diet option."},
+    )
+    avoid = forms.MultipleChoiceField(
+        required=False,
+        choices=ALLERGY_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        error_messages={"invalid_choice": "%(value)s is not a valid allergy option."},
     )
     distance = forms.ChoiceField(
         required=False,
