@@ -18,7 +18,7 @@
         <a href="{% url 'search:explore_index' %}">Explore datasets</a>
         <a href="{% url 'search:farmers_markets_map' %}">Farmers market</a>
         {% if user.is_authenticated %}
-          <span>{{ user.username }}</span>
+          <a href="{% url 'accounts:edit_profile' %}">{{ user.username }}</a>
           <form method="post" action="{% url 'accounts:logout' %}" style="display:inline">
             {% csrf_token %}
             <button type="submit">Log out</button>
