@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'search',
     'restaurants',
+    'accounts',
 ]
 
 MIDDLEWARE = [
@@ -130,3 +131,8 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Auth redirects
+LOGIN_URL = 'accounts:login'
+LOGIN_REDIRECT_URL = 'search:index'
+LOGOUT_REDIRECT_URL = 'search:index'

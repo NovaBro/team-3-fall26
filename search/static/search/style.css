@@ -217,3 +217,14 @@ tbody tr:hover { background: #f2f6fc; }
   nav a { margin-left: 0; margin-right: 14px; }
   .farmers-market-map { min-height: 360px; }
 }
+
+/* Account action pop-ups (django.contrib.messages) */
+.messages { list-style: none; padding: 0; margin: 16px 0; }
+.messages .message {
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+.messages .success { background: #e6f4ea; color: #1e4620; border: 1px solid #a8d5b5; }
+.messages .error { background: #fdecea; color: #611a15; border: 1px solid #f3b4ac; }
