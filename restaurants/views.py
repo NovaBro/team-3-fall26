@@ -3,6 +3,7 @@ import os
 from django.shortcuts import render
 
 from restaurants.forms import RestaurantFilterForm
+from restaurants.inspections import attach_inspections
 from restaurants.places import PlacesError, get_restaurants
 
 
@@ -26,6 +27,7 @@ def search(request):
                 radius_m=form.radius_m,
                 avoid=data["avoid"],
             )
+            restaurants = attach_inspections(restaurants)
         except PlacesError as exc:
             error = str(exc)
 
