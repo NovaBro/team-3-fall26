@@ -1,9 +1,12 @@
 import re
+from concurrent.futures import ThreadPoolExecutor
 
+from django.core.paginator import Paginator
 from django.db.models import Max, Q, Subquery, OuterRef
 from django.http import Http404
 from django.shortcuts import render
 
+from restaurants.places import find_restaurant_place
 from search.models import FarmersMarket, RestaurantInspection
 from search.registry import DATASETS
 
@@ -32,7 +35,6 @@ MARKET_DAY_PATTERN = re.compile(
     r"Thursdays?|Thurs?|Thurs?|Fridays?|Fris?|Saturdays?|Sats?|Sundays?|Suns?)\b",
     re.IGNORECASE,
 )
-
 
 def _market_operates_on_day(days_of_operation, selected_day):
     matches = list(MARKET_DAY_PATTERN.finditer(days_of_operation or ""))
@@ -71,27 +73,59 @@ def _market_operates_on_day(days_of_operation, selected_day):
 
 
 def index(request):
+    selected_boro = request.GET.get("boro", "").strip()
+    borough_options = list(
+        RestaurantInspection.objects.exclude(boro="")
+        .exclude(boro__isnull=True)
+        .values_list("boro", flat=True)
+        .distinct()
+        .order_by("boro")
+    )
+    restaurant_rows = (
+        RestaurantInspection.objects.exclude(dba="")
+        .values("camis")
+        .annotate(
+            name=Max("dba"),
+            boro=Max("boro"),
+            street=Max("street"),
+            zipcode=Max("zipcode"),
+            cuisine=Max("cuisine"),
+        )
+        .order_by("name", "camis")
+    )
+    if selected_boro in borough_options:
+        restaurant_rows = restaurant_rows.filter(boro__iexact=selected_boro)
+    else:
+        selected_boro = ""
+    page_obj = Paginator(restaurant_rows, 16).get_page(request.GET.get("page"))
+    restaurants = list(page_obj.object_list)
+    for row in restaurants:
+        row["image"] = "search/images/nyc-restaurant.jpg"
+
+    # Place searches supplement the CSV fields that are absent, such as a full
+    # street address, price level, and Google Maps link. Failed searches leave
+    # the underlying CSV card intact.
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        lookups = [
+            executor.submit(
+                find_restaurant_place,
+                row["name"],
+                row["zipcode"],
+                row["street"],
+            )
+            for row in restaurants
+        ]
+        for row, lookup in zip(restaurants, lookups):
+            row["google"] = lookup.result()
+
     return render(
         request,
         "search/index.html",
         {
-            "restaurants": [
-                {"name": "Juniper & Rye", "cuisine": "Seasonal American", "area": "West Village", "price": "$$", "icon": "🥗", "tone": "sage", "description": "Bright, market driven plates and a relaxed neighborhood feel."},
-                {"name": "Little Momo House", "cuisine": "Nepalese", "area": "Jackson Heights", "price": "$", "icon": "🥟", "tone": "peach", "description": "Hand-folded momos, warming soups, and family recipes."},
-                {"name": "Saffron Table", "cuisine": "Indian", "area": "Crown Heights", "price": "$$", "icon": "🍛", "tone": "gold", "description": "Spiced, colorful comfort food made for sharing."},
-                {"name": "Bluefin Corner", "cuisine": "Japanese", "area": "Midtown", "price": "$$$", "icon": "🍣", "tone": "blue", "description": "A small sushi counter with a thoughtful seasonal menu."},
-                {"name": "Forno Rosso", "cuisine": "Italian", "area": "Park Slope", "price": "$$", "icon": "🍕", "tone": "rose", "description": "Wood-fired pizza, handmade pasta, and a lively dining room."},
-                {"name": "Café Mariposa", "cuisine": "Mexican", "area": "Astoria", "price": "$", "icon": "🌮", "tone": "lavender", "description": "Fresh tacos and homestyle favorites with a little kick."},
-                {"name": "Golden Wok", "cuisine": "Chinese", "area": "Chinatown", "price": "$", "icon": "🥡", "tone": "gold", "description": "Classic noodle dishes and crisp, savory favorites."},
-                {"name": "Olive & Thyme", "cuisine": "Mediterranean", "area": "Cobble Hill", "price": "$$", "icon": "🫒", "tone": "sage", "description": "Seasonal mezze, fresh herbs, and warm flatbread."},
-                {"name": "Curry Leaf", "cuisine": "Sri Lankan", "area": "Queens", "price": "$", "icon": "🍲", "tone": "peach", "description": "Fragrant curries and colorful rice plates."},
-                {"name": "North Star Diner", "cuisine": "Diner", "area": "Greenpoint", "price": "$$", "icon": "🥞", "tone": "blue", "description": "All-day breakfast and familiar comfort food."},
-                {"name": "Pasta Posto", "cuisine": "Italian", "area": "Chelsea", "price": "$$$", "icon": "🍝", "tone": "rose", "description": "House-made pasta in a cozy, candlelit room."},
-                {"name": "Koko Ramen", "cuisine": "Japanese", "area": "East Village", "price": "$$", "icon": "🍜", "tone": "lavender", "description": "Slow-simmered broth, springy noodles, and toppings."},
-                {"name": "Arepa Avenue", "cuisine": "Venezuelan", "area": "Bushwick", "price": "$", "icon": "🫓", "tone": "gold", "description": "Griddled corn cakes stuffed with bright, hearty fillings."},
-                {"name": "The Green Fig", "cuisine": "Vegetarian", "area": "Harlem", "price": "$$", "icon": "🥑", "tone": "sage", "description": "Plant-forward bowls and seasonal market vegetables."},
-                {"name": "Mar Azul", "cuisine": "Seafood", "area": "South Street", "price": "$$$", "icon": "🦐", "tone": "blue", "description": "Simple coastal cooking with fresh catches and citrus."},
-            ],
+            "restaurants": restaurants,
+            "page_obj": page_obj,
+            "borough_options": borough_options,
+            "selected_boro": selected_boro,
         },
     )
 
