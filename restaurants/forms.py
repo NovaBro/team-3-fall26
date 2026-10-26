@@ -22,9 +22,32 @@ DISTANCE_CHOICES = [
     ("1", "20 min walk (1 mi)"),
     ("2", "2 mi"),
 ]
+MIN_RATING_CHOICES = [
+    ("", "Any rating"),
+    ("3", "3+ stars"),
+    ("3.5", "3.5+ stars"),
+    ("4", "4+ stars"),
+    ("4.5", "4.5+ stars"),
+    ("5", "5 stars"),
+]
+
+
+CUISINE_CHOICES = [
+    ("", "Any cuisine"),
+    *((name, name) for name in (
+        "American", "Caribbean", "Chinese", "French", "Greek", "Indian",
+        "Italian", "Japanese", "Korean", "Mediterranean", "Mexican",
+        "Spanish", "Thai", "Vietnamese",
+    )),
+]
 
 
 class RestaurantFilterForm(forms.Form):
+    cuisine = forms.ChoiceField(
+        required=False,
+        choices=CUISINE_CHOICES,
+        error_messages={"invalid_choice": "Choose a cuisine from the list."},
+    )
     area = forms.ChoiceField(
         required=False,
         choices=AREA_CHOICES,
@@ -51,6 +74,12 @@ class RestaurantFilterForm(forms.Form):
         required=False,
         choices=DISTANCE_CHOICES,
         error_messages={"invalid_choice": "%(value)s is not a valid distance."},
+    )
+    open_now = forms.BooleanField(required=False, label="Open now")
+    min_rating = forms.ChoiceField(
+        required=False,
+        choices=MIN_RATING_CHOICES,
+        error_messages={"invalid_choice": "Choose a minimum rating from the list."},
     )
     lat = forms.FloatField(
         required=False,

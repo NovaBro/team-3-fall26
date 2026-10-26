@@ -9,11 +9,14 @@
 
 {% block content %}
 <h1>Find restaurants</h1>
-<p class="muted">Filter by area, price, diet, and how far you can walk between classes.</p>
+<p class="muted">Filter by cuisine, area, price, diet, and distance.</p>
 
 <form class="filters restaurant-filters" method="get" action="{% url 'restaurants:search' %}" id="filter-form">
   <label>Area
     {{ form.area }}
+  </label>
+  <label>Cuisine
+    {{ form.cuisine }}
   </label>
   <fieldset class="price-group">
     <legend>Price</legend>
@@ -33,6 +36,10 @@
   <label>Distance
     {{ form.distance }}
   </label>
+  <label>Minimum rating
+    {{ form.min_rating }}
+  </label>
+  <label class="inline-check">{{ form.open_now }} Open now</label>
   {{ form.lat }}
   {{ form.lng }}
   <div class="actions">
