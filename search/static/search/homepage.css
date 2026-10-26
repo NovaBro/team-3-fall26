@@ -2,7 +2,15 @@
 .restaurant-home { padding: 8px 0 20px; }
 .restaurant-home { max-width: 1520px; margin: 0 auto; }
 
-.restaurant-home__intro { margin: 0 0 26px 60px; text-align: left; }
+.restaurant-home__intro {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 0 0 26px 60px;
+  text-align: left;
+}
+.restaurant-home__intro-copy { flex: 1 1 auto; }
 .restaurant-home__eyebrow {
   margin: 0 0 6px;
   color: #a45439;
@@ -18,7 +26,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 0 22px 65px;
+  flex: 0 0 auto;
+  margin: 0 0 4px;
 }
 .restaurant-borough-filter label {
   color: #46544a;
@@ -116,7 +125,7 @@
 .restaurant-card h2 { margin: 0; font-size: 1.18rem; letter-spacing: -0.02em; }
 .restaurant-card__description { min-height: 44px; margin: 8px 0 15px; color: #68716b; font-size: 0.91rem; }
 
-.restaurant-pagination { display: flex; justify-content: center; align-items: center; gap: 20px; margin-top: 26px; }
+.restaurant-pagination { display: flex; justify-content: flex-end; align-items: center; gap: 20px; margin: 0 0 18px; }
 .restaurant-pagination a { color: #356247; font-weight: 650; text-decoration: none; }
 .restaurant-pagination a:hover { text-decoration: underline; }
 .restaurant-pagination span { color: #68716b; font-size: 0.9rem; }
@@ -128,8 +137,8 @@
 
 @media (max-width: 540px) {
   .restaurant-grid { grid-template-columns: minmax(0, 1fr); }
-  .restaurant-home__intro, .restaurant-borough-filter { margin-left: 0; }
-  .restaurant-borough-filter { flex-wrap: wrap; }
+  .restaurant-home__intro { flex-direction: column; align-items: stretch; margin-left: 0; gap: 18px; }
+  .restaurant-borough-filter { flex-wrap: wrap; margin: 0; }
   .restaurant-card__art { min-height: 130px; }
   .restaurant-card__description { min-height: 0; }
 }
