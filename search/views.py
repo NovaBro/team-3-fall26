@@ -1,21 +1,12 @@
 import re
 
-from django.core.paginator import Paginator
 from django.db.models import Max, Q, Subquery, OuterRef
 from django.http import Http404
 from django.shortcuts import render
 
-from restaurants.diet_filters import (
-    ALLERGIES,
-    ALLERGY_CHOICES,
-    DIETS,
-    HOMEPAGE_DIET_CHOICES,
-    risky_cuisines,
-)
 from search.models import FarmersMarket, RestaurantInspection
 from search.registry import DATASETS
 
-PAGE_SIZE = 25
 NYC_LATITUDE_RANGE = (40.3, 41.1)
 NYC_LONGITUDE_RANGE = (-74.3, -73.6)
 FARMERS_MARKET_LOCATION_OVERRIDES = {
@@ -27,8 +18,6 @@ FARMERS_MARKET_LOCATION_OVERRIDES = {
     },
 }
 
-BOROUGHS = ["Bronx", "Brooklyn", "Manhattan", "Queens", "Staten Island"]
-GRADES = ["A", "B", "C", "N", "P", "Z"]
 MARKET_DAYS = [
     "Monday",
     "Tuesday",
@@ -81,71 +70,19 @@ def _market_operates_on_day(days_of_operation, selected_day):
     return selected_day in MARKET_DAYS and MARKET_DAYS.index(selected_day) in found_days
 
 
-def _filter_restaurants(qs, name, boro, zipcode, grade, diet="", avoid=()):
-    if name:
-        qs = qs.filter(dba__icontains=name)
-    if boro:
-        qs = qs.filter(boro=boro)
-    if zipcode:
-        qs = qs.filter(zipcode__startswith=zipcode)
-    if grade:
-        qs = qs.filter(grade=grade)
-    if diet:
-        qs = qs.filter(cuisine__in=DIETS[diet]["cuisines"])
-    if avoid:
-        qs = qs.exclude(cuisine__in=risky_cuisines(avoid))
-    return qs
-
-
 def index(request):
-    name = request.GET.get("q", "").strip()
-    boro = request.GET.get("boro", "").strip()
-    zipcode = request.GET.get("zip", "").strip()
-    grade = request.GET.get("grade", "").strip()
-    diet = request.GET.get("diet", "").strip()
-    if diet not in dict(HOMEPAGE_DIET_CHOICES):
-        diet = ""
-    avoid = [a for a in request.GET.getlist("avoid") if a in ALLERGIES]
-
-    page_obj = None
-    if name or boro or zipcode or grade or diet or avoid:
-        base = _filter_restaurants(
-            RestaurantInspection.objects.all(), name, boro, zipcode, grade, diet, avoid
-        )
-        latest = RestaurantInspection.objects.filter(
-            camis=OuterRef("camis")
-        ).order_by("-inspection_date")
-        restaurants = (
-            base.values("camis")
-            .annotate(
-                name=Max("dba"),
-                boro=Max("boro"),
-                street=Max("street"),
-                zipcode=Max("zipcode"),
-                cuisine=Max("cuisine"),
-                last_date=Max("inspection_date"),
-                grade=Subquery(latest.values("grade")[:1]),
-            )
-            .order_by("name")
-        )
-        page_obj = Paginator(restaurants, PAGE_SIZE).get_page(request.GET.get("page"))
-
     return render(
         request,
         "search/index.html",
         {
-            "name": name,
-            "boro": boro,
-            "zip": zipcode,
-            "grade": grade,
-            "diet": diet,
-            "avoid": avoid,
-            "page_obj": page_obj,
-            "boro_options": BOROUGHS,
-            "grade_options": GRADES,
-            "diet_options": HOMEPAGE_DIET_CHOICES,
-            "allergy_options": ALLERGY_CHOICES,
-            "searched": bool(page_obj),
+            "restaurants": [
+                {"name": "Juniper & Rye", "cuisine": "Seasonal American", "area": "West Village", "price": "$$", "icon": "🥗", "tone": "sage", "description": "Bright, market driven plates and a relaxed neighborhood feel."},
+                {"name": "Little Momo House", "cuisine": "Nepalese", "area": "Jackson Heights", "price": "$", "icon": "🥟", "tone": "peach", "description": "Hand-folded momos, warming soups, and family recipes."},
+                {"name": "Saffron Table", "cuisine": "Indian", "area": "Crown Heights", "price": "$$", "icon": "🍛", "tone": "gold", "description": "Spiced, colorful comfort food made for sharing."},
+                {"name": "Bluefin Corner", "cuisine": "Japanese", "area": "Midtown", "price": "$$$", "icon": "🍣", "tone": "blue", "description": "A small sushi counter with a thoughtful seasonal menu."},
+                {"name": "Forno Rosso", "cuisine": "Italian", "area": "Park Slope", "price": "$$", "icon": "🍕", "tone": "rose", "description": "Wood-fired pizza, handmade pasta, and a lively dining room."},
+                {"name": "Café Mariposa", "cuisine": "Mexican", "area": "Astoria", "price": "$", "icon": "🌮", "tone": "lavender", "description": "Fresh tacos and homestyle favorites with a little kick."},
+            ],
         },
     )
 
