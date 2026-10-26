@@ -1,6 +1,8 @@
+.restaurant-main { max-width: 1200px; }
 .restaurant-home { padding: 8px 0 20px; }
+.restaurant-home { max-width: 1160px; margin: 0 auto; }
 
-.restaurant-home__intro { margin: 0 0 26px; }
+.restaurant-home__intro { margin: 0 0 26px; text-align: left; }
 .restaurant-home__eyebrow {
   margin: 0 0 6px;
   color: #a45439;
@@ -14,8 +16,8 @@
 
 .restaurant-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 22px;
 }
 
 .restaurant-card {
@@ -73,7 +75,7 @@
 .restaurant-card__area { margin: 0; color: #46544a; font-size: 0.85rem; font-weight: 600; }
 .restaurant-card__area span { margin-right: 3px; color: #a45439; font-size: 1rem; }
 
-@media (max-width: 800px) {
+@media (max-width: 900px) {
   .restaurant-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 }
 
