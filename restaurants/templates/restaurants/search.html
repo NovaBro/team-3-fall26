@@ -11,15 +11,18 @@
 <h1>Find restaurants</h1>
 <p class="muted">Filter by area, price, diet, and how far you can walk between classes.</p>
 
+<div class="finder">
 <form class="filters restaurant-filters" method="get" action="{% url 'restaurants:search' %}" id="filter-form">
   <label>Area
     {{ form.area }}
   </label>
   <fieldset class="price-group">
     <legend>Price</legend>
-    {% for choice in form.price %}
-      <label class="check">{{ choice.tag }} {{ choice.choice_label }}</label>
-    {% endfor %}
+    <div class="price-toggles">
+      {% for choice in form.price %}
+        <label class="check">{{ choice.tag }} {{ choice.choice_label }}</label>
+      {% endfor %}
+    </div>
   </fieldset>
   <label>Diet
     {{ form.diet }}
@@ -42,8 +45,10 @@
       <button type="button" class="secondary" id="clear-location">Clear location</button>
     {% endif %}
   </div>
+  <p class="muted" id="loc-status" role="status">{% if location %}Using your location — results are sorted by distance.{% endif %}</p>
 </form>
-<p class="muted" id="loc-status">{% if location %}Using your location — results are sorted by distance.{% endif %}</p>
+
+<div class="finder-results">
 
 {% if form.errors %}
   <div class="error" role="alert">
@@ -87,8 +92,10 @@
     <p class="empty">No results: no restaurants match these filters. Try a wider distance, another price, or a different area.</p>
   {% endif %}
 {% else %}
-  <p class="muted">Choose filters and press Search.</p>
+  <p class="empty">Choose filters and press Search.</p>
 {% endif %}
+</div>
+</div>
 
 {% if maps_key and searched and restaurants %}
   {{ map_points|json_script:"map-points" }}
@@ -108,6 +115,7 @@
         center: userPos || (points[0] ? { lat: points[0].lat, lng: points[0].lng } : { lat: 40.7295, lng: -73.9965 }),
         zoom: 14,
         mapId: "DEMO_MAP_ID",
+        colorScheme: "DARK",
       });
       const info = new InfoWindow();
       const bounds = new google.maps.LatLngBounds();

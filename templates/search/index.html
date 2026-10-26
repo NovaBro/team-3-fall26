@@ -7,21 +7,21 @@
 <p class="muted">Search NYC restaurant inspection records by name, borough, ZIP, grade, or diet.</p>
 
 <form class="filters" method="get" action="{% url 'search:index' %}">
-  <input type="text" name="q" value="{{ name }}" placeholder="Restaurant name">
-  <select name="boro">
+  <input type="text" name="q" value="{{ name }}" placeholder="Restaurant name" aria-label="Restaurant name">
+  <select name="boro" aria-label="Borough">
     <option value="">All boroughs</option>
     {% for option in boro_options %}
       <option value="{{ option }}" {% if option == boro %}selected{% endif %}>{{ option }}</option>
     {% endfor %}
   </select>
-  <input type="text" name="zip" value="{{ zip }}" placeholder="ZIP code">
-  <select name="grade">
+  <input type="text" name="zip" value="{{ zip }}" placeholder="ZIP code" aria-label="ZIP code" inputmode="numeric">
+  <select name="grade" aria-label="Grade">
     <option value="">Any grade</option>
     {% for option in grade_options %}
       <option value="{{ option }}" {% if option == grade %}selected{% endif %}>{{ option }}</option>
     {% endfor %}
   </select>
-  <select name="diet">
+  <select name="diet" aria-label="Diet">
     <option value="">Any diet</option>
     {% for value, label in diet_options %}
       <option value="{{ value }}" {% if value == diet %}selected{% endif %}>{{ label }}</option>
@@ -39,6 +39,7 @@
   {% endif %}
   {% if page_obj.object_list %}
     <p class="muted">{{ page_obj.paginator.count }} restaurant{{ page_obj.paginator.count|pluralize }} found.</p>
+    <div class="table-wrap">
     <table>
       <thead>
         <tr>
@@ -52,13 +53,14 @@
             <td>{{ row.cuisine|default:"—" }}</td>
             <td>{{ row.boro }}</td>
             <td>{{ row.street }}</td>
-            <td>{{ row.zipcode }}</td>
-            <td>{{ row.grade|default:"—" }}</td>
-            <td>{{ row.last_date|default:"—" }}</td>
+            <td class="mono">{{ row.zipcode }}</td>
+            <td>{% if row.grade %}<span class="grade grade-{{ row.grade }}">{{ row.grade }}</span>{% else %}—{% endif %}</td>
+            <td class="mono">{{ row.last_date|default:"—" }}</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% include "search/_pagination.html" %}
   {% else %}
     <p class="empty">No restaurants matched your search.</p>
