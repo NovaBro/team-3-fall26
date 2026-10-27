@@ -19,17 +19,27 @@ class RestaurantSearchTests(TestCase):
     def setUpTestData(cls):
         RestaurantInspection.objects.create(
             camis="1", dba="Joe's Pizza", boro="Brooklyn",
-            street="1 Main St", zipcode="11201",
+            street="1 Main St", zipcode="11201", cuisine="Pizza",
             inspection_date="2024-01-01", grade="A",
         )
         RestaurantInspection.objects.create(
             camis="1", dba="Joe's Pizza", boro="Brooklyn",
-            street="1 Main St", zipcode="11201",
+            street="1 Main St", zipcode="11201", cuisine="Pizza",
             inspection_date="2025-01-01", grade="B",
         )
         RestaurantInspection.objects.create(
+            camis="3", dba="Green Leaf", boro="Manhattan",
+            street="3 Main St", zipcode="10003", cuisine="Vegan",
+            inspection_date="2024-06-01", grade="A",
+        )
+        RestaurantInspection.objects.create(
+            camis="4", dba="Thai Garden", boro="Queens",
+            street="4 Main St", zipcode="11101", cuisine="Thai",
+            inspection_date="2024-07-01", grade="A",
+        )
+        RestaurantInspection.objects.create(
             camis="2", dba="Taco Town", boro="Queens",
-            street="2 Main St", zipcode="11101",
+            street="2 Main St", zipcode="11101", cuisine="Mexican",
             inspection_date="2024-05-01", grade="A",
         )
 
@@ -48,8 +58,51 @@ class RestaurantSearchTests(TestCase):
         self.assertEqual(row["grade"], "B")
 
     def test_search_filter_by_borough(self):
-        response = self.client.get(reverse("search:index"), {"boro": "Queens"})
+        response = self.client.get(reverse("search:index"), {"boro": "Queens", "q": "taco"})
         self.assertEqual(len(response.context["page_obj"]), 1)
+
+    def names(self, params):
+        response = self.client.get(reverse("search:index"), params)
+        return sorted(row["name"] for row in response.context["page_obj"])
+
+    def test_diet_filter_matches_specialized_cuisine(self):
+        self.assertEqual(self.names({"diet": "vegan"}), ["Green Leaf"])
+        self.assertEqual(self.names({"diet": "vegetarian"}), ["Green Leaf"])
+
+    def test_unknown_diet_is_ignored(self):
+        response = self.client.get(reverse("search:index"), {"diet": "paleo"})
+        self.assertFalse(response.context["searched"])
+
+    def test_avoid_nuts_excludes_nut_heavy_cuisines(self):
+        self.assertEqual(
+            self.names({"avoid": "nuts"}), ["Green Leaf", "Joe's Pizza", "Taco Town"]
+        )
+
+    def test_pescatarian_includes_seafood_and_vegetarian(self):
+        RestaurantInspection.objects.create(camis="5", dba="Fish Shack", cuisine="Seafood")
+        self.assertEqual(self.names({"diet": "pescatarian"}), ["Fish Shack", "Green Leaf"])
+
+    def test_keto_matches_low_carb_cuisines(self):
+        RestaurantInspection.objects.create(camis="6", dba="Prime Cuts", cuisine="Steakhouse")
+        self.assertEqual(self.names({"diet": "keto"}), ["Prime Cuts"])
+
+    def test_halal_not_offered_on_homepage(self):
+        response = self.client.get(reverse("search:index"), {"diet": "halal"})
+        self.assertFalse(response.context["searched"])
+
+    def test_avoid_shellfish_excludes_shellfish_heavy_cuisines(self):
+        RestaurantInspection.objects.create(camis="7", dba="Oyster Bar", cuisine="Seafood")
+        self.assertEqual(
+            self.names({"avoid": "shellfish"}), ["Green Leaf", "Joe's Pizza", "Taco Town"]
+        )
+
+    def test_avoid_nuts_shows_disclaimer(self):
+        response = self.client.get(reverse("search:index"), {"avoid": "nuts"})
+        self.assertContains(response, "Always confirm allergies with the restaurant.")
+
+    def test_results_show_cuisine(self):
+        response = self.client.get(reverse("search:index"), {"q": "thai"})
+        self.assertContains(response, "<td>Thai</td>", html=True)
 
     def test_detail_renders_history(self):
         response = self.client.get(

@@ -9,6 +9,7 @@ class RestaurantInspection(models.Model):
     boro = models.CharField(max_length=50, blank=True, db_index=True)
     street = models.CharField(max_length=255, blank=True)
     zipcode = models.CharField(max_length=10, blank=True, db_index=True)
+    cuisine = models.CharField(max_length=100, blank=True, db_index=True)
     inspection_date = models.DateField(null=True, db_index=True)
     violation_code = models.CharField(max_length=20, blank=True)
     violation_description = models.TextField(blank=True)

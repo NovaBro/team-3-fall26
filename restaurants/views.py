@@ -18,12 +18,16 @@ def search(request):
             location = {"lat": data["lat"], "lng": data["lng"]}
         try:
             restaurants = get_restaurants(
+                cuisine=data["cuisine"],
                 area=data["area"],
                 prices=data["price"],
                 diet=data["diet"],
                 lat=data["lat"],
                 lng=data["lng"],
                 radius_m=form.radius_m,
+                avoid=data["avoid"],
+                open_now=data["open_now"],
+                min_rating=float(data["min_rating"]) if data["min_rating"] else None,
             )
         except PlacesError as exc:
             error = str(exc)
@@ -37,6 +41,7 @@ def search(request):
             "restaurants": restaurants,
             "error": error,
             "location": location,
+            "avoiding_allergens": bool(form.is_bound and form.is_valid() and form.cleaned_data["avoid"]),
             "map_points": [
                 {"name": r["name"], "lat": r["lat"], "lng": r["lng"], "price": r["price"]}
                 for r in restaurants

@@ -27,3 +27,6 @@ database/*.sqlite3
 .env
 .env.*
 !.env.example
+
+# macOS
+.DS_Store
