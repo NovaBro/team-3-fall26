@@ -14,7 +14,8 @@ import time
 
 from django.core.management.base import BaseCommand, CommandError
 
-from search.models import PlaceEnrichment, RestaurantInspection
+from community.models import PlaceEnrichment
+from search.models import RestaurantInspection
 from search.services.places import PlacesAPIError, enrich_camis
 
 

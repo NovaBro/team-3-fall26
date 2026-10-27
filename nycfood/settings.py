@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'search',
     'restaurants',
     'accounts',
+    'community',
 ]
 
 MIDDLEWARE = [
@@ -88,8 +89,14 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'database' / 'nyc_food.db',
-    }
+    },
+    'community': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'database' / 'community.db',
+    },
 }
+
+DATABASE_ROUTERS = ['community.router.CommunityRouter']
 
 
 # Password validation

@@ -1,4 +1,3 @@
-import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 
@@ -18,8 +17,10 @@ from restaurants.diet_filters import (
     risky_cuisines,
 )
 from restaurants.forms import AREA_CHOICES, DIET_CHOICES, PRICE_CHOICES, RestaurantFilterForm
+from community.keys import dohmh_key, farmers_market_key, google_key, grocery_key
+from community.models import PlaceEnrichment
 from restaurants.places import PlacesError, find_restaurant_place, get_restaurants
-from search.models import FarmersMarket, HealthyStore, PlaceEnrichment, RestaurantInspection
+from search.models import FarmersMarket, HealthyStore, RestaurantInspection
 from search.registry import DATASETS
 from search.services.places import PlacesAPIError, enrich_camis
 
@@ -410,6 +411,10 @@ def _combined_static_points(name="", boro="", zipcode=""):
                     "lat": data["latitude"],
                     "lng": data["longitude"],
                     "category": "farmers_market",
+                    "kind": "farmers_market",
+                    "key": farmers_market_key(
+                        market.year, market.market_name, market.street_address
+                    ),
                     "address": data["street_address"] or "",
                     "url": None,
                 }
@@ -433,6 +438,8 @@ def _combined_static_points(name="", boro="", zipcode=""):
                 "lat": store.latitude,
                 "lng": store.longitude,
                 "category": "grocery",
+                "kind": "grocery",
+                "key": grocery_key(store.store_name, store.street_address, store.zip_code),
                 "address": store.street_address or "",
                 "url": None,
             }
@@ -464,6 +471,8 @@ def _combined_static_points(name="", boro="", zipcode=""):
                 "lat": place.latitude,
                 "lng": place.longitude,
                 "category": "restaurant_dohmh",
+                "kind": "restaurant_dohmh",
+                "key": dohmh_key(place.camis),
                 "address": place.formatted_address or "",
                 "url": reverse("search:restaurant_detail", args=[place.camis]),
             }
@@ -486,8 +495,8 @@ def combined_map(request):
             "zip": zipcode,
             "boro_options": BOROUGHS,
             "static_points": static_points,
-            "maps_key": os.environ.get("GOOGLE_MAPS_JS_KEY", ""),
             "google_url": reverse("search:combined_map_google"),
+            "login_url": reverse("accounts:login"),
             "area_choices": AREA_CHOICES,
             "price_choices": PRICE_CHOICES,
             "diet_choices": DIET_CHOICES,
@@ -522,6 +531,8 @@ def combined_map_google(request):
             "lat": restaurant["lat"],
             "lng": restaurant["lng"],
             "category": "restaurant_google",
+            "kind": "restaurant_google",
+            "key": google_key(restaurant.get("id") or ""),
             "address": restaurant.get("address") or "",
             "url": restaurant.get("maps_url") or None,
         }

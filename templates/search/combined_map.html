@@ -69,23 +69,28 @@
   </fieldset>
 </div>
 
-<p id="map-status" class="muted map-status" role="status">
-  {% if maps_key %}Loading map…{% else %}Set GOOGLE_MAPS_JS_KEY in .env to enable the map.{% endif %}
-</p>
-<div id="combined-map" class="combined-map" role="region"
-     aria-label="Combined map of NYC food locations"></div>
+<p id="map-status" class="muted map-status" role="status">Loading map…</p>
+{% csrf_token %}
+<div class="combined-map-layout">
+  <div id="combined-map" class="combined-map" role="region"
+       aria-label="Combined map of NYC food locations"></div>
+  <aside id="community-panel" class="community-panel" aria-live="polite">
+    <h2>Reviews</h2>
+    <p class="muted">Click a pin to see ratings, comments, and photos. Log in to add your own.</p>
+  </aside>
+</div>
 
 {{ static_points|json_script:"combined-map-data" }}
 <script id="combined-map-config" type="application/json">
-  {"googleUrl": "{{ google_url|escapejs }}", "hasMapsKey": {% if maps_key %}true{% else %}false{% endif %}}
+  {"googleUrl": "{{ google_url|escapejs }}", "loginUrl": "{{ login_url|escapejs }}"}
 </script>
 {% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.css">
+{% endblock %}
+
 {% block scripts %}
-{% if maps_key %}
-  <script src="{% static 'search/combined_map.js' %}"></script>
-  <script async
-    src="https://maps.googleapis.com/maps/api/js?key={{ maps_key|urlencode }}&loading=async&language=en&region=US&libraries=marker&callback=initCombinedMap">
-  </script>
-{% endif %}
+<script src="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.js"></script>
+<script src="{% static 'search/combined_map.js' %}" defer></script>
 {% endblock %}

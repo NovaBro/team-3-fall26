@@ -3,18 +3,19 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from community.models import PlaceEnrichment, PlaceReview
 from restaurants.places import PlacesError
 from search.models import (
     FarmersMarket,
     HealthyStore,
-    PlaceEnrichment,
-    PlaceReview,
     RestaurantInspection,
 )
 from search.services.places import PlacesAPIError, enrich_camis
 
 
 class RestaurantSearchTests(TestCase):
+    databases = {"default", "community"}
+
     @classmethod
     def setUpTestData(cls):
         RestaurantInspection.objects.create(
@@ -281,6 +282,7 @@ DETAILS_RESULT = {
 
 @override_settings(GOOGLE_PLACES_API_KEY="test-key")
 class EnrichRestaurantTests(TestCase):
+    databases = {"default", "community"}
     @classmethod
     def setUpTestData(cls):
         RestaurantInspection.objects.create(
@@ -339,6 +341,7 @@ class EnrichRestaurantTests(TestCase):
 
 
 class RestaurantDetailGoogleTests(TestCase):
+    databases = {"default", "community"}
     @classmethod
     def setUpTestData(cls):
         RestaurantInspection.objects.create(
@@ -393,6 +396,7 @@ class RestaurantDetailGoogleTests(TestCase):
 
 
 class CombinedMapTests(TestCase):
+    databases = {"default", "community"}
     @classmethod
     def setUpTestData(cls):
         FarmersMarket.objects.create(
@@ -447,6 +451,8 @@ class CombinedMapTests(TestCase):
         self.assertContains(response, "Combined map")
         self.assertContains(response, reverse("search:combined_map"))
         self.assertContains(response, "combined_map.js")
+        self.assertContains(response, "maplibre-gl@5.6.1/dist/maplibre-gl.js")
+        self.assertNotContains(response, "maps.googleapis.com")
 
     def test_static_points_include_expected_categories(self):
         response = self.client.get(reverse("search:combined_map"))
@@ -459,9 +465,18 @@ class CombinedMapTests(TestCase):
         self.assertEqual(
             by_category["farmers_market"][0]["name"], "Union Square Greenmarket"
         )
+        self.assertEqual(
+            by_category["farmers_market"][0]["key"],
+            "2026|Union Square Greenmarket|E 17th St",
+        )
         self.assertEqual(len(by_category["grocery"]), 2)
+        grocery = next(
+            point for point in by_category["grocery"] if point["name"] == "Healthy Corner"
+        )
+        self.assertEqual(grocery["key"], "Healthy Corner|100 Main St|11201")
         self.assertEqual(len(by_category["restaurant_dohmh"]), 1)
         self.assertEqual(by_category["restaurant_dohmh"][0]["name"], "Joe's Pizza")
+        self.assertEqual(by_category["restaurant_dohmh"][0]["key"], "camis:1")
         self.assertEqual(
             by_category["restaurant_dohmh"][0]["url"],
             reverse("search:restaurant_detail", args=["1"]),
@@ -490,6 +505,7 @@ class CombinedMapTests(TestCase):
     def test_google_endpoint_returns_google_category(self, get_restaurants):
         get_restaurants.return_value = [
             {
+                "id": "ChIJlive",
                 "name": "Live Spot",
                 "lat": 40.73,
                 "lng": -73.99,
@@ -506,6 +522,7 @@ class CombinedMapTests(TestCase):
         self.assertEqual(len(payload["points"]), 1)
         self.assertEqual(payload["points"][0]["category"], "restaurant_google")
         self.assertEqual(payload["points"][0]["name"], "Live Spot")
+        self.assertEqual(payload["points"][0]["key"], "google:ChIJlive")
         get_restaurants.assert_called_once()
 
         static = self.client.get(reverse("search:combined_map")).context[

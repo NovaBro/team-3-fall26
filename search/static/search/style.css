@@ -361,15 +361,8 @@ tbody tr:hover { background: var(--raised); }
   gap: 8px 12px;
 }
 
-.combined-map-popup {
-  max-width: 260px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 0.9rem;
-}
-
-.farmers-market-map .maplibregl-ctrl-attrib {
+.farmers-market-map .maplibregl-ctrl-attrib,
+.combined-map .maplibregl-ctrl-attrib {
   font-size: 11px;
 }
 
@@ -567,3 +560,60 @@ tbody tr:hover { background: var(--raised); }
 .auth-form .field { margin-bottom: 14px; }
 
 .profile-picture { display: block; margin: 8px 0 12px; border-radius: 8px; }
+
+.combined-map-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+.community-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  max-height: min(68vh, 720px);
+  overflow: auto;
+}
+
+.community-panel h2 { margin-top: 0; }
+.community-panel h3 { margin: 18px 0 8px; font-size: 1rem; }
+
+.community-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.community-form select,
+.community-form textarea,
+.community-form input[type="file"] {
+  flex: 1 1 160px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.community-entry {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.community-photo { margin: 8px 0; }
+.community-photo img {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius);
+}
+
+.community-error { color: var(--danger); }
+
+@media (max-width: 900px) {
+  .combined-map-layout { grid-template-columns: 1fr; }
+  .community-panel { max-height: none; }
+}

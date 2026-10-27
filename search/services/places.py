@@ -12,7 +12,8 @@ from django.conf import settings
 from django.db import transaction
 from django.utils.dateparse import parse_datetime
 
-from search.models import PlaceEnrichment, PlaceReview, RestaurantInspection
+from community.models import PlaceEnrichment, PlaceReview
+from search.models import RestaurantInspection
 
 PLACES_BASE_URL = "https://places.googleapis.com/v1"
 SEARCH_FIELD_MASK = (
@@ -151,7 +152,7 @@ def _save(camis, details):
     return enrichment
 
 
-@transaction.atomic
+@transaction.atomic(using="community")
 def enrich_camis(camis):
     """Look up a restaurant on Google and persist its data.
 
