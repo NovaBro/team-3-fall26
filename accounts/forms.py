@@ -9,13 +9,37 @@ class SignupForm(UserCreationForm):
     username = forms.CharField(
         error_messages={"required": "Pick a username."},
     )
+    name = forms.CharField(
+        max_length=100,
+        label="Full name",
+        error_messages={"required": "Enter your name."},
+    )
+    email = forms.EmailField(
+        required=True,
+        error_messages={"required": "Enter an email address."},
+    )
 
     class Meta:
         model = User
-        fields = ("username",)
+        fields = ("username", "email")
+
+    field_order = ("username", "name", "email", "password1", "password2")
+
+    def clean_email(self):
+        email = self.cleaned_data["email"]
+        if User.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError("An account with this email already exists.")
+        return email
 
 
 class UserProfileForm(forms.ModelForm):
+    email = forms.EmailField(required=False, label="Email address")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields["email"].initial = self.instance.user.email
+
     # Declared so an empty checkbox list doesn't hit JSONField.bound_data,
     # which crashes on non-string values (Django quirk with CheckboxSelectMultiple).
     health_goals = forms.MultipleChoiceField(
@@ -61,6 +85,7 @@ class UserProfileForm(forms.ModelForm):
         model = UserProfile
         fields = (
             "name",
+            "picture",
             "home_address",
             "age",
             "gender",
@@ -81,6 +106,7 @@ class UserProfileForm(forms.ModelForm):
             "health_goals": forms.CheckboxSelectMultiple,
         }
         labels = {
+            "picture": "Profile picture",
             "home_address": "Place (home address)",
             "favorite_foods": "Favorite foods (comma separated)",
             "disliked_foods": "Disliked foods (comma separated)",
@@ -90,6 +116,14 @@ class UserProfileForm(forms.ModelForm):
             "name": {"max_length": "Name must be 100 characters or fewer."},
             "home_address": {"max_length": "Address must be 255 characters or fewer."},
         }
+
+    def clean_email(self):
+        email = self.cleaned_data["email"]
+        if email and User.objects.filter(email__iexact=email).exclude(
+            pk=self.instance.user_id
+        ).exists():
+            raise forms.ValidationError("An account with this email already exists.")
+        return email
 
 
 class MoodLogForm(forms.ModelForm):

@@ -26,6 +26,7 @@ class UserProfile(models.Model):
         settings.AUTH_USER_MODEL, related_name="profile", on_delete=models.CASCADE
     )
     name = models.CharField(max_length=100, blank=True)
+    picture = models.ImageField(upload_to="profile_pictures/", blank=True)
     home_address = models.CharField(max_length=255, blank=True)
     age = models.PositiveIntegerField(null=True, blank=True)
     gender = models.CharField(max_length=32, blank=True, choices=GENDER_CHOICES)

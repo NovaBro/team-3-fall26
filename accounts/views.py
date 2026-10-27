@@ -24,7 +24,9 @@ def signup(request):
         form = SignupForm(request.POST)
         if form.is_valid():
             user = form.save()
-            UserProfile.objects.get_or_create(user=user)
+            UserProfile.objects.get_or_create(
+                user=user, defaults={"name": form.cleaned_data["name"]}
+            )
             login(request, user)
             messages.success(request, "Welcome! Tell us a bit about yourself below.")
             return redirect("accounts:profile")
@@ -50,12 +52,16 @@ def profile(request):
                 return redirect("accounts:profile")
             messages.error(request, "Please fix the errors below.")
         else:
-            fixed_form = UserProfileForm(request.POST, instance=instance)
+            fixed_form = UserProfileForm(
+                request.POST, request.FILES, instance=instance
+            )
             mood_form = MoodLogForm()
             if fixed_form.is_valid():
                 fixed = fixed_form.save(commit=False)
                 fixed.user = request.user
                 fixed.save()
+                request.user.email = fixed_form.cleaned_data["email"]
+                request.user.save(update_fields=["email"])
                 messages.success(request, "Profile updated.")
                 return redirect("accounts:profile")
             messages.error(request, "Please fix the errors below.")

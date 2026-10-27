@@ -1,6 +1,11 @@
+from io import BytesIO
+from tempfile import TemporaryDirectory
+
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from django.urls import reverse
+from PIL import Image
 
 from accounts.models import MoodLog, UserProfile
 
@@ -11,17 +16,45 @@ class SignupTests(TestCase):
     def test_signup_creates_user_and_profile_and_logs_in(self):
         response = self.client.post(
             reverse("accounts:signup"),
-            {"username": "foodie", "password1": VALID_PASSWORD, "password2": VALID_PASSWORD},
+            {
+                "username": "foodie",
+                "name": "Sam Rivera",
+                "email": "foodie@example.com",
+                "password1": VALID_PASSWORD,
+                "password2": VALID_PASSWORD,
+            },
         )
         self.assertRedirects(response, reverse("accounts:profile"))
         user = User.objects.get(username="foodie")
         self.assertTrue(user.profile)
+        self.assertEqual(user.profile.name, "Sam Rivera")
+        self.assertEqual(user.email, "foodie@example.com")
         self.assertEqual(int(self.client.session["_auth_user_id"]), user.pk)
+
+    def test_signup_requires_a_valid_email(self):
+        response = self.client.post(
+            reverse("accounts:signup"),
+            {
+                "username": "foodie",
+                "name": "Sam Rivera",
+                "email": "not-an-email",
+                "password1": VALID_PASSWORD,
+                "password2": VALID_PASSWORD,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Enter a valid email address.")
+        self.assertFalse(User.objects.filter(username="foodie").exists())
 
     def test_signup_with_mismatched_passwords_shows_error(self):
         response = self.client.post(
             reverse("accounts:signup"),
-            {"username": "foodie", "password1": VALID_PASSWORD, "password2": "nope"},
+            {
+                "username": "foodie",
+                "name": "Sam Rivera",
+                "password1": VALID_PASSWORD,
+                "password2": "nope",
+            },
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "The two password fields")
@@ -69,8 +102,22 @@ class ProfileTests(TestCase):
     def test_profile_page_renders_both_sections(self):
         response = self.client.get(reverse("accounts:profile"))
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Account details")
+        self.assertContains(response, "foodie")
+        self.assertContains(response, "Not provided yet")
         self.assertContains(response, "Fixed user inputs")
         self.assertContains(response, "Variable user inputs")
+
+    def test_profile_page_shows_saved_name_and_contact_email(self):
+        self.user.email = "sam@example.com"
+        self.user.save(update_fields=["email"])
+        UserProfile.objects.create(user=self.user, name="Sam Rivera")
+
+        response = self.client.get(reverse("accounts:profile"))
+
+        self.assertContains(response, "foodie")
+        self.assertContains(response, "Sam Rivera")
+        self.assertContains(response, "sam@example.com")
 
     def test_saving_fixed_inputs_persists_fields(self):
         response = self.client.post(
@@ -78,6 +125,7 @@ class ProfileTests(TestCase):
             {
                 "action": "save_fixed",
                 "name": "Sam Rivera",
+                "email": "sam@example.com",
                 "home_address": "123 Main St, Brooklyn, NY",
                 "age": "28",
                 "gender": "non-binary",
@@ -92,6 +140,8 @@ class ProfileTests(TestCase):
         self.assertRedirects(response, reverse("accounts:profile"))
         profile = UserProfile.objects.get(user=self.user)
         self.assertEqual(profile.name, "Sam Rivera")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "sam@example.com")
         self.assertEqual(profile.home_address, "123 Main St, Brooklyn, NY")
         self.assertEqual(profile.age, 28)
         self.assertEqual(profile.gender, "non-binary")
@@ -99,6 +149,30 @@ class ProfileTests(TestCase):
         self.assertEqual(profile.height_in, 68)
         self.assertEqual(profile.health_goals, ["heart-health", "balanced-diet"])
         self.assertEqual(profile.allergies, "peanuts")
+
+    def test_saving_profile_picture_uploads_image(self):
+        image_bytes = BytesIO()
+        Image.new("RGB", (1, 1), color="red").save(image_bytes, format="PNG")
+
+        with TemporaryDirectory() as media_root:
+            with override_settings(MEDIA_ROOT=media_root):
+                response = self.client.post(
+                    reverse("accounts:profile"),
+                    {
+                        "action": "save_fixed",
+                        "name": "Sam Rivera",
+                        "picture": SimpleUploadedFile(
+                            "profile.png",
+                            image_bytes.getvalue(),
+                            content_type="image/png",
+                        ),
+                    },
+                )
+
+        self.assertRedirects(response, reverse("accounts:profile"))
+        profile = UserProfile.objects.get(user=self.user)
+        self.assertEqual(profile.name, "Sam Rivera")
+        self.assertTrue(profile.picture.name.startswith("profile_pictures/"))
 
     def test_invalid_age_shows_friendly_error(self):
         response = self.client.post(
