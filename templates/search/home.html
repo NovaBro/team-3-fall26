@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Restaurants - NYC Food Search{% endblock %}
+{% block main_class %}restaurant-main{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=7">
+{% endblock %}
+
+{% block content %}
+<section class="restaurant-home" aria-labelledby="restaurant-home-title">
+  <div class="restaurant-home__intro">
+    <div class="restaurant-home__intro-copy">
+      <p class="restaurant-home__eyebrow">A taste of the city</p>
+      <h1 id="restaurant-home-title">Restaurants</h1>
+      <p class="muted">NYC restaurants near you.</p>
+    </div>
+
+    <form class="restaurant-borough-filter" method="get">
+      <label for="restaurant-boro">Select your location</label>
+      <select id="restaurant-boro" name="boro" onchange="this.form.submit()">
+        <option value="">All boroughs</option>
+        {% for boro in borough_options %}
+          <option value="{{ boro }}" {% if selected_boro == boro %}selected{% endif %}>{{ boro|title }}</option>
+        {% endfor %}
+      </select>
+      <noscript><button type="submit">Apply</button></noscript>
+    </form>
+  </div>
+
+  {% if restaurants %}
+    <nav class="restaurant-pagination" aria-label="Restaurant pages">
+      {% if page_obj.has_previous %}<a href="?boro={{ selected_boro|urlencode }}&amp;page={{ page_obj.previous_page_number }}" rel="prev" aria-label="Previous page">&larr;</a>{% endif %}
+      <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      {% if page_obj.has_next %}<a href="?boro={{ selected_boro|urlencode }}&amp;page={{ page_obj.next_page_number }}" rel="next" aria-label="Next page">&rarr;</a>{% endif %}
+    </nav>
+
+    <div class="restaurant-grid">
+      {% for restaurant in restaurants %}
+        <article class="restaurant-card">
+          <div class="restaurant-card__art">
+            <img src="{% static restaurant.image %}" alt="" loading="lazy">
+            {% if restaurant.google.price %}<span class="restaurant-card__price">{{ restaurant.google.price }}</span>{% endif %}
+          </div>
+          <div class="restaurant-card__body">
+            <p class="restaurant-card__category">{{ restaurant.cuisine|default:"Restaurant" }}</p>
+            <h2>{{ restaurant.name }}</h2>
+            <p class="restaurant-card__description">
+              {% if restaurant.google.address %}{{ restaurant.google.address }}{% else %}{{ restaurant.street }}{% if restaurant.boro %}, {{ restaurant.boro }}{% endif %}{% if restaurant.zipcode %} {{ restaurant.zipcode }}{% endif %}{% endif %}
+            </p>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+
+  {% else %}
+    <p class="restaurant-home__empty">No restaurant records are available. Import the CSV dataset to populate this page.</p>
+  {% endif %}
+</section>
+{% endblock %}

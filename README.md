@@ -17,6 +17,7 @@ Then open http://127.0.0.1:8000/.
 ## Web interface
 
 - `/` — search restaurant inspections by name, borough, ZIP, grade, diet, or allergy.
+- `/home/` — card view of NYC restaurants, filterable by borough, with a Google Places lookup on each card.
 - `/restaurant/<camis>/` — full inspection/violation history for one restaurant.
 - `/explore/` — browse the other five datasets with text search and pagination.
 - `/farmers-markets/` — map of NYC farmers markets.

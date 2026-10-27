@@ -1,5 +1,6 @@
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 from django.contrib import messages
 from django.core.paginator import Paginator
@@ -17,7 +18,7 @@ from restaurants.diet_filters import (
     risky_cuisines,
 )
 from restaurants.forms import AREA_CHOICES, DIET_CHOICES, PRICE_CHOICES, RestaurantFilterForm
-from restaurants.places import PlacesError, get_restaurants
+from restaurants.places import PlacesError, find_restaurant_place, get_restaurants
 from search.models import FarmersMarket, HealthyStore, PlaceEnrichment, RestaurantInspection
 from search.registry import DATASETS
 from search.services.places import PlacesAPIError, enrich_camis
@@ -50,7 +51,6 @@ MARKET_DAY_PATTERN = re.compile(
     r"Thursdays?|Thurs?|Thurs?|Fridays?|Fris?|Saturdays?|Sats?|Sundays?|Suns?)\b",
     re.IGNORECASE,
 )
-
 
 def _market_operates_on_day(days_of_operation, selected_day):
     matches = list(MARKET_DAY_PATTERN.finditer(days_of_operation or ""))
@@ -153,6 +153,64 @@ def index(request):
             "diet_options": HOMEPAGE_DIET_CHOICES,
             "allergy_options": ALLERGY_CHOICES,
             "searched": bool(page_obj),
+        },
+    )
+
+
+def home(request):
+    selected_boro = request.GET.get("boro", "").strip()
+    borough_options = list(
+        RestaurantInspection.objects.exclude(boro="")
+        .exclude(boro__isnull=True)
+        .values_list("boro", flat=True)
+        .distinct()
+        .order_by("boro")
+    )
+    restaurant_rows = (
+        RestaurantInspection.objects.exclude(dba="")
+        .values("camis")
+        .annotate(
+            name=Max("dba"),
+            boro=Max("boro"),
+            street=Max("street"),
+            zipcode=Max("zipcode"),
+            cuisine=Max("cuisine"),
+        )
+        .order_by("name", "camis")
+    )
+    if selected_boro in borough_options:
+        restaurant_rows = restaurant_rows.filter(boro__iexact=selected_boro)
+    else:
+        selected_boro = ""
+    page_obj = Paginator(restaurant_rows, 16).get_page(request.GET.get("page"))
+    restaurants = list(page_obj.object_list)
+    for row in restaurants:
+        row["image"] = "search/images/nyc-restaurant.jpg"
+
+    # Place searches supplement the CSV fields that are absent, such as a full
+    # street address, price level, and Google Maps link. Failed searches leave
+    # the underlying CSV card intact.
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        lookups = [
+            executor.submit(
+                find_restaurant_place,
+                row["name"],
+                row["zipcode"],
+                row["street"],
+            )
+            for row in restaurants
+        ]
+        for row, lookup in zip(restaurants, lookups):
+            row["google"] = lookup.result()
+
+    return render(
+        request,
+        "search/home.html",
+        {
+            "restaurants": restaurants,
+            "page_obj": page_obj,
+            "borough_options": borough_options,
+            "selected_boro": selected_boro,
         },
     )
 

@@ -13,6 +13,7 @@
     <div class="wrap">
       <a class="brand" href="{% url 'search:index' %}">NYC Food Search</a>
       <nav>
+        <a href="{% url 'search:home' %}">Home</a>
         <a href="{% url 'search:index' %}">Restaurants</a>
         <a href="{% url 'restaurants:search' %}">Find restaurants</a>
         <a href="{% url 'search:explore_index' %}">Explore datasets</a>
@@ -32,7 +33,7 @@
       </nav>
     </div>
   </header>
-  <main class="wrap">
+  <main class="wrap {% block main_class %}{% endblock %}">
     {% if messages %}
       <ul class="messages">
         {% for message in messages %}
