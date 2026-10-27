@@ -1,31 +1,69 @@
+import io
+import tempfile
+
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from django.urls import reverse
+from PIL import Image
 
 from accounts.models import MoodLog, UserProfile
 
 VALID_PASSWORD = "sTr0ngPass!2026x"
 
 
+def _png_upload(name="me.png"):
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 4)).save(buffer, "PNG")
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/png")
+
+
 class SignupTests(TestCase):
     def test_signup_creates_user_and_profile_and_logs_in(self):
         response = self.client.post(
             reverse("accounts:signup"),
-            {"username": "foodie", "password1": VALID_PASSWORD, "password2": VALID_PASSWORD},
+            {
+                "username": "foodie",
+                "email": "foodie@example.com",
+                "password1": VALID_PASSWORD,
+                "password2": VALID_PASSWORD,
+            },
         )
         self.assertRedirects(response, reverse("accounts:profile"))
         user = User.objects.get(username="foodie")
+        self.assertEqual(user.email, "foodie@example.com")
         self.assertTrue(user.profile)
         self.assertEqual(int(self.client.session["_auth_user_id"]), user.pk)
 
     def test_signup_with_mismatched_passwords_shows_error(self):
         response = self.client.post(
             reverse("accounts:signup"),
-            {"username": "foodie", "password1": VALID_PASSWORD, "password2": "nope"},
+            {
+                "username": "foodie",
+                "email": "foodie@example.com",
+                "password1": VALID_PASSWORD,
+                "password2": "nope",
+            },
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "The two password fields")
+        self.assertContains(response, "Unable to register")
         self.assertFalse(User.objects.filter(username="foodie").exists())
+
+    def test_duplicate_email_rejected(self):
+        User.objects.create_user("bob", "ANN@example.com", VALID_PASSWORD)
+        response = self.client.post(
+            reverse("accounts:signup"),
+            {
+                "username": "ann",
+                "email": "ann@example.com",
+                "password1": VALID_PASSWORD,
+                "password2": VALID_PASSWORD,
+            },
+        )
+        self.assertContains(response, "already exists")
+        self.assertContains(response, "An account with this email already exists.")
+        self.assertFalse(User.objects.filter(username="ann").exists())
 
 
 class LoginTests(TestCase):
@@ -77,6 +115,8 @@ class ProfileTests(TestCase):
             reverse("accounts:profile"),
             {
                 "action": "save_fixed",
+                "first_name": "Sam",
+                "last_name": "Rivera",
                 "name": "Sam Rivera",
                 "home_address": "123 Main St, Brooklyn, NY",
                 "age": "28",
@@ -91,6 +131,8 @@ class ProfileTests(TestCase):
         )
         self.assertRedirects(response, reverse("accounts:profile"))
         profile = UserProfile.objects.get(user=self.user)
+        self.user.refresh_from_db()
+        self.assertEqual((self.user.first_name, self.user.last_name), ("Sam", "Rivera"))
         self.assertEqual(profile.name, "Sam Rivera")
         self.assertEqual(profile.home_address, "123 Main St, Brooklyn, NY")
         self.assertEqual(profile.age, 28)
@@ -109,6 +151,16 @@ class ProfileTests(TestCase):
         self.assertContains(response, "Age must be 120 or less.")
         profile = UserProfile.objects.get(user=self.user)
         self.assertIsNone(profile.age)
+
+    def test_upload_picture(self):
+        with tempfile.TemporaryDirectory() as tmp, override_settings(MEDIA_ROOT=tmp):
+            response = self.client.post(
+                reverse("accounts:profile"),
+                {"action": "save_fixed", "picture": _png_upload()},
+            )
+            self.assertRedirects(response, reverse("accounts:profile"))
+            profile = UserProfile.objects.get(user=self.user)
+            self.assertTrue(profile.picture.name.startswith("profiles/"))
 
     def test_log_mood_appends_timestamped_entry(self):
         response = self.client.post(
@@ -157,3 +209,22 @@ class ProfileTests(TestCase):
         response = self.client.post(reverse("accounts:logout"))
         self.assertRedirects(response, reverse("search:index"))
         self.assertNotIn("_auth_user_id", self.client.session)
+
+
+class ViewProfileTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            "ann",
+            "ann@example.com",
+            VALID_PASSWORD,
+            first_name="Ann",
+            last_name="Lee",
+        )
+
+    def test_public_profile_shows_name(self):
+        response = self.client.get(reverse("accounts:view_profile", args=["ann"]))
+        self.assertContains(response, "Ann Lee")
+
+    def test_unknown_username_404s(self):
+        response = self.client.get(reverse("accounts:view_profile", args=["nope"]))
+        self.assertEqual(response.status_code, 404)

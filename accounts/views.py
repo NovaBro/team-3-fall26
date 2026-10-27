@@ -1,7 +1,8 @@
 from django.contrib import messages
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import redirect, render
+from django.contrib.auth.models import User
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from accounts.forms import MoodLogForm, SignupForm, UserProfileForm
@@ -28,6 +29,12 @@ def signup(request):
             login(request, user)
             messages.success(request, "Welcome! Tell us a bit about yourself below.")
             return redirect("accounts:profile")
+        if "email" in form.errors and any(
+            "already exists" in error for error in form.errors["email"]
+        ):
+            messages.error(request, "An account with this email already exists.")
+        else:
+            messages.error(request, "Unable to register. Please fix the errors below.")
     else:
         form = SignupForm()
     return render(request, "registration/signup.html", {"form": form})
@@ -50,12 +57,15 @@ def profile(request):
                 return redirect("accounts:profile")
             messages.error(request, "Please fix the errors below.")
         else:
-            fixed_form = UserProfileForm(request.POST, instance=instance)
+            fixed_form = UserProfileForm(request.POST, request.FILES, instance=instance)
             mood_form = MoodLogForm()
             if fixed_form.is_valid():
                 fixed = fixed_form.save(commit=False)
                 fixed.user = request.user
                 fixed.save()
+                request.user.first_name = fixed_form.cleaned_data.get("first_name", "")
+                request.user.last_name = fixed_form.cleaned_data.get("last_name", "")
+                request.user.save(update_fields=["first_name", "last_name"])
                 messages.success(request, "Profile updated.")
                 return redirect("accounts:profile")
             messages.error(request, "Please fix the errors below.")
@@ -71,7 +81,18 @@ def profile(request):
             "mood_form": mood_form,
             "mood_history": mood_history,
             "wide_fields": WIDE_FIELDS,
+            "profile": instance,
         },
+    )
+
+
+def view_profile(request, username):
+    user = get_object_or_404(User, username=username)
+    profile, _created = UserProfile.objects.get_or_create(user=user)
+    return render(
+        request,
+        "accounts/view_profile.html",
+        {"profile_user": user, "profile": profile},
     )
 
 

@@ -420,8 +420,10 @@ tbody tr:hover { background: #f2f6fc; }
 }
 
 .field input[type="text"],
+.field input[type="email"],
 .field input[type="number"],
 .field input[type="password"],
+.field input[type="file"],
 .field select {
   width: 100%;
   padding: 8px 10px;
@@ -452,3 +454,5 @@ tbody tr:hover { background: #f2f6fc; }
 
 .auth-form { max-width: 380px; margin-top: 18px; }
 .auth-form .field { margin-bottom: 14px; }
+
+.profile-picture { display: block; margin: 8px 0 12px; border-radius: 8px; }

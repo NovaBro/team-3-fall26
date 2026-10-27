@@ -9,7 +9,11 @@
 <section class="form-section">
   <h2>Fixed user inputs</h2>
   <p class="muted">Basics about you. Update these whenever something changes.</p>
-  <form method="post" action="{% url 'accounts:profile' %}">
+  {% if profile.picture %}
+    <img class="profile-picture" src="{{ profile.picture.url }}" alt="Your profile picture" width="120">
+  {% endif %}
+  <p><a href="{% url 'accounts:view_profile' user.username %}">View public profile</a></p>
+  <form method="post" action="{% url 'accounts:profile' %}" enctype="multipart/form-data">
     {% csrf_token %}
     {% if fixed_form.non_field_errors %}
       <ul class="errorlist">{{ fixed_form.non_field_errors }}</ul>
