@@ -7,6 +7,55 @@
 <h1>{{ dba }}</h1>
 <p class="muted">{% if cuisine %}{{ cuisine }} &middot; {% endif %}{{ street }}, {{ boro }} {{ zipcode }} &middot; CAMIS {{ camis }}</p>
 
+<h2>Google data</h2>
+{% if place %}
+  <div class="place-panel">
+    <div class="place-head">
+      {% if place.rating %}
+        <span class="place-rating">{{ place.rating|floatformat:1 }} &#9733;</span>
+        <span class="muted">({{ place.user_rating_count|default:0 }} reviews)</span>
+      {% else %}
+        <span class="muted">No rating available</span>
+      {% endif %}
+      {% if place.price_level_display %}
+        <span class="place-price">{{ place.price_level_display }}</span>
+      {% endif %}
+    </div>
+    {% if place.formatted_address %}<p class="muted">{{ place.formatted_address }}</p>{% endif %}
+    <p class="place-links">
+      {% if place.website_uri %}<a href="{{ place.website_uri }}" rel="noopener nofollow">Website</a>{% endif %}
+      {% if place.google_maps_uri %}<a href="{{ place.google_maps_uri }}" rel="noopener nofollow">View on Google Maps</a>{% endif %}
+    </p>
+
+    {% if place.reviews.all %}
+      <ul class="reviews">
+        {% for review in place.reviews.all %}
+          <li class="review">
+            <div class="review-meta">
+              {{ review.author_name|default:"Anonymous" }}
+              {% if review.rating %}&middot; {{ review.rating }}/5{% endif %}
+              {% if review.relative_time %}&middot; {{ review.relative_time }}{% endif %}
+            </div>
+            {% if review.text %}<p class="review-text">{{ review.text }}</p>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    <span class="attr">Data from Google. Last fetched {{ place.fetched_at }}.</span>
+  </div>
+{% else %}
+  <p class="empty">
+    No Google data stored yet for this restaurant.
+  </p>
+{% endif %}
+
+<form method="post" action="{% url 'search:refresh_place' camis %}">
+  {% csrf_token %}
+  <button class="btn" type="submit">
+    {% if place %}Refresh Google data{% else %}Get Google data{% endif %}
+  </button>
+</form>
+
 <h2>Inspection history</h2>
 <table>
   <thead>

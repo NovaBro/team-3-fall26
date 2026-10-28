@@ -132,6 +132,73 @@ class HealthyStore(models.Model):
         return self.store_name
 
 
+class PlaceEnrichment(models.Model):
+    """Google Places (New) data cached for one restaurant, keyed by CAMIS.
+
+    A row is created the first time a restaurant is enriched and overwritten on
+    each manual refresh. There is no automatic expiry.
+    """
+
+    PRICE_LEVEL_LABELS = {
+        "PRICE_LEVEL_FREE": "Free",
+        "PRICE_LEVEL_INEXPENSIVE": "$",
+        "PRICE_LEVEL_MODERATE": "$$",
+        "PRICE_LEVEL_EXPENSIVE": "$$$",
+        "PRICE_LEVEL_VERY_EXPENSIVE": "$$$$",
+    }
+
+    camis = models.CharField(max_length=20, unique=True, db_index=True)
+    place_id = models.CharField(max_length=255, blank=True)
+    display_name = models.CharField(max_length=255, blank=True)
+    formatted_address = models.CharField(max_length=512, blank=True)
+    latitude = models.FloatField(null=True)
+    longitude = models.FloatField(null=True)
+    rating = models.FloatField(null=True)
+    user_rating_count = models.IntegerField(null=True)
+    price_level = models.CharField(max_length=32, blank=True)
+    price_range = models.JSONField(null=True, blank=True)
+    website_uri = models.CharField(max_length=512, blank=True)
+    google_maps_uri = models.CharField(max_length=512, blank=True)
+    business_status = models.CharField(max_length=32, blank=True)
+    raw_json = models.JSONField(null=True, blank=True)
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "place enrichment"
+        verbose_name_plural = "place enrichments"
+
+    def __str__(self):
+        return f"{self.display_name or self.camis} ({self.place_id})"
+
+    @property
+    def price_level_display(self):
+        return self.PRICE_LEVEL_LABELS.get(self.price_level, "")
+
+
+class PlaceReview(models.Model):
+    """A single Google review captured for a PlaceEnrichment.
+
+    Reviews are replaced wholesale whenever the owning place is refreshed.
+    """
+
+    place = models.ForeignKey(
+        PlaceEnrichment, related_name="reviews", on_delete=models.CASCADE
+    )
+    author_name = models.CharField(max_length=255, blank=True)
+    author_uri = models.CharField(max_length=512, blank=True)
+    rating = models.IntegerField(null=True)
+    relative_time = models.CharField(max_length=64, blank=True)
+    text = models.TextField(blank=True)
+    publish_time = models.DateTimeField(null=True)
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "place review"
+
+    def __str__(self):
+        return f"{self.author_name} ({self.rating})"
+
+
 class ParkEatery(models.Model):
     """One permitted NYC Parks eatery."""
 

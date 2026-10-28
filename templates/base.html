@@ -6,7 +6,6 @@
   <title>{% block title %}NYC Food Search{% endblock %}</title>
   {% load static %}
   <link rel="stylesheet" href="{% static 'search/style.css' %}">
-  {% block extra_head %}{% endblock %}
 </head>
 <body>
   <header class="site-header">
@@ -17,10 +16,28 @@
         <a href="{% url 'restaurants:search' %}">Find restaurants</a>
         <a href="{% url 'search:explore_index' %}">Explore datasets</a>
         <a href="{% url 'search:farmers_markets_map' %}">Farmers market</a>
+        <a href="{% url 'search:combined_map' %}">Combined map</a>
+        {% if user.is_authenticated %}
+          <a href="{% url 'accounts:profile' %}">Profile</a>
+          <form class="nav-form" method="post" action="{% url 'accounts:logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="nav-link-button">Log out</button>
+          </form>
+        {% else %}
+          <a href="{% url 'accounts:login' %}">Log in</a>
+          <a href="{% url 'accounts:signup' %}">Sign up</a>
+        {% endif %}
       </nav>
     </div>
   </header>
   <main class="wrap">
+    {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}
+          <li class="message {{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
   <footer class="wrap site-footer">
