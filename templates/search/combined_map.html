@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Combined map - NYC Food Search{% endblock %}
+
+{% block content %}
+<h1>Combined map</h1>
+<p class="muted map-note">
+  Farmers markets, Shop Healthy stores, and DOHMH restaurants with saved Google
+  locations. Load live Google Places restaurants separately when you want them.
+</p>
+
+<form class="filters" method="get" action="{% url 'search:combined_map' %}">
+  <input type="text" name="q" value="{{ name }}" placeholder="Name" aria-label="Name">
+  <select name="boro" aria-label="Borough">
+    <option value="">Any borough</option>
+    {% for option in boro_options %}
+      <option value="{{ option }}"{% if boro == option %} selected{% endif %}>{{ option }}</option>
+    {% endfor %}
+  </select>
+  <input type="text" name="zip" value="{{ zip }}" placeholder="ZIP code"
+         inputmode="numeric" maxlength="5" pattern="[0-9]{5}" aria-label="ZIP code">
+  <button type="submit">Filter</button>
+</form>
+
+<div class="combined-map-toolbar">
+  <fieldset class="layer-toggles">
+    <legend>Layers</legend>
+    <label class="layer-toggle">
+      <input type="checkbox" data-layer="farmers_market" checked>
+      <span class="swatch swatch--farmers_market" aria-hidden="true"></span>
+      Farmers markets
+    </label>
+    <label class="layer-toggle">
+      <input type="checkbox" data-layer="grocery" checked>
+      <span class="swatch swatch--grocery" aria-hidden="true"></span>
+      Grocery (Shop Healthy)
+    </label>
+    <label class="layer-toggle">
+      <input type="checkbox" data-layer="restaurant_dohmh" checked>
+      <span class="swatch swatch--restaurant_dohmh" aria-hidden="true"></span>
+      DOHMH restaurants
+    </label>
+    <label class="layer-toggle">
+      <input type="checkbox" data-layer="restaurant_google">
+      <span class="swatch swatch--restaurant_google" aria-hidden="true"></span>
+      Google restaurants
+    </label>
+  </fieldset>
+
+  <fieldset class="google-load-controls" id="google-load-controls" hidden>
+    <legend>Load Google restaurants</legend>
+    <select id="google-area" aria-label="Area">
+      {% for value, label in area_choices %}
+        <option value="{{ value }}">{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select id="google-diet" aria-label="Diet">
+      {% for value, label in diet_choices %}
+        <option value="{{ value }}">{{ label }}</option>
+      {% endfor %}
+    </select>
+    <div class="price-checks" aria-label="Price">
+      {% for value, label in price_choices %}
+        <label><input type="checkbox" name="google-price" value="{{ value }}"> {{ label }}</label>
+      {% endfor %}
+    </div>
+    <button type="button" id="load-google-btn">Load Google restaurants</button>
+  </fieldset>
+</div>
+
+<p id="map-status" class="muted map-status" role="status">
+  {% if maps_key %}Loading map…{% else %}Set GOOGLE_MAPS_JS_KEY in .env to enable the map.{% endif %}
+</p>
+<div id="combined-map" class="combined-map" role="region"
+     aria-label="Combined map of NYC food locations"></div>
+
+{{ static_points|json_script:"combined-map-data" }}
+<script id="combined-map-config" type="application/json">
+  {"googleUrl": "{{ google_url|escapejs }}", "hasMapsKey": {% if maps_key %}true{% else %}false{% endif %}}
+</script>
+{% endblock %}
+
+{% block scripts %}
+{% if maps_key %}
+  <script src="{% static 'search/combined_map.js' %}"></script>
+  <script async
+    src="https://maps.googleapis.com/maps/api/js?key={{ maps_key|urlencode }}&loading=async&language=en&region=US&libraries=marker&callback=initCombinedMap">
+  </script>
+{% endif %}
+{% endblock %}

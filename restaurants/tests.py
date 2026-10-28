@@ -62,6 +62,19 @@ class BuildRequestTests(SimpleTestCase):
         self.assertEqual(body["textQuery"], "keto-friendly restaurants in Queens, New York, NY")
         self.assertNotIn("includedType", body)
 
+    def test_cuisine_is_prepended_to_query(self):
+        body = build_request(cuisine="Thai", area="Manhattan")
+        self.assertEqual(body["textQuery"], "Thai restaurants in Manhattan, New York, NY")
+
+    def test_open_now_is_only_sent_when_checked(self):
+        self.assertNotIn("openNow", build_request())
+        self.assertIs(build_request(open_now=True)["openNow"], True)
+
+    def test_minimum_rating_is_sent_as_float(self):
+        body = build_request(min_rating="4.5")
+        self.assertEqual(body["minRating"], 4.5)
+        self.assertIsInstance(body["minRating"], float)
+
     def test_location_biases_toward_user_with_radius(self):
         body = build_request(lat=WSP[0], lng=WSP[1], radius_m=800)
         self.assertEqual(body["textQuery"], "restaurants")
@@ -167,6 +180,14 @@ class FilterFormTests(SimpleTestCase):
     def test_invalid_price(self):
         self.assertIn("price", self.errors({"price": ["$$$$$"]}))
 
+    def test_invalid_minimum_rating(self):
+        errors = self.errors({"min_rating": "6"})
+        self.assertIn("Choose a minimum rating from the list.", errors["min_rating"])
+
+    def test_invalid_cuisine(self):
+        errors = self.errors({"cuisine": "Martian"})
+        self.assertIn("Choose a cuisine from the list.", errors["cuisine"])
+
     def test_invalid_diet(self):
         self.assertIn("diet", self.errors({"diet": "paleo"}))
 
@@ -214,9 +235,11 @@ class SearchViewTests(SimpleTestCase):
     def test_filters_are_passed_together(self, gr):
         gr.return_value = []
         self.client.get(self.url, {"area": "Manhattan", "price": ["$", "$$"], "diet": "vegan",
-                                   "distance": "1", "lat": "40.73", "lng": "-73.99"})
+                                   "distance": "1", "lat": "40.73", "lng": "-73.99",
+                                   "cuisine": "", "open_now": "", "min_rating": ""})
         gr.assert_called_once_with(area="Manhattan", prices=["$", "$$"], diet="vegan",
-                                   lat=40.73, lng=-73.99, radius_m=1609.344, avoid=[])
+                                   lat=40.73, lng=-73.99, radius_m=1609.344, avoid=[],
+                                   cuisine="", open_now=False, min_rating=None)
 
     def test_results_are_shown(self, gr):
         gr.return_value = [{"name": "Test Place", "address": "x", "price": "$$", "vegetarian": True,

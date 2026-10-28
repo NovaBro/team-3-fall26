@@ -31,6 +31,15 @@
   color: var(--muted);
 }
 
+.restaurant-filters label.inline-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: .95rem;
+}
+.restaurant-filters label.inline-check input { width: auto; margin: 0; }
+
 .restaurant-filters select { width: 100%; }
 
 .price-group { margin: 0; padding: 0; border: 0; }
@@ -117,3 +126,11 @@
   .results-list { max-height: 45vh; }
   #map { height: 340px; }
 }
+
+/* Inspection grade tags. Reset the size from the global .grade badge so they stay pill-shaped. */
+.tag.grade { display: inline-block; min-width: 0; height: auto; padding: 2px 10px; border-radius: 999px; text-decoration: none; font-weight: 600; }
+.tag.grade-a { color: var(--grade-a); background: rgba(90, 169, 255, 0.14); }
+.tag.grade-b { color: var(--grade-b); background: rgba(74, 222, 128, 0.14); }
+.tag.grade-c { color: var(--grade-c); background: rgba(251, 146, 60, 0.14); }
+.tag.grade:hover { color: var(--ink); }
+.tag.grade-none { color: var(--muted); background: var(--raised); font-weight: 400; }

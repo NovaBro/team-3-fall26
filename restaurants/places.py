@@ -78,7 +78,11 @@ def _normalize(place):
     }
 
 
-def build_request(area="", prices=(), diet="", lat=None, lng=None, radius_m=None):
+def build_request(
+    area="", prices=(), diet="", lat=None, lng=None, radius_m=None,
+    cuisine="",
+    open_now=False, min_rating=None,
+):
     """Return the JSON body for a Text Search request."""
     area = (area or "").strip()
     if area and "new york" not in area.lower() and "nyc" not in area.lower():
@@ -86,6 +90,9 @@ def build_request(area="", prices=(), diet="", lat=None, lng=None, radius_m=None
 
     google = DIETS[diet]["google"] if diet else None
     kind = google["query"] if google else "restaurants"
+    cuisine = (cuisine or "").strip()
+    if cuisine:
+        kind = f"{cuisine} {kind}"
     if area:
         query = f"{kind} in {area}"
     elif lat is not None:
@@ -94,6 +101,10 @@ def build_request(area="", prices=(), diet="", lat=None, lng=None, radius_m=None
         query = f"{kind} in New York, NY"
 
     body = {"textQuery": query, "maxResultCount": 20, "languageCode": "en"}
+    if open_now:
+        body["openNow"] = True
+    if min_rating is not None:
+        body["minRating"] = float(min_rating)
     # Google allows a circle only as a bias, so with the user's location we
     # bias toward it and enforce the distance ourselves in get_restaurants().
     if lat is not None and lng is not None:
@@ -114,7 +125,8 @@ def build_request(area="", prices=(), diet="", lat=None, lng=None, radius_m=None
 
 
 def get_restaurants(
-    area="", prices=(), diet="", lat=None, lng=None, radius_m=None, avoid=(), api_key=None
+    area="", prices=(), diet="", lat=None, lng=None, radius_m=None, avoid=(), cuisine="",
+    open_now=False, min_rating=None, api_key=None,
 ):
     """Return a list of restaurant dicts matching every given filter.
 
@@ -129,7 +141,11 @@ def get_restaurants(
     if not api_key:
         raise PlacesError("GOOGLE_API_KEY is not set. Add it to your .env file.")
 
-    body = build_request(area, prices, diet, lat, lng, radius_m)
+    body = build_request(
+        area, prices, diet, lat, lng, radius_m,
+        cuisine=cuisine,
+        open_now=open_now, min_rating=min_rating,
+    )
     try:
         resp = requests.post(
             SEARCH_URL,

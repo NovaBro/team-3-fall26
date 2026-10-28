@@ -24,11 +24,29 @@
         <a href="{% url 'restaurants:search' %}"{% if view == 'restaurants:search' %} aria-current="page"{% endif %}>Find restaurants</a>
         <a href="{% url 'search:explore_index' %}"{% if view == 'search:explore_index' or view == 'search:explore' %} aria-current="page"{% endif %}>Explore datasets</a>
         <a href="{% url 'search:farmers_markets_map' %}"{% if view == 'search:farmers_markets_map' %} aria-current="page"{% endif %}>Farmers market</a>
+        <a href="{% url 'search:combined_map' %}"{% if view == 'search:combined_map' %} aria-current="page"{% endif %}>Combined map</a>
+        {% if user.is_authenticated %}
+          <a href="{% url 'accounts:profile' %}"{% if view == 'accounts:profile' %} aria-current="page"{% endif %}>Profile</a>
+          <form class="nav-form" method="post" action="{% url 'accounts:logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="nav-link-button">Log out</button>
+          </form>
+        {% else %}
+          <a href="{% url 'accounts:login' %}"{% if view == 'accounts:login' %} aria-current="page"{% endif %}>Log in</a>
+          <a href="{% url 'accounts:signup' %}"{% if view == 'accounts:signup' %} aria-current="page"{% endif %}>Sign up</a>
+        {% endif %}
       </nav>
     </div>
   </header>
   {% endwith %}
   <main class="wrap">
+    {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}
+          <li class="message {{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
   <footer class="wrap site-footer">

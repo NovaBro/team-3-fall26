@@ -3,6 +3,7 @@ import os
 from django.shortcuts import render
 
 from restaurants.forms import RestaurantFilterForm
+from restaurants.inspections import attach_inspections
 from restaurants.places import PlacesError, get_restaurants
 
 
@@ -18,6 +19,7 @@ def search(request):
             location = {"lat": data["lat"], "lng": data["lng"]}
         try:
             restaurants = get_restaurants(
+                cuisine=data["cuisine"],
                 area=data["area"],
                 prices=data["price"],
                 diet=data["diet"],
@@ -25,7 +27,10 @@ def search(request):
                 lng=data["lng"],
                 radius_m=form.radius_m,
                 avoid=data["avoid"],
+                open_now=data["open_now"],
+                min_rating=float(data["min_rating"]) if data["min_rating"] else None,
             )
+            restaurants = attach_inspections(restaurants)
         except PlacesError as exc:
             error = str(exc)
 
