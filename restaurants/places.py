@@ -79,7 +79,11 @@ def _normalize(place):
 
     def component(kind):
         return next(
-            (item.get("longText", "") for item in components if kind in item.get("types", [])),
+            (
+                item.get("longText", "")
+                for item in components
+                if kind in item.get("types", [])
+            ),
             "",
         )
 
@@ -117,9 +121,18 @@ def _match_value(value):
 def _match_street(value):
     value = re.sub(r"^\s*\d+[A-Za-z]?(?:-\d+[A-Za-z]?)?\s+", "", value or "")
     aliases = {
-        "avenue": "ave", "boulevard": "blvd", "drive": "dr", "road": "rd",
-        "street": "st", "lane": "ln", "place": "pl", "court": "ct",
-        "north": "n", "south": "s", "east": "e", "west": "w",
+        "avenue": "ave",
+        "boulevard": "blvd",
+        "drive": "dr",
+        "road": "rd",
+        "street": "st",
+        "lane": "ln",
+        "place": "pl",
+        "court": "ct",
+        "north": "n",
+        "south": "s",
+        "east": "e",
+        "west": "w",
     }
     return " ".join(aliases.get(word, word) for word in _match_value(value).split())
 
@@ -158,19 +171,21 @@ def find_restaurant_place(name, zipcode, street, api_key=None):
     except (TypeError, ValueError):
         return None
     candidates = [place for place in candidates if place.get("zipcode") == zipcode]
-    exact = [place for place in candidates if _match_value(place["name"]) == target_name]
+    exact = [
+        place for place in candidates if _match_value(place["name"]) == target_name
+    ]
     if len(exact) == 1:
         return exact[0]
     if target_street:
         exact_street = [
-            place for place in exact
-            if _match_street(place["street"]) == target_street
+            place for place in exact if _match_street(place["street"]) == target_street
         ]
         if len(exact_street) == 1:
             return exact_street[0]
 
         partial_street = [
-            place for place in candidates
+            place
+            for place in candidates
             if _match_value(place["name"]) != target_name
             and (
                 target_name in _match_value(place["name"])
@@ -184,9 +199,15 @@ def find_restaurant_place(name, zipcode, street, api_key=None):
 
 
 def build_request(
-    area="", prices=(), diet="", lat=None, lng=None, radius_m=None,
+    area="",
+    prices=(),
+    diet="",
+    lat=None,
+    lng=None,
+    radius_m=None,
     cuisine="",
-    open_now=False, min_rating=None,
+    open_now=False,
+    min_rating=None,
 ):
     """Return the JSON body for a Text Search request."""
     area = (area or "").strip()
@@ -230,8 +251,17 @@ def build_request(
 
 
 def get_restaurants(
-    area="", prices=(), diet="", lat=None, lng=None, radius_m=None, avoid=(), cuisine="",
-    open_now=False, min_rating=None, api_key=None,
+    area="",
+    prices=(),
+    diet="",
+    lat=None,
+    lng=None,
+    radius_m=None,
+    avoid=(),
+    cuisine="",
+    open_now=False,
+    min_rating=None,
+    api_key=None,
 ):
     """Return a list of restaurant dicts matching every given filter.
 
@@ -247,9 +277,15 @@ def get_restaurants(
         raise PlacesError("GOOGLE_API_KEY is not set. Add it to your .env file.")
 
     body = build_request(
-        area, prices, diet, lat, lng, radius_m,
+        area,
+        prices,
+        diet,
+        lat,
+        lng,
+        radius_m,
         cuisine=cuisine,
-        open_now=open_now, min_rating=min_rating,
+        open_now=open_now,
+        min_rating=min_rating,
     )
     try:
         resp = requests.post(
@@ -287,10 +323,16 @@ def get_restaurants(
     if lat is not None and lng is not None:
         for p in places:
             if p["lat"] is not None and p["lng"] is not None:
-                p["distance_mi"] = distance_m(lat, lng, p["lat"], p["lng"]) / METERS_PER_MILE
+                p["distance_mi"] = (
+                    distance_m(lat, lng, p["lat"], p["lng"]) / METERS_PER_MILE
+                )
         if radius_m:
             limit_mi = radius_m / METERS_PER_MILE
-            places = [p for p in places if p["distance_mi"] is not None and p["distance_mi"] <= limit_mi]
+            places = [
+                p
+                for p in places
+                if p["distance_mi"] is not None and p["distance_mi"] <= limit_mi
+            ]
         places.sort(key=lambda p: (p["distance_mi"] is None, p["distance_mi"] or 0))
 
     return places

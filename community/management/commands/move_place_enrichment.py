@@ -28,7 +28,11 @@ def _json(value):
 def _when(value):
     if value is None or value == "":
         return None
-    parsed = value if hasattr(value, "tzinfo") else parse_datetime(str(value).replace(" ", "T"))
+    parsed = (
+        value
+        if hasattr(value, "tzinfo")
+        else parse_datetime(str(value).replace(" ", "T"))
+    )
     if parsed is not None and timezone.is_naive(parsed):
         return timezone.make_aware(parsed, timezone.utc)
     return parsed
@@ -40,28 +44,27 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         with connections["default"].cursor() as cursor:
             cursor.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='search_placeenrichment'"
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='search_placeenrichment'"
             )
             if cursor.fetchone() is None:
-                self.stdout.write("search_placeenrichment is already gone. Nothing to copy.")
+                self.stdout.write(
+                    "search_placeenrichment is already gone. Nothing to copy."
+                )
                 return
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT id, camis, place_id, display_name, formatted_address,
                        latitude, longitude, rating, user_rating_count, price_level,
                        price_range, website_uri, google_maps_uri, business_status,
                        raw_json, fetched_at
                 FROM search_placeenrichment
-                """
-            )
+                """)
             enrichment_rows = cursor.fetchall()
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT place_id, author_name, author_uri, rating, relative_time,
                        text, publish_time, fetched_at
                 FROM search_placereview
-                """
-            )
+                """)
             review_rows = cursor.fetchall()
 
         id_to_camis = {row[0]: row[1] for row in enrichment_rows}
@@ -89,7 +92,9 @@ class Command(BaseCommand):
             )
             fetched_at = _when(row[15])
             if fetched_at is not None:
-                PlaceEnrichment.objects.filter(pk=enrichment.pk).update(fetched_at=fetched_at)
+                PlaceEnrichment.objects.filter(pk=enrichment.pk).update(
+                    fetched_at=fetched_at
+                )
             copied += 1
 
         review_copied = 0
@@ -121,6 +126,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"Copied {copied} places ({skipped} already present) and {review_copied} reviews."
+                f"Copied {copied} places ({skipped} already present) "
+                f"and {review_copied} reviews."
             )
         )

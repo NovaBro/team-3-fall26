@@ -7,7 +7,7 @@ from restaurants.places import PlacesError, get_restaurants
 
 
 def search(request):
-    # Any query string means the user submitted the form; an empty one is the landing page.
+    # A query string means the form was submitted; an empty one is the landing page.
     form = RestaurantFilterForm(request.GET or None)
     restaurants, error = [], ""
     location = None
@@ -41,9 +41,16 @@ def search(request):
             "restaurants": restaurants,
             "error": error,
             "location": location,
-            "avoiding_allergens": bool(form.is_bound and form.is_valid() and form.cleaned_data["avoid"]),
+            "avoiding_allergens": bool(
+                form.is_bound and form.is_valid() and form.cleaned_data["avoid"]
+            ),
             "map_points": [
-                {"name": r["name"], "lat": r["lat"], "lng": r["lng"], "price": r["price"]}
+                {
+                    "name": r["name"],
+                    "lat": r["lat"],
+                    "lng": r["lng"],
+                    "price": r["price"],
+                }
                 for r in restaurants
                 if r["lat"] is not None and r["lng"] is not None
             ],

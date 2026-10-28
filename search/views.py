@@ -16,7 +16,12 @@ from restaurants.diet_filters import (
     HOMEPAGE_DIET_CHOICES,
     risky_cuisines,
 )
-from restaurants.forms import AREA_CHOICES, DIET_CHOICES, PRICE_CHOICES, RestaurantFilterForm
+from restaurants.forms import (
+    AREA_CHOICES,
+    DIET_CHOICES,
+    PRICE_CHOICES,
+    RestaurantFilterForm,
+)
 from community.keys import dohmh_key, farmers_market_key, google_key, grocery_key
 from community.models import PlaceEnrichment
 from restaurants.places import PlacesError, find_restaurant_place, get_restaurants
@@ -53,6 +58,7 @@ MARKET_DAY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+
 def _market_operates_on_day(days_of_operation, selected_day):
     matches = list(MARKET_DAY_PATTERN.finditer(days_of_operation or ""))
     found_days = set()
@@ -69,7 +75,9 @@ def _market_operates_on_day(days_of_operation, selected_day):
             continue
         found_days.add(day_index)
         if index + 1 < len(matches):
-            between = days_of_operation[match.end() : matches[index + 1].start()]
+            between = days_of_operation[
+                match.end() : matches[index + 1].start()  # noqa: E203
+            ]
             if re.fullmatch(r"\s*[-–]\s*", between):
                 next_day = next(
                     (
@@ -120,9 +128,9 @@ def index(request):
         base = _filter_restaurants(
             RestaurantInspection.objects.all(), name, boro, zipcode, grade, diet, avoid
         )
-        latest = RestaurantInspection.objects.filter(
-            camis=OuterRef("camis")
-        ).order_by("-inspection_date")
+        latest = RestaurantInspection.objects.filter(camis=OuterRef("camis")).order_by(
+            "-inspection_date"
+        )
         restaurants = (
             base.values("camis")
             .annotate(
@@ -224,9 +232,7 @@ def restaurant_detail(request, camis):
     if latest is None:
         raise Http404("Restaurant not found")
     place = (
-        PlaceEnrichment.objects.filter(camis=camis)
-        .prefetch_related("reviews")
-        .first()
+        PlaceEnrichment.objects.filter(camis=camis).prefetch_related("reviews").first()
     )
     return render(
         request,
@@ -301,8 +307,7 @@ def farmers_markets_map(request):
                     or zipcode in market["street_address"]
                 )
                 and (
-                    not day
-                    or _market_operates_on_day(market["days_of_operation"], day)
+                    not day or _market_operates_on_day(market["days_of_operation"], day)
                 )
             ):
                 markets.append(market)
@@ -439,7 +444,9 @@ def _combined_static_points(name="", boro="", zipcode=""):
                 "lng": store.longitude,
                 "category": "grocery",
                 "kind": "grocery",
-                "key": grocery_key(store.store_name, store.street_address, store.zip_code),
+                "key": grocery_key(
+                    store.store_name, store.street_address, store.zip_code
+                ),
                 "address": store.street_address or "",
                 "url": None,
             }

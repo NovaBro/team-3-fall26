@@ -86,9 +86,7 @@ def find_place(query):
 
 def get_place_details(place_id):
     """Fetch full details (rating, price, reviews, ...) for a place ID."""
-    return _request(
-        "GET", f"{PLACES_BASE_URL}/places/{place_id}", DETAILS_FIELD_MASK
-    )
+    return _request("GET", f"{PLACES_BASE_URL}/places/{place_id}", DETAILS_FIELD_MASK)
 
 
 def build_query(restaurant):

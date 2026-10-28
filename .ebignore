@@ -1,0 +1,24 @@
+# Keep database/nyc_food.db in the deploy bundle; raw datasets are only needed for import_datasets.
+database/datasets/
+test.txt
+deploy/
+.venv/
+venv/
+env/
+.git/
+.gitignore
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+*.log
+.ipynb_checkpoints/
+*.ipynb
+staticfiles/
+.DS_Store
+AGENTS.md
+TODO.md
+.md_guides/
+md_guides/
+*.plan.md

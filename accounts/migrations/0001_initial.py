@@ -15,37 +15,102 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='MoodLog',
+            name="MoodLog",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('mood', models.PositiveSmallIntegerField(choices=[(1, 'Awful'), (2, 'Bad'), (3, 'Okay'), (4, 'Good'), (5, 'Great')])),
-                ('energy_level', models.PositiveSmallIntegerField(choices=[(1, 'Exhausted'), (2, 'Tired'), (3, 'Okay'), (4, 'Alert'), (5, 'Energized')])),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True)),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='mood_logs', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "mood",
+                    models.PositiveSmallIntegerField(
+                        choices=[
+                            (1, "Awful"),
+                            (2, "Bad"),
+                            (3, "Okay"),
+                            (4, "Good"),
+                            (5, "Great"),
+                        ]
+                    ),
+                ),
+                (
+                    "energy_level",
+                    models.PositiveSmallIntegerField(
+                        choices=[
+                            (1, "Exhausted"),
+                            (2, "Tired"),
+                            (3, "Okay"),
+                            (4, "Alert"),
+                            (5, "Energized"),
+                        ]
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True)),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="mood_logs",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'mood log',
-                'ordering': ['-created_at'],
+                "verbose_name": "mood log",
+                "ordering": ["-created_at"],
             },
         ),
         migrations.CreateModel(
-            name='UserProfile',
+            name="UserProfile",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(blank=True, max_length=100)),
-                ('home_address', models.CharField(blank=True, max_length=255)),
-                ('age', models.PositiveIntegerField(blank=True, null=True)),
-                ('gender', models.CharField(blank=True, choices=[('female', 'Female'), ('male', 'Male'), ('non-binary', 'Non-binary'), ('other', 'Other'), ('prefer-not-to-say', 'Prefer not to say')], max_length=32)),
-                ('weight_lbs', models.FloatField(blank=True, null=True)),
-                ('height_in', models.FloatField(blank=True, null=True)),
-                ('favorite_foods', models.TextField(blank=True)),
-                ('disliked_foods', models.TextField(blank=True)),
-                ('health_goals', models.JSONField(blank=True, default=list)),
-                ('allergies', models.TextField(blank=True)),
-                ('user', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='profile', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(blank=True, max_length=100)),
+                ("home_address", models.CharField(blank=True, max_length=255)),
+                ("age", models.PositiveIntegerField(blank=True, null=True)),
+                (
+                    "gender",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("female", "Female"),
+                            ("male", "Male"),
+                            ("non-binary", "Non-binary"),
+                            ("other", "Other"),
+                            ("prefer-not-to-say", "Prefer not to say"),
+                        ],
+                        max_length=32,
+                    ),
+                ),
+                ("weight_lbs", models.FloatField(blank=True, null=True)),
+                ("height_in", models.FloatField(blank=True, null=True)),
+                ("favorite_foods", models.TextField(blank=True)),
+                ("disliked_foods", models.TextField(blank=True)),
+                ("health_goals", models.JSONField(blank=True, default=list)),
+                ("allergies", models.TextField(blank=True)),
+                (
+                    "user",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="profile",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'user profile',
+                "verbose_name": "user profile",
             },
         ),
     ]

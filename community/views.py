@@ -48,9 +48,7 @@ def _google_payload(kind, key):
         return None
     camis = key.split(":", 1)[1]
     place = (
-        PlaceEnrichment.objects.filter(camis=camis)
-        .prefetch_related("reviews")
-        .first()
+        PlaceEnrichment.objects.filter(camis=camis).prefetch_related("reviews").first()
     )
     if place is None:
         return None

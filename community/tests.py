@@ -8,7 +8,13 @@ from django.urls import reverse
 from PIL import Image
 
 from community.keys import dohmh_key, farmers_market_key, google_key, grocery_key
-from community.models import PlaceEnrichment, PlaceReview, UserComment, UserPhoto, UserRating
+from community.models import (
+    PlaceEnrichment,
+    PlaceReview,
+    UserComment,
+    UserPhoto,
+    UserRating,
+)
 
 
 def _png():
@@ -41,7 +47,9 @@ class CommunityPanelTests(TestCase):
     databases = {"default", "community"}
 
     def setUp(self):
-        self.user = User.objects.create_user(username="foodie", password="sTr0ngPass!2026x")
+        self.user = User.objects.create_user(
+            username="foodie", password="sTr0ngPass!2026x"
+        )
         self.kind = "restaurant_dohmh"
         self.key = dohmh_key("1")
         place = PlaceEnrichment.objects.create(
@@ -51,14 +59,20 @@ class CommunityPanelTests(TestCase):
             user_rating_count=10,
         )
         PlaceReview.objects.create(
-            place=place, author_name="Sam", rating=5, text="Best slice.", relative_time="a week ago"
+            place=place,
+            author_name="Sam",
+            rating=5,
+            text="Best slice.",
+            relative_time="a week ago",
         )
 
     def _detail(self):
         return reverse("community:detail", kwargs={"kind": self.kind, "key": self.key})
 
     def test_public_payload_includes_google_reviews(self):
-        response = self.client.get(self._detail(), {"name": "Joe's Pizza", "address": "1 Main St"})
+        response = self.client.get(
+            self._detail(), {"name": "Joe's Pizza", "address": "1 Main St"}
+        )
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertFalse(payload["authenticated"])
@@ -96,7 +110,9 @@ class CommunityPanelTests(TestCase):
             {"text": "  Crowded but worth it.  "},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["comments"][0]["text"], "Crowded but worth it.")
+        self.assertEqual(
+            response.json()["comments"][0]["text"], "Crowded but worth it."
+        )
         self.assertEqual(response.json()["comments"][0]["author"], "foodie")
         self.assertEqual(UserComment.objects.count(), 1)
 
@@ -111,12 +127,19 @@ class CommunityPanelTests(TestCase):
         self.client.force_login(self.user)
         url = reverse("community:photo", kwargs={"kind": self.kind, "key": self.key})
         rejected = self.client.post(
-            url, {"photo": SimpleUploadedFile("note.txt", b"hello", content_type="text/plain")}
+            url,
+            {
+                "photo": SimpleUploadedFile(
+                    "note.txt", b"hello", content_type="text/plain"
+                )
+            },
         )
         self.assertEqual(rejected.status_code, 400)
         self.assertEqual(UserPhoto.objects.count(), 0)
 
-        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+        with tempfile.TemporaryDirectory() as media_root, override_settings(
+            MEDIA_ROOT=media_root
+        ):
             saved = self.client.post(url, {"photo": _png()})
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(len(saved.json()["photos"]), 1)

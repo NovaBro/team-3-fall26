@@ -79,7 +79,9 @@ class CommunitySubject(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["kind", "key"], name="community_subject_kind_key"),
+            models.UniqueConstraint(
+                fields=["kind", "key"], name="community_subject_kind_key"
+            ),
         ]
 
     def __str__(self):

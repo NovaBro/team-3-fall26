@@ -19,29 +19,54 @@ class RestaurantSearchTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         RestaurantInspection.objects.create(
-            camis="1", dba="Joe's Pizza", boro="Brooklyn",
-            street="1 Main St", zipcode="11201", cuisine="Pizza",
-            inspection_date="2024-01-01", grade="A",
+            camis="1",
+            dba="Joe's Pizza",
+            boro="Brooklyn",
+            street="1 Main St",
+            zipcode="11201",
+            cuisine="Pizza",
+            inspection_date="2024-01-01",
+            grade="A",
         )
         RestaurantInspection.objects.create(
-            camis="1", dba="Joe's Pizza", boro="Brooklyn",
-            street="1 Main St", zipcode="11201", cuisine="Pizza",
-            inspection_date="2025-01-01", grade="B",
+            camis="1",
+            dba="Joe's Pizza",
+            boro="Brooklyn",
+            street="1 Main St",
+            zipcode="11201",
+            cuisine="Pizza",
+            inspection_date="2025-01-01",
+            grade="B",
         )
         RestaurantInspection.objects.create(
-            camis="3", dba="Green Leaf", boro="Manhattan",
-            street="3 Main St", zipcode="10003", cuisine="Vegan",
-            inspection_date="2024-06-01", grade="A",
+            camis="3",
+            dba="Green Leaf",
+            boro="Manhattan",
+            street="3 Main St",
+            zipcode="10003",
+            cuisine="Vegan",
+            inspection_date="2024-06-01",
+            grade="A",
         )
         RestaurantInspection.objects.create(
-            camis="4", dba="Thai Garden", boro="Queens",
-            street="4 Main St", zipcode="11101", cuisine="Thai",
-            inspection_date="2024-07-01", grade="A",
+            camis="4",
+            dba="Thai Garden",
+            boro="Queens",
+            street="4 Main St",
+            zipcode="11101",
+            cuisine="Thai",
+            inspection_date="2024-07-01",
+            grade="A",
         )
         RestaurantInspection.objects.create(
-            camis="2", dba="Taco Town", boro="Queens",
-            street="2 Main St", zipcode="11101", cuisine="Mexican",
-            inspection_date="2024-05-01", grade="A",
+            camis="2",
+            dba="Taco Town",
+            boro="Queens",
+            street="2 Main St",
+            zipcode="11101",
+            cuisine="Mexican",
+            inspection_date="2024-05-01",
+            grade="A",
         )
 
     def test_home_without_filters_has_no_results(self):
@@ -59,7 +84,9 @@ class RestaurantSearchTests(TestCase):
         self.assertEqual(row["grade"], "B")
 
     def test_search_filter_by_borough(self):
-        response = self.client.get(reverse("search:index"), {"boro": "Queens", "q": "taco"})
+        response = self.client.get(
+            reverse("search:index"), {"boro": "Queens", "q": "taco"}
+        )
         self.assertEqual(len(response.context["page_obj"]), 1)
 
     def names(self, params):
@@ -80,11 +107,17 @@ class RestaurantSearchTests(TestCase):
         )
 
     def test_pescatarian_includes_seafood_and_vegetarian(self):
-        RestaurantInspection.objects.create(camis="5", dba="Fish Shack", cuisine="Seafood")
-        self.assertEqual(self.names({"diet": "pescatarian"}), ["Fish Shack", "Green Leaf"])
+        RestaurantInspection.objects.create(
+            camis="5", dba="Fish Shack", cuisine="Seafood"
+        )
+        self.assertEqual(
+            self.names({"diet": "pescatarian"}), ["Fish Shack", "Green Leaf"]
+        )
 
     def test_keto_matches_low_carb_cuisines(self):
-        RestaurantInspection.objects.create(camis="6", dba="Prime Cuts", cuisine="Steakhouse")
+        RestaurantInspection.objects.create(
+            camis="6", dba="Prime Cuts", cuisine="Steakhouse"
+        )
         self.assertEqual(self.names({"diet": "keto"}), ["Prime Cuts"])
 
     def test_halal_not_offered_on_homepage(self):
@@ -92,9 +125,12 @@ class RestaurantSearchTests(TestCase):
         self.assertFalse(response.context["searched"])
 
     def test_avoid_shellfish_excludes_shellfish_heavy_cuisines(self):
-        RestaurantInspection.objects.create(camis="7", dba="Oyster Bar", cuisine="Seafood")
+        RestaurantInspection.objects.create(
+            camis="7", dba="Oyster Bar", cuisine="Seafood"
+        )
         self.assertEqual(
-            self.names({"avoid": "shellfish"}), ["Green Leaf", "Joe's Pizza", "Taco Town"]
+            self.names({"avoid": "shellfish"}),
+            ["Green Leaf", "Joe's Pizza", "Taco Town"],
         )
 
     def test_avoid_nuts_shows_disclaimer(self):
@@ -106,17 +142,13 @@ class RestaurantSearchTests(TestCase):
         self.assertContains(response, "<td>Thai</td>", html=True)
 
     def test_detail_renders_history(self):
-        response = self.client.get(
-            reverse("search:restaurant_detail", args=["1"])
-        )
+        response = self.client.get(reverse("search:restaurant_detail", args=["1"]))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["dba"], "Joe's Pizza")
         self.assertEqual(len(response.context["inspections"]), 2)
 
     def test_detail_missing_returns_404(self):
-        response = self.client.get(
-            reverse("search:restaurant_detail", args=["999"])
-        )
+        response = self.client.get(reverse("search:restaurant_detail", args=["999"]))
         self.assertEqual(response.status_code, 404)
 
 
@@ -124,8 +156,10 @@ class ExploreTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         FarmersMarket.objects.create(
-            year=2024, market_name="Union Square Greenmarket",
-            borough="Manhattan", street_address="E 17th St",
+            year=2024,
+            market_name="Union Square Greenmarket",
+            borough="Manhattan",
+            street_address="E 17th St",
         )
 
     def test_explore_index_lists_datasets(self):
@@ -191,7 +225,9 @@ class FarmersMarketMapTests(TestCase):
         }
         self.assertIn("Union Square Greenmarket", markets_by_name)
         saratoga = markets_by_name["Saratoga Farm Stand"]
-        self.assertEqual(saratoga["street_address"], "1965 Fulton St, Brooklyn, NY 11233")
+        self.assertEqual(
+            saratoga["street_address"], "1965 Fulton St, Brooklyn, NY 11233"
+        )
         self.assertEqual(saratoga["zip_code"], "11233")
         self.assertEqual(saratoga["latitude"], 40.6785)
         self.assertEqual(saratoga["longitude"], -73.916194)
@@ -283,12 +319,17 @@ DETAILS_RESULT = {
 @override_settings(GOOGLE_PLACES_API_KEY="test-key")
 class EnrichRestaurantTests(TestCase):
     databases = {"default", "community"}
+
     @classmethod
     def setUpTestData(cls):
         RestaurantInspection.objects.create(
-            camis="1", dba="Joe's Pizza", boro="Brooklyn",
-            street="1 Main St", zipcode="11201",
-            inspection_date="2025-01-01", grade="A",
+            camis="1",
+            dba="Joe's Pizza",
+            boro="Brooklyn",
+            street="1 Main St",
+            zipcode="11201",
+            inspection_date="2025-01-01",
+            grade="A",
         )
 
     @patch("search.services.places.requests.request")
@@ -342,43 +383,46 @@ class EnrichRestaurantTests(TestCase):
 
 class RestaurantDetailGoogleTests(TestCase):
     databases = {"default", "community"}
+
     @classmethod
     def setUpTestData(cls):
         RestaurantInspection.objects.create(
-            camis="1", dba="Joe's Pizza", boro="Brooklyn",
-            street="1 Main St", zipcode="11201",
-            inspection_date="2025-01-01", grade="A",
+            camis="1",
+            dba="Joe's Pizza",
+            boro="Brooklyn",
+            street="1 Main St",
+            zipcode="11201",
+            inspection_date="2025-01-01",
+            grade="A",
         )
 
     def test_detail_shows_stored_google_data(self):
         place = PlaceEnrichment.objects.create(
-            camis="1", place_id="ChIJtest", display_name="Joe's Pizza",
-            rating=4.5, user_rating_count=3210,
+            camis="1",
+            place_id="ChIJtest",
+            display_name="Joe's Pizza",
+            rating=4.5,
+            user_rating_count=3210,
             price_level="PRICE_LEVEL_INEXPENSIVE",
         )
         PlaceReview.objects.create(
-            place=place, author_name="Sam", rating=5, text="Great slice.",
+            place=place,
+            author_name="Sam",
+            rating=5,
+            text="Great slice.",
         )
-        response = self.client.get(
-            reverse("search:restaurant_detail", args=["1"])
-        )
+        response = self.client.get(reverse("search:restaurant_detail", args=["1"]))
         self.assertContains(response, "4.5")
         self.assertContains(response, "Great slice.")
 
     def test_detail_without_google_data_prompts(self):
-        response = self.client.get(
-            reverse("search:restaurant_detail", args=["1"])
-        )
+        response = self.client.get(reverse("search:restaurant_detail", args=["1"]))
         self.assertContains(response, "No Google data stored yet")
 
     @patch("search.views.enrich_camis")
     def test_refresh_post_enriches_and_redirects(self, enrich):
-        response = self.client.post(
-            reverse("search:refresh_place", args=["1"])
-        )
-        self.assertRedirects(
-            response, reverse("search:restaurant_detail", args=["1"])
-        )
+        response = self.client.post(reverse("search:refresh_place", args=["1"]))
+        self.assertRedirects(response, reverse("search:restaurant_detail", args=["1"]))
         enrich.assert_called_once_with("1")
 
     @patch("search.views.enrich_camis", side_effect=PlacesAPIError("boom"))
@@ -389,14 +433,13 @@ class RestaurantDetailGoogleTests(TestCase):
         self.assertContains(response, "Could not fetch Google data")
 
     def test_refresh_get_not_allowed(self):
-        response = self.client.get(
-            reverse("search:refresh_place", args=["1"])
-        )
+        response = self.client.get(reverse("search:refresh_place", args=["1"]))
         self.assertEqual(response.status_code, 405)
 
 
 class CombinedMapTests(TestCase):
     databases = {"default", "community"}
+
     @classmethod
     def setUpTestData(cls):
         FarmersMarket.objects.create(
@@ -471,7 +514,9 @@ class CombinedMapTests(TestCase):
         )
         self.assertEqual(len(by_category["grocery"]), 2)
         grocery = next(
-            point for point in by_category["grocery"] if point["name"] == "Healthy Corner"
+            point
+            for point in by_category["grocery"]
+            if point["name"] == "Healthy Corner"
         )
         self.assertEqual(grocery["key"], "Healthy Corner|100 Main St|11201")
         self.assertEqual(len(by_category["restaurant_dohmh"]), 1)
@@ -492,9 +537,7 @@ class CombinedMapTests(TestCase):
         self.assertEqual(points[0]["category"], "grocery")
         self.assertEqual(points[0]["name"], "Healthy Corner")
 
-        zip_response = self.client.get(
-            reverse("search:combined_map"), {"zip": "11201"}
-        )
+        zip_response = self.client.get(reverse("search:combined_map"), {"zip": "11201"})
         zip_points = zip_response.context["static_points"]
         categories = {point["category"] for point in zip_points}
         self.assertIn("grocery", categories)

@@ -65,9 +65,7 @@ class Command(BaseCommand):
             else:
                 done += 1
                 self.stdout.write(
-                    self.style.SUCCESS(
-                        f"{camis}: {enrichment.display_name or 'saved'}"
-                    )
+                    self.style.SUCCESS(f"{camis}: {enrichment.display_name or 'saved'}")
                 )
             if options["sleep"] and index < len(camis_list) - 1:
                 time.sleep(options["sleep"])

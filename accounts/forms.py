@@ -84,11 +84,15 @@ class UserProfileForm(forms.ModelForm):
             "picture",
         )
         widgets = {
-            "home_address": forms.TextInput(attrs={"placeholder": "Street, Brooklyn, NY"}),
+            "home_address": forms.TextInput(
+                attrs={"placeholder": "Street, Brooklyn, NY"}
+            ),
             "favorite_foods": forms.TextInput(
                 attrs={"placeholder": "pizza, dumplings, tacos"}
             ),
-            "disliked_foods": forms.TextInput(attrs={"placeholder": "mushrooms, olives"}),
+            "disliked_foods": forms.TextInput(
+                attrs={"placeholder": "mushrooms, olives"}
+            ),
             "allergies": forms.TextInput(attrs={"placeholder": "peanuts, shellfish"}),
             "health_goals": forms.CheckboxSelectMultiple,
         }

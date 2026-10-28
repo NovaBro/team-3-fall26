@@ -1,12 +1,15 @@
 # Team Project repo
 
+[![Build Status](https://app.travis-ci.com/NovaBro/team-3-fall26.svg?branch=develop)](https://app.travis-ci.com/NovaBro/team-3-fall26)
+[![Coverage Status](https://coveralls.io/repos/github/NovaBro/team-3-fall26/badge.svg?branch=develop)](https://coveralls.io/github/NovaBro/team-3-fall26?branch=develop)
+
 NYC food / open-data search project. Raw datasets live in `database/datasets/`.
 
 ## Setup
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python manage.py migrate
 .venv/bin/python manage.py import_datasets   # loads CSVs/JSON into database/nyc_food.db
 .venv/bin/python manage.py runserver
