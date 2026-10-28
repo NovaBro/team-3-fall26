@@ -1,0 +1,16 @@
+language: python
+python:
+  - "3.8"
+  - "3.9"
+  - "3.10"
+install:
+  - pip install -r requirements.txt
+script:
+  - pytest
+
+deploy:
+  provider: elasticbeanstalk
+  access_key_id: <encrypted access_key_id>
+  secret_access_key: <encrypted secret_access_key>
+  bucket: <bucket>
+  edge: true # opt in to dpl v2
