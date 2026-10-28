@@ -110,6 +110,12 @@ class Command(BaseCommand):
         return len(records)
 
     def _import_restaurants(self):
+        # Cuisine comes from a separate CAMIS -> cuisine lookup file.
+        lookup = pd.read_csv(self._find("restaurant_cuisines_*.csv"), dtype=str)
+        cuisines = {
+            _text(camis): _text(cuisine)
+            for camis, cuisine in zip(lookup["camis"], lookup["cuisine_description"])
+        }
         records = [
             RestaurantInspection(
                 camis=_text(row["CAMIS"]),
@@ -117,6 +123,7 @@ class Command(BaseCommand):
                 boro=_text(row["BORO"]),
                 street=_text(row["STREET"]),
                 zipcode=_zipcode(row["ZIPCODE"]),
+                cuisine=cuisines.get(_text(row["CAMIS"]), ""),
                 inspection_date=_date(row["INSPECTION DATE"]),
                 violation_code=_text(row["VIOLATION CODE"]),
                 violation_description=_text(row["VIOLATION DESCRIPTION"]),

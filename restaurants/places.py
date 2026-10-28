@@ -9,8 +9,12 @@ API at request time and store nothing.
 
 import math
 import os
+import re
+import unicodedata
 
 import requests
+
+from restaurants.diet_filters import DIETS, risky_google_types
 
 SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 FIELD_MASK = ",".join(
@@ -22,6 +26,17 @@ FIELD_MASK = ",".join(
         "places.priceLevel",
         "places.servesVegetarianFood",
         "places.googleMapsUri",
+        "places.primaryType",
+        "places.types",
+        "places.addressComponents",
+    ]
+)
+HOMEPAGE_FIELD_MASK = ",".join(
+    [
+        "places.displayName",
+        "places.formattedAddress",
+        "places.priceLevel",
+        "places.addressComponents",
     ]
 )
 
@@ -33,12 +48,6 @@ PRICE_LEVELS = {
     "$$$$": "PRICE_LEVEL_VERY_EXPENSIVE",
 }
 PRICE_LABELS = {level: label for label, level in PRICE_LEVELS.items()}
-
-# Diet filter -> Google place type (vegetarian uses servesVegetarianFood instead)
-DIET_TYPES = {
-    "vegan": "vegan_restaurant",
-    "halal": "halal_restaurant",
-}
 
 # Rough bounding box of the five boroughs; searches without the user's
 # location are restricted to it.
@@ -66,26 +75,129 @@ def distance_m(lat1, lng1, lat2, lng2):
 
 def _normalize(place):
     location = place.get("location", {})
+    components = place.get("addressComponents", [])
+
+    def component(kind):
+        return next(
+            (item.get("longText", "") for item in components if kind in item.get("types", [])),
+            "",
+        )
+
+    street = " ".join(
+        part for part in (component("street_number"), component("route")) if part
+    )
+    if not street:
+        street = place.get("formattedAddress", "").split(",", 1)[0]
+    zipcode = component("postal_code")
+    if not zipcode:
+        match = re.search(r"\b(\d{5})(?:-\d{4})?\b", place.get("formattedAddress", ""))
+        zipcode = match.group(1) if match else ""
     return {
         "id": place.get("id", ""),
         "name": place.get("displayName", {}).get("text", "(no name)"),
         "address": place.get("formattedAddress", ""),
+        "street": street,
+        "zipcode": zipcode,
         "price": PRICE_LABELS.get(place.get("priceLevel", ""), ""),
         "vegetarian": place.get("servesVegetarianFood"),  # True / False / None
         "lat": location.get("latitude"),
         "lng": location.get("longitude"),
         "maps_url": place.get("googleMapsUri", ""),
+        "types": {place.get("primaryType", ""), *place.get("types", [])} - {""},
         "distance_mi": None,
     }
 
 
-def build_request(area="", prices=(), diet="", lat=None, lng=None, radius_m=None):
+def _match_value(value):
+    value = unicodedata.normalize("NFKD", value or "")
+    value = "".join(char for char in value if not unicodedata.combining(char))
+    return " ".join(re.findall(r"[a-z0-9]+", value.casefold()))
+
+
+def _match_street(value):
+    value = re.sub(r"^\s*\d+[A-Za-z]?(?:-\d+[A-Za-z]?)?\s+", "", value or "")
+    aliases = {
+        "avenue": "ave", "boulevard": "blvd", "drive": "dr", "road": "rd",
+        "street": "st", "lane": "ln", "place": "pl", "court": "ct",
+        "north": "n", "south": "s", "east": "e", "west": "w",
+    }
+    return " ".join(aliases.get(word, word) for word in _match_value(value).split())
+
+
+def find_restaurant_place(name, zipcode, street, api_key=None):
+    """Find one confident Google Places match for an NYC inspection record."""
+    api_key = api_key or os.environ.get("GOOGLE_API_KEY", "")
+    if not api_key or not name or not zipcode:
+        return None
+
+    try:
+        response = requests.post(
+            SEARCH_URL,
+            json={
+                "textQuery": f"{name} {zipcode}, New York, NY",
+                "maxResultCount": 10,
+                "languageCode": "en",
+                "locationRestriction": {"rectangle": NYC_BOUNDS},
+            },
+            headers={
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": api_key,
+                "X-Goog-FieldMask": HOMEPAGE_FIELD_MASK,
+            },
+            timeout=8,
+        )
+    except requests.RequestException:
+        return None
+    if response.status_code != 200:
+        return None
+
+    target_name = _match_value(name)
+    target_street = _match_street(street)
+    try:
+        candidates = [_normalize(place) for place in response.json().get("places", [])]
+    except (TypeError, ValueError):
+        return None
+    candidates = [place for place in candidates if place.get("zipcode") == zipcode]
+    exact = [place for place in candidates if _match_value(place["name"]) == target_name]
+    if len(exact) == 1:
+        return exact[0]
+    if target_street:
+        exact_street = [
+            place for place in exact
+            if _match_street(place["street"]) == target_street
+        ]
+        if len(exact_street) == 1:
+            return exact_street[0]
+
+        partial_street = [
+            place for place in candidates
+            if _match_value(place["name"]) != target_name
+            and (
+                target_name in _match_value(place["name"])
+                or _match_value(place["name"]) in target_name
+            )
+            and _match_street(place["street"]) == target_street
+        ]
+        if len(partial_street) == 1:
+            return partial_street[0]
+    return None
+
+
+def build_request(
+    area="", prices=(), diet="", lat=None, lng=None, radius_m=None,
+    cuisine="",
+    open_now=False, min_rating=None,
+):
     """Return the JSON body for a Text Search request."""
     area = (area or "").strip()
     if area and "new york" not in area.lower() and "nyc" not in area.lower():
         area = f"{area}, New York, NY"
 
-    kind = f"{diet} restaurants" if diet else "restaurants"
+    google = DIETS[diet]["google"] if diet else None
+    kind = google["query"] if google else "restaurants"
+    cuisine = (cuisine or "").strip()
+    if cuisine:
+        kind = f"{cuisine} {kind}"
     if area:
         query = f"{kind} in {area}"
     elif lat is not None:
@@ -94,6 +206,10 @@ def build_request(area="", prices=(), diet="", lat=None, lng=None, radius_m=None
         query = f"{kind} in New York, NY"
 
     body = {"textQuery": query, "maxResultCount": 20, "languageCode": "en"}
+    if open_now:
+        body["openNow"] = True
+    if min_rating is not None:
+        body["minRating"] = float(min_rating)
     # Google allows a circle only as a bias, so with the user's location we
     # bias toward it and enforce the distance ourselves in get_restaurants().
     if lat is not None and lng is not None:
@@ -107,26 +223,34 @@ def build_request(area="", prices=(), diet="", lat=None, lng=None, radius_m=None
         body["locationRestriction"] = {"rectangle": NYC_BOUNDS}
     if prices:
         body["priceLevels"] = [PRICE_LEVELS[p] for p in prices]
-    if diet in DIET_TYPES:
-        body["includedType"] = DIET_TYPES[diet]
+    if google and google["type"]:
+        body["includedType"] = google["type"]
         body["strictTypeFiltering"] = True
     return body
 
 
-def get_restaurants(area="", prices=(), diet="", lat=None, lng=None, radius_m=None, api_key=None):
+def get_restaurants(
+    area="", prices=(), diet="", lat=None, lng=None, radius_m=None, avoid=(), cuisine="",
+    open_now=False, min_rating=None, api_key=None,
+):
     """Return a list of restaurant dicts matching every given filter.
 
     area:     free-text neighborhood/street, e.g. "East Village"
     prices:   any of "$", "$$", "$$$", "$$$$" (empty = any price)
-    diet:     "", "vegetarian", "vegan" or "halal"
+    diet:     "" or a key of restaurants.diet_filters.DIETS that has a "google" entry
     lat/lng:  optional user location; results are sorted by distance
     radius_m: optional max distance from lat/lng, in meters
+    avoid:    allergy keys from restaurants.diet_filters, e.g. ["nuts"]
     """
     api_key = api_key or os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
         raise PlacesError("GOOGLE_API_KEY is not set. Add it to your .env file.")
 
-    body = build_request(area, prices, diet, lat, lng, radius_m)
+    body = build_request(
+        area, prices, diet, lat, lng, radius_m,
+        cuisine=cuisine,
+        open_now=open_now, min_rating=min_rating,
+    )
     try:
         resp = requests.post(
             SEARCH_URL,
@@ -155,6 +279,10 @@ def get_restaurants(area="", prices=(), diet="", lat=None, lng=None, radius_m=No
         places = [p for p in places if p["price"] in prices]
     if diet == "vegetarian":
         places = [p for p in places if p["vegetarian"] is True]
+    # Text Search can't exclude place types, so allergy filters run here.
+    if avoid:
+        risky = risky_google_types(avoid)
+        places = [p for p in places if not p["types"] & risky]
 
     if lat is not None and lng is not None:
         for p in places:

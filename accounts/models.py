@@ -35,6 +35,7 @@ class UserProfile(models.Model):
     disliked_foods = models.TextField(blank=True)
     health_goals = models.JSONField(default=list, blank=True)
     allergies = models.TextField(blank=True)
+    picture = models.ImageField(upload_to="profiles/", blank=True)
 
     class Meta:
         verbose_name = "user profile"

@@ -22,8 +22,13 @@ __pycache__/
 db.sqlite3
 database/*.db
 database/*.sqlite3
-
 # Environment / secrets
 .env
 .env.*
 !.env.example
+
+# macOS
+.DS_Store
+
+# User uploads
+media/

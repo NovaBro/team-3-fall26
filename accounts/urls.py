@@ -13,6 +13,7 @@ class ProfileLoginView(LoginView):
 
 urlpatterns = [
     path("profile/", views.profile, name="profile"),
+    path("profile/<str:username>/", views.view_profile, name="view_profile"),
     path("signup/", views.signup, name="signup"),
     path("login/", ProfileLoginView.as_view(), name="login"),
     path("logout/", views.logout_view, name="logout"),

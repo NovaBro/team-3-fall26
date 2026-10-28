@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'search',
     'restaurants',
     'accounts',
+    'community',
 ]
 
 MIDDLEWARE = [
@@ -88,8 +89,14 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'database' / 'nyc_food.db',
-    }
+    },
+    'community': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'database' / 'community.db',
+    },
 }
+
+DATABASE_ROUTERS = ['community.router.CommunityRouter']
 
 
 # Password validation
@@ -117,11 +124,14 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# User-uploaded files (profile pictures). Served by Django only in DEBUG/dev.
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
 
 # Google Places API (New)
 # Set the GOOGLE_PLACES_API_KEY environment variable to enable enrichment.

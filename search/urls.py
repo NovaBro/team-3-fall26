@@ -6,6 +6,7 @@ app_name = "search"
 
 urlpatterns = [
     path("", views.index, name="index"),
+    path("home/", views.home, name="home"),
     path("explore/", views.explore_index, name="explore_index"),
     path("explore/<slug:slug>/", views.explore, name="explore"),
     path("farmers-markets/", views.farmers_markets_map, name="farmers_markets_map"),
