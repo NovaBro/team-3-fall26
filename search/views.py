@@ -12,6 +12,14 @@ from django.views.decorators.http import require_GET, require_POST
 from restaurants.forms import AREA_CHOICES, DIET_CHOICES, PRICE_CHOICES, RestaurantFilterForm
 from restaurants.places import PlacesError, get_restaurants
 from search.models import FarmersMarket, HealthyStore, PlaceEnrichment, RestaurantInspection
+from restaurants.diet_filters import (
+    ALLERGIES,
+    ALLERGY_CHOICES,
+    DIETS,
+    HOMEPAGE_DIET_CHOICES,
+    risky_cuisines,
+)
+from search.models import FarmersMarket, RestaurantInspection
 from search.registry import DATASETS
 from search.services.places import PlacesAPIError, enrich_camis
 
@@ -81,7 +89,7 @@ def _market_operates_on_day(days_of_operation, selected_day):
     return selected_day in MARKET_DAYS and MARKET_DAYS.index(selected_day) in found_days
 
 
-def _filter_restaurants(qs, name, boro, zipcode, grade):
+def _filter_restaurants(qs, name, boro, zipcode, grade, diet="", avoid=()):
     if name:
         qs = qs.filter(dba__icontains=name)
     if boro:
@@ -90,6 +98,10 @@ def _filter_restaurants(qs, name, boro, zipcode, grade):
         qs = qs.filter(zipcode__startswith=zipcode)
     if grade:
         qs = qs.filter(grade=grade)
+    if diet:
+        qs = qs.filter(cuisine__in=DIETS[diet]["cuisines"])
+    if avoid:
+        qs = qs.exclude(cuisine__in=risky_cuisines(avoid))
     return qs
 
 
@@ -98,11 +110,15 @@ def index(request):
     boro = request.GET.get("boro", "").strip()
     zipcode = request.GET.get("zip", "").strip()
     grade = request.GET.get("grade", "").strip()
+    diet = request.GET.get("diet", "").strip()
+    if diet not in dict(HOMEPAGE_DIET_CHOICES):
+        diet = ""
+    avoid = [a for a in request.GET.getlist("avoid") if a in ALLERGIES]
 
     page_obj = None
-    if name or boro or zipcode or grade:
+    if name or boro or zipcode or grade or diet or avoid:
         base = _filter_restaurants(
-            RestaurantInspection.objects.all(), name, boro, zipcode, grade
+            RestaurantInspection.objects.all(), name, boro, zipcode, grade, diet, avoid
         )
         latest = RestaurantInspection.objects.filter(
             camis=OuterRef("camis")
@@ -114,6 +130,7 @@ def index(request):
                 boro=Max("boro"),
                 street=Max("street"),
                 zipcode=Max("zipcode"),
+                cuisine=Max("cuisine"),
                 last_date=Max("inspection_date"),
                 grade=Subquery(latest.values("grade")[:1]),
             )
@@ -129,9 +146,13 @@ def index(request):
             "boro": boro,
             "zip": zipcode,
             "grade": grade,
+            "diet": diet,
+            "avoid": avoid,
             "page_obj": page_obj,
             "boro_options": BOROUGHS,
             "grade_options": GRADES,
+            "diet_options": HOMEPAGE_DIET_CHOICES,
+            "allergy_options": ALLERGY_CHOICES,
             "searched": bool(page_obj),
         },
     )
@@ -158,6 +179,7 @@ def restaurant_detail(request, camis):
             "boro": latest.boro,
             "street": latest.street,
             "zipcode": latest.zipcode,
+            "cuisine": latest.cuisine,
             "inspections": inspections,
             "place": place,
         },

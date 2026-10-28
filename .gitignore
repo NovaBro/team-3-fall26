@@ -27,3 +27,6 @@ database/*.sqlite3
 .env
 .env.*
 !.env.example
+# Ds store files
+.DS_Store
+./database/.DS_Store

@@ -9,11 +9,14 @@
 
 {% block content %}
 <h1>Find restaurants</h1>
-<p class="muted">Filter by area, price, diet, and how far you can walk between classes.</p>
+<p class="muted">Filter by cuisine, area, price, diet, and distance.</p>
 
 <form class="filters restaurant-filters" method="get" action="{% url 'restaurants:search' %}" id="filter-form">
   <label>Area
     {{ form.area }}
+  </label>
+  <label>Cuisine
+    {{ form.cuisine }}
   </label>
   <fieldset class="price-group">
     <legend>Price</legend>
@@ -24,9 +27,19 @@
   <label>Diet
     {{ form.diet }}
   </label>
+  <fieldset class="price-group">
+    <legend>Allergies</legend>
+    {% for choice in form.avoid %}
+      <label class="check">{{ choice.tag }} {{ choice.choice_label }}</label>
+    {% endfor %}
+  </fieldset>
   <label>Distance
     {{ form.distance }}
   </label>
+  <label>Minimum rating
+    {{ form.min_rating }}
+  </label>
+  <label class="inline-check">{{ form.open_now }} Open now</label>
   {{ form.lat }}
   {{ form.lng }}
   <div class="actions">
@@ -50,6 +63,9 @@
 {% elif error %}
   <p class="error" role="alert">{{ error }}</p>
 {% elif searched %}
+  {% if avoiding_allergens %}
+    <p class="allergy-note" role="note">Allergy filters skip cuisines where the allergen is common. They can't guarantee a dish is safe. Always confirm allergies with the restaurant.</p>
+  {% endif %}
   {% if restaurants %}
     <p class="muted">{{ restaurants|length }} restaurant{{ restaurants|length|pluralize }} found.</p>
     <div class="results-layout">

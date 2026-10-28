@@ -12,6 +12,8 @@ import os
 
 import requests
 
+from restaurants.diet_filters import DIETS, risky_google_types
+
 SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 FIELD_MASK = ",".join(
     [
@@ -22,6 +24,8 @@ FIELD_MASK = ",".join(
         "places.priceLevel",
         "places.servesVegetarianFood",
         "places.googleMapsUri",
+        "places.primaryType",
+        "places.types",
     ]
 )
 
@@ -33,12 +37,6 @@ PRICE_LEVELS = {
     "$$$$": "PRICE_LEVEL_VERY_EXPENSIVE",
 }
 PRICE_LABELS = {level: label for label, level in PRICE_LEVELS.items()}
-
-# Diet filter -> Google place type (vegetarian uses servesVegetarianFood instead)
-DIET_TYPES = {
-    "vegan": "vegan_restaurant",
-    "halal": "halal_restaurant",
-}
 
 # Rough bounding box of the five boroughs; searches without the user's
 # location are restricted to it.
@@ -75,17 +73,26 @@ def _normalize(place):
         "lat": location.get("latitude"),
         "lng": location.get("longitude"),
         "maps_url": place.get("googleMapsUri", ""),
+        "types": {place.get("primaryType", ""), *place.get("types", [])} - {""},
         "distance_mi": None,
     }
 
 
-def build_request(area="", prices=(), diet="", lat=None, lng=None, radius_m=None):
+def build_request(
+    area="", prices=(), diet="", lat=None, lng=None, radius_m=None,
+    cuisine="",
+    open_now=False, min_rating=None,
+):
     """Return the JSON body for a Text Search request."""
     area = (area or "").strip()
     if area and "new york" not in area.lower() and "nyc" not in area.lower():
         area = f"{area}, New York, NY"
 
-    kind = f"{diet} restaurants" if diet else "restaurants"
+    google = DIETS[diet]["google"] if diet else None
+    kind = google["query"] if google else "restaurants"
+    cuisine = (cuisine or "").strip()
+    if cuisine:
+        kind = f"{cuisine} {kind}"
     if area:
         query = f"{kind} in {area}"
     elif lat is not None:
@@ -94,6 +101,10 @@ def build_request(area="", prices=(), diet="", lat=None, lng=None, radius_m=None
         query = f"{kind} in New York, NY"
 
     body = {"textQuery": query, "maxResultCount": 20, "languageCode": "en"}
+    if open_now:
+        body["openNow"] = True
+    if min_rating is not None:
+        body["minRating"] = float(min_rating)
     # Google allows a circle only as a bias, so with the user's location we
     # bias toward it and enforce the distance ourselves in get_restaurants().
     if lat is not None and lng is not None:
@@ -107,26 +118,34 @@ def build_request(area="", prices=(), diet="", lat=None, lng=None, radius_m=None
         body["locationRestriction"] = {"rectangle": NYC_BOUNDS}
     if prices:
         body["priceLevels"] = [PRICE_LEVELS[p] for p in prices]
-    if diet in DIET_TYPES:
-        body["includedType"] = DIET_TYPES[diet]
+    if google and google["type"]:
+        body["includedType"] = google["type"]
         body["strictTypeFiltering"] = True
     return body
 
 
-def get_restaurants(area="", prices=(), diet="", lat=None, lng=None, radius_m=None, api_key=None):
+def get_restaurants(
+    area="", prices=(), diet="", lat=None, lng=None, radius_m=None, avoid=(), cuisine="",
+    open_now=False, min_rating=None, api_key=None,
+):
     """Return a list of restaurant dicts matching every given filter.
 
     area:     free-text neighborhood/street, e.g. "East Village"
     prices:   any of "$", "$$", "$$$", "$$$$" (empty = any price)
-    diet:     "", "vegetarian", "vegan" or "halal"
+    diet:     "" or a key of restaurants.diet_filters.DIETS that has a "google" entry
     lat/lng:  optional user location; results are sorted by distance
     radius_m: optional max distance from lat/lng, in meters
+    avoid:    allergy keys from restaurants.diet_filters, e.g. ["nuts"]
     """
     api_key = api_key or os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
         raise PlacesError("GOOGLE_API_KEY is not set. Add it to your .env file.")
 
-    body = build_request(area, prices, diet, lat, lng, radius_m)
+    body = build_request(
+        area, prices, diet, lat, lng, radius_m,
+        cuisine=cuisine,
+        open_now=open_now, min_rating=min_rating,
+    )
     try:
         resp = requests.post(
             SEARCH_URL,
@@ -155,6 +174,10 @@ def get_restaurants(area="", prices=(), diet="", lat=None, lng=None, radius_m=No
         places = [p for p in places if p["price"] in prices]
     if diet == "vegetarian":
         places = [p for p in places if p["vegetarian"] is True]
+    # Text Search can't exclude place types, so allergy filters run here.
+    if avoid:
+        risky = risky_google_types(avoid)
+        places = [p for p in places if not p["types"] & risky]
 
     if lat is not None and lng is not None:
         for p in places:

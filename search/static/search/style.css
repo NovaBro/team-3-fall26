@@ -443,3 +443,11 @@ tbody tr:hover { background: #f2f6fc; }
 
 .auth-form { max-width: 380px; margin-top: 18px; }
 .auth-form .field { margin-bottom: 14px; }
+.filters label.check { display: flex; align-items: center; gap: 4px; }
+
+.allergy-note {
+  padding: 8px 12px;
+  border-left: 3px solid #c28a00;
+  background: #fdf8ec;
+  border-radius: 4px;
+}
