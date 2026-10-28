@@ -85,3 +85,10 @@
   .results-list { max-height: 45vh; }
   #map { height: 340px; }
 }
+
+
+.tag.grade { text-decoration: none; font-weight: 600; }
+.tag.grade-a { background: #dcfce7; border-color: #86efac; color: #166534; }
+.tag.grade-b { background: #ffedd5; border-color: #fdba74; color: #9a3412; }
+.tag.grade-c { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+.tag.grade-none { color: #6b7280; font-weight: 400; }

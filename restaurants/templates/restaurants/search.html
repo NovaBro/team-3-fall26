@@ -78,6 +78,11 @@
               <span class="tag">{{ r.price|default:"price n/a" }}</span>
               {% if r.vegetarian is True %}<span class="tag">vegetarian</span>{% endif %}
               {% if r.distance_mi is not None %}<span class="tag">{{ r.distance_mi|floatformat:2 }} mi away</span>{% endif %}
+              {% if r.inspection %}
+                <a class="tag grade grade-{{ r.inspection.grade|lower|default:'na' }}" href="{% url 'search:restaurant_detail' r.inspection.camis %}" title="Latest NYC health inspection{% if r.inspection.date %} ({{ r.inspection.date|date:'M Y' }}){% endif %}">{% if r.inspection.grade %}Inspection {{ r.inspection.grade }}{% else %}Inspected{% endif %}</a>
+              {% else %}
+                <span class="tag grade grade-none">No inspection data</span>
+              {% endif %}
             </div>
           </div>
         {% endfor %}
