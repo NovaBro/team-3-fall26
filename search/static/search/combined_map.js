@@ -15,22 +15,6 @@
     restaurant_google: "#9b59b6",
   };
 
-  const BASEMAP_STYLE = {
-    version: 8,
-    sources: {
-      carto: {
-        type: "raster",
-        tiles: ["https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"],
-        tileSize: 256,
-        maxzoom: 20,
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
-          '&copy; <a href="https://carto.com/attributions">CARTO</a>',
-      },
-    },
-    layers: [{ id: "carto", type: "raster", source: "carto" }],
-  };
-
   const state = {
     map: null,
     points: {
@@ -467,8 +451,11 @@
     const opening = visiblePoints();
     const mapOptions = {
       container: mapElement,
-      style: BASEMAP_STYLE,
-      maxZoom: 20,
+      style: "https://tiles.openfreemap.org/styles/dark",
+      maxZoom: 18,
+      customAttribution:
+        '&copy; <a href="https://openfreemap.org/">OpenFreeMap</a> contributors &middot; ' +
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     };
     if (opening.length) {
       const bounds = new maplibregl.LngLatBounds();
@@ -483,8 +470,8 @@
     state.map = new maplibregl.Map(mapOptions);
     state.map.addControl(new maplibregl.NavigationControl(), "top-left");
 
-    state.map.on("error", () => {
-      if (!state.map.getCanvas()) {
+    state.map.on("error", (event) => {
+      if (!state.map.isStyleLoaded() || event.sourceId === "openmaptiles") {
         setStatus("The map could not load. Check your internet connection and refresh.");
       }
     });
