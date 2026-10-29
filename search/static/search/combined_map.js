@@ -223,6 +223,7 @@
       center: { lat: 40.7295, lng: -73.9965 },
       zoom: 11,
       mapId: "DEMO_MAP_ID",
+      colorScheme: "DARK",
     });
 
     addPoints(points);

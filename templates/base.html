@@ -5,31 +5,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}NYC Food Search{% endblock %}</title>
   {% load static %}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="{% static 'search/style.css' %}">
+  {% block extra_head %}{% endblock %}
 </head>
 <body>
+  {% with view=request.resolver_match.view_name %}
   <header class="site-header">
     <div class="wrap">
-      <a class="brand" href="{% url 'search:index' %}">NYC Food Search</a>
-      <nav>
-        <a href="{% url 'search:index' %}">Restaurants</a>
-        <a href="{% url 'restaurants:search' %}">Find restaurants</a>
-        <a href="{% url 'search:explore_index' %}">Explore datasets</a>
-        <a href="{% url 'search:farmers_markets_map' %}">Farmers market</a>
-        <a href="{% url 'search:combined_map' %}">Combined map</a>
+      <a class="brand" href="{% url 'search:index' %}">
+        <span class="brand-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+        NYC Food Search
+      </a>
+      <nav aria-label="Main">
+        <a href="{% url 'search:index' %}"{% if view == 'search:index' or view == 'search:restaurant_detail' %} aria-current="page"{% endif %}>Restaurants</a>
+        <a href="{% url 'restaurants:search' %}"{% if view == 'restaurants:search' %} aria-current="page"{% endif %}>Find restaurants</a>
+        <a href="{% url 'search:explore_index' %}"{% if view == 'search:explore_index' or view == 'search:explore' %} aria-current="page"{% endif %}>Explore datasets</a>
+        <a href="{% url 'search:farmers_markets_map' %}"{% if view == 'search:farmers_markets_map' %} aria-current="page"{% endif %}>Farmers market</a>
+        <a href="{% url 'search:combined_map' %}"{% if view == 'search:combined_map' %} aria-current="page"{% endif %}>Combined map</a>
         {% if user.is_authenticated %}
-          <a href="{% url 'accounts:profile' %}">Profile</a>
+          <a href="{% url 'accounts:profile' %}"{% if view == 'accounts:profile' %} aria-current="page"{% endif %}>Profile</a>
           <form class="nav-form" method="post" action="{% url 'accounts:logout' %}">
             {% csrf_token %}
             <button type="submit" class="nav-link-button">Log out</button>
           </form>
         {% else %}
-          <a href="{% url 'accounts:login' %}">Log in</a>
-          <a href="{% url 'accounts:signup' %}">Sign up</a>
+          <a href="{% url 'accounts:login' %}"{% if view == 'accounts:login' %} aria-current="page"{% endif %}>Log in</a>
+          <a href="{% url 'accounts:signup' %}"{% if view == 'accounts:signup' %} aria-current="page"{% endif %}>Sign up</a>
         {% endif %}
       </nav>
     </div>
   </header>
+  {% endwith %}
   <main class="wrap">
     {% if messages %}
       <ul class="messages">
