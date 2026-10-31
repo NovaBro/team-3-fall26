@@ -26,6 +26,7 @@ class UserProfile(models.Model):
         settings.AUTH_USER_MODEL, related_name="profile", on_delete=models.CASCADE
     )
     name = models.CharField(max_length=100, blank=True)
+    picture = models.ImageField(upload_to="profile_pictures/", blank=True)
     home_address = models.CharField(max_length=255, blank=True)
     age = models.PositiveIntegerField(null=True, blank=True)
     gender = models.CharField(max_length=32, blank=True, choices=GENDER_CHOICES)
@@ -35,7 +36,6 @@ class UserProfile(models.Model):
     disliked_foods = models.TextField(blank=True)
     health_goals = models.JSONField(default=list, blank=True)
     allergies = models.TextField(blank=True)
-    picture = models.ImageField(upload_to="profiles/", blank=True)
 
     class Meta:
         verbose_name = "user profile"

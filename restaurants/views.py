@@ -1,9 +1,14 @@
 import os
 
-from django.shortcuts import render
+from urllib.parse import urlencode
+
+from django.http import Http404
+from django.shortcuts import redirect, render
+from django.urls import reverse
 
 from restaurants.forms import RestaurantFilterForm
-from restaurants.places import PlacesError, get_restaurants
+from restaurants.inspections import attach_inspections
+from restaurants.places import PlacesError, get_photo_url, get_restaurants
 
 
 def search(request):
@@ -29,6 +34,7 @@ def search(request):
                 open_now=data["open_now"],
                 min_rating=float(data["min_rating"]) if data["min_rating"] else None,
             )
+            restaurants = attach_inspections(restaurants)
         except PlacesError as exc:
             error = str(exc)
 
@@ -45,15 +51,48 @@ def search(request):
                 form.is_bound and form.is_valid() and form.cleaned_data["avoid"]
             ),
             "map_points": [
-                {
-                    "name": r["name"],
-                    "lat": r["lat"],
-                    "lng": r["lng"],
-                    "price": r["price"],
-                }
+                _map_point(r)
                 for r in restaurants
                 if r["lat"] is not None and r["lng"] is not None
             ],
             "maps_key": os.environ.get("GOOGLE_MAPS_JS_KEY", ""),
         },
     )
+
+
+def _map_point(r):
+    """What the pin popup shows for one restaurant (everything is optional)."""
+    inspection = r.get("inspection") or {}
+    photo = r.get("photo") or ""
+    return {
+        "name": r["name"],
+        "lat": r["lat"],
+        "lng": r["lng"],
+        "price": r["price"],
+        "address": r.get("address", ""),
+        "rating": r.get("rating"),
+        "rating_count": r.get("rating_count"),
+        "maps_url": r.get("maps_url", ""),
+        "photo_url": (
+            reverse("restaurants:photo") + "?" + urlencode({"name": photo})
+            if photo
+            else ""
+        ),
+        "has_inspection": bool(inspection),
+        "grade": inspection.get("grade", ""),
+        "detail_url": (
+            reverse("search:restaurant_detail", args=[inspection["camis"]])
+            if inspection
+            else ""
+        ),
+    }
+
+
+def photo(request):
+    """Redirect to a place photo; keeps the server API key out of the browser."""
+    url = get_photo_url(request.GET.get("name", ""))
+    if not url:
+        raise Http404("No photo")
+    response = redirect(url)
+    response["Cache-Control"] = "public, max-age=86400"
+    return response

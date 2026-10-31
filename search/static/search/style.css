@@ -286,9 +286,9 @@ tbody tr:hover { background: var(--raised); }
 .layer-toggles,
 .google-load-controls {
   margin: 0;
-  padding: 12px 14px;
+  padding: 12px 16px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--panel);
 }
 
@@ -303,16 +303,19 @@ tbody tr:hover { background: var(--raised); }
 .google-load-controls legend {
   padding: 0 4px;
   font-size: 0.85rem;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--muted);
 }
 
 .layer-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-height: 32px;
   font-size: 0.95rem;
 }
+
+.layer-toggle input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
 
 .swatch {
   width: 12px;
@@ -322,6 +325,7 @@ tbody tr:hover { background: var(--raised); }
   flex: 0 0 auto;
 }
 
+/* Match the marker colors in combined_map.js. */
 .swatch--farmers_market { background: #1f5fbf; }
 .swatch--grocery { background: #2e8b57; }
 .swatch--restaurant_dohmh { background: #e67e22; }
@@ -334,22 +338,25 @@ tbody tr:hover { background: var(--raised); }
   align-items: center;
 }
 
-.google-load-controls select,
-.google-load-controls button {
-  padding: 8px 10px;
+.google-load-controls select {
+  height: 44px;
+  padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-size: 0.95rem;
+  font: 500 0.95rem var(--font-ui);
   color: var(--ink);
   background: var(--bg);
 }
 
 .google-load-controls button {
+  height: 44px;
+  padding: 0 22px;
   border: 0;
+  border-radius: var(--radius);
   background: var(--accent);
   color: var(--on-accent);
+  font: 600 0.95rem var(--font-ui);
   cursor: pointer;
-  padding: 8px 18px;
 }
 
 .google-load-controls button:hover { background: var(--accent-hover); }
@@ -359,6 +366,14 @@ tbody tr:hover { background: var(--raised); }
   display: inline-flex;
   flex-wrap: wrap;
   gap: 8px 12px;
+}
+
+.combined-map-popup {
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
 }
 
 .farmers-market-map .maplibregl-ctrl-attrib,
@@ -409,18 +424,11 @@ tbody tr:hover { background: var(--raised); }
 .market-status--closed { color: var(--danger); background: rgba(255, 123, 114, 0.14); }
 .market-status--closing-soon { color: var(--warn); background: rgba(242, 193, 78, 0.14); }
 
-@media (max-width: 640px) {
-  .site-header .wrap { padding-top: 10px; padding-bottom: 10px; }
-  .wrap { padding: 0 16px; }
-  h1 { font-size: 1.7rem; }
-  .farmers-market-map,
-  .combined-map { min-height: 360px; }
-}
-
+/* Flash messages */
 .messages { list-style: none; margin: 0 0 20px; padding: 0; }
 
 .message {
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--panel);
@@ -439,17 +447,18 @@ tbody tr:hover { background: var(--raised); }
   color: var(--danger);
 }
 
+/* Google Places panel on the restaurant detail page */
 .place-panel {
   margin: 18px 0 8px;
-  padding: 18px;
+  padding: 20px;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
 }
 
 .place-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
 .place-rating { font-weight: 700; font-size: 1.15rem; }
-.place-price { color: var(--muted); }
+.place-price { color: var(--muted); font-family: var(--font-mono); }
 .place-links { margin: 8px 0 0; }
 
 .reviews { list-style: none; padding: 0; margin: 10px 0 0; }
@@ -460,7 +469,7 @@ tbody tr:hover { background: var(--raised); }
 }
 
 .review-meta { color: var(--muted); font-size: 0.85rem; }
-.review-text { margin: 4px 0 0; }
+.review-text { margin: 4px 0 0; color: var(--ink-soft); }
 
 .attr {
   display: block;
@@ -470,25 +479,29 @@ tbody tr:hover { background: var(--raised); }
 }
 
 .btn {
-  display: inline-block;
-  padding: 8px 18px;
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 22px;
   border: 0;
   border-radius: var(--radius);
   background: var(--accent);
   color: var(--on-accent);
-  font-size: 0.95rem;
+  font: 600 0.95rem var(--font-ui);
+  text-decoration: none;
   cursor: pointer;
 }
 
-.btn:hover { background: var(--accent-hover); }
+.btn:hover { background: var(--accent-hover); color: var(--on-accent); }
 
-.nav-form { display: inline; margin: 0; }
+/* Log out is a form button styled like the nav links. */
+.nav-form { display: inline-flex; margin: 0; }
 
 .nav-link-button {
-  background: none;
-  border: 0;
   padding: 8px 12px;
+  border: 0;
   border-radius: 8px;
+  background: none;
   font: inherit;
   color: var(--muted);
   cursor: pointer;
@@ -496,12 +509,13 @@ tbody tr:hover { background: var(--raised); }
 
 .nav-link-button:hover { color: var(--ink); background: var(--panel); }
 
+/* Profile and auth forms */
 .form-section {
   margin: 22px 0;
-  padding: 18px;
+  padding: 20px;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
 }
 
 .form-section h2:first-child { margin-top: 0; }
@@ -517,9 +531,10 @@ tbody tr:hover { background: var(--raised); }
 
 .field label {
   display: block;
-  font-weight: 600;
+  font-weight: 500;
   font-size: 0.9rem;
-  margin-bottom: 4px;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
 }
 
 .field input[type="text"],
@@ -529,13 +544,17 @@ tbody tr:hover { background: var(--raised); }
 .field input[type="file"],
 .field select {
   width: 100%;
-  padding: 8px 10px;
+  height: 44px;
+  padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-size: 0.95rem;
+  font: 500 0.95rem var(--font-ui);
   color: var(--ink);
   background: var(--bg);
 }
+
+.field input[type="checkbox"],
+.field input[type="radio"] { width: 18px; height: 18px; accent-color: var(--accent); }
 
 .field ul {
   list-style: none;
@@ -544,6 +563,7 @@ tbody tr:hover { background: var(--raised); }
 }
 
 .field ul li { margin: 4px 0; }
+.field ul label { display: flex; align-items: center; gap: 8px; font-weight: 400; color: var(--ink); }
 
 .field-errors { color: var(--danger); font-size: 0.85rem; margin: 4px 0 0; }
 .field-hint { font-size: 0.85rem; margin: 4px 0 0; }
@@ -616,4 +636,12 @@ tbody tr:hover { background: var(--raised); }
 @media (max-width: 900px) {
   .combined-map-layout { grid-template-columns: 1fr; }
   .community-panel { max-height: none; }
+}
+
+@media (max-width: 640px) {
+  .site-header .wrap { padding-top: 10px; padding-bottom: 10px; }
+  .wrap { padding: 0 16px; }
+  h1 { font-size: 1.7rem; }
+  .farmers-market-map,
+  .combined-map { min-height: 360px; }
 }

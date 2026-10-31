@@ -7,6 +7,18 @@
 <p class="muted">Your answers help us tailor restaurant and menu recommendations.</p>
 
 <section class="form-section">
+  <h2>Account details</h2>
+  <dl>
+    <dt>Username</dt>
+    <dd>{{ request.user.username }}</dd>
+    <dt>Name</dt>
+    <dd>{{ fixed_form.instance.name|default:"Not provided yet" }}</dd>
+    <dt>Email</dt>
+    <dd>{{ request.user.email|default:"Not provided yet" }}</dd>
+  </dl>
+</section>
+
+<section class="form-section">
   <h2>Fixed user inputs</h2>
   <p class="muted">Basics about you. Update these whenever something changes.</p>
   {% if profile.picture %}
@@ -17,6 +29,13 @@
     {% csrf_token %}
     {% if fixed_form.non_field_errors %}
       <ul class="errorlist">{{ fixed_form.non_field_errors }}</ul>
+    {% endif %}
+    {% if fixed_form.instance.picture %}
+      <p>
+        <img src="{{ fixed_form.instance.picture.url }}"
+             alt="Profile picture for {{ fixed_form.instance.name|default:request.user.username }}"
+             width="120" height="120">
+      </p>
     {% endif %}
     <div class="field-grid">
       {% for field in fixed_form %}

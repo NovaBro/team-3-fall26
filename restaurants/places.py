@@ -29,6 +29,9 @@ FIELD_MASK = ",".join(
         "places.primaryType",
         "places.types",
         "places.addressComponents",
+        "places.rating",
+        "places.userRatingCount",
+        "places.photos",
     ]
 )
 HOMEPAGE_FIELD_MASK = ",".join(
@@ -109,6 +112,9 @@ def _normalize(place):
         "maps_url": place.get("googleMapsUri", ""),
         "types": {place.get("primaryType", ""), *place.get("types", [])} - {""},
         "distance_mi": None,
+        "rating": place.get("rating"),
+        "rating_count": place.get("userRatingCount"),
+        "photo": (place.get("photos") or [{}])[0].get("name", ""),
     }
 
 
@@ -336,3 +342,29 @@ def get_restaurants(
         places.sort(key=lambda p: (p["distance_mi"] is None, p["distance_mi"] or 0))
 
     return places
+
+
+# --- pin popup: one photo for a place (Google Places Photos, New) ---
+_PHOTO_NAME = re.compile(r"^places/[A-Za-z0-9_-]+/photos/[A-Za-z0-9_-]+$")
+
+
+def get_photo_url(name, api_key=None, max_width=400):
+    """Return a plain image URL for a Google photo name, or "" if unavailable.
+
+    The API key stays on the server: Google returns a key-free image URL.
+    """
+    api_key = api_key or os.environ.get("GOOGLE_API_KEY", "")
+    if not api_key or not _PHOTO_NAME.match(name or ""):
+        return ""
+    try:
+        resp = requests.get(
+            f"https://places.googleapis.com/v1/{name}/media",
+            params={"maxWidthPx": max_width, "skipHttpRedirect": "true"},
+            headers={"X-Goog-Api-Key": api_key},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return ""
+    if resp.status_code != 200:
+        return ""
+    return resp.json().get("photoUri", "")

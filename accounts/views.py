@@ -25,7 +25,9 @@ def signup(request):
         form = SignupForm(request.POST)
         if form.is_valid():
             user = form.save()
-            UserProfile.objects.get_or_create(user=user)
+            UserProfile.objects.get_or_create(
+                user=user, defaults={"name": form.cleaned_data["name"]}
+            )
             login(request, user)
             messages.success(request, "Welcome! Tell us a bit about yourself below.")
             return redirect("accounts:profile")
@@ -65,7 +67,8 @@ def profile(request):
                 fixed.save()
                 request.user.first_name = fixed_form.cleaned_data.get("first_name", "")
                 request.user.last_name = fixed_form.cleaned_data.get("last_name", "")
-                request.user.save(update_fields=["first_name", "last_name"])
+                request.user.email = fixed_form.cleaned_data["email"]
+                request.user.save(update_fields=["first_name", "last_name", "email"])
                 messages.success(request, "Profile updated.")
                 return redirect("accounts:profile")
             messages.error(request, "Please fix the errors below.")

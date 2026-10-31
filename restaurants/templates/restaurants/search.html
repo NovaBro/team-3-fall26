@@ -5,6 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'restaurants/style.css' %}">
+<link rel="stylesheet" href="{% static 'restaurants/popup.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -83,6 +84,11 @@
               <span class="tag">{{ r.price|default:"price n/a" }}</span>
               {% if r.vegetarian is True %}<span class="tag">vegetarian</span>{% endif %}
               {% if r.distance_mi is not None %}<span class="tag">{{ r.distance_mi|floatformat:2 }} mi away</span>{% endif %}
+              {% if r.inspection %}
+                <a class="tag grade grade-{{ r.inspection.grade|lower|default:'na' }}" href="{% url 'search:restaurant_detail' r.inspection.camis %}" title="Latest NYC health inspection{% if r.inspection.date %} ({{ r.inspection.date|date:'M Y' }}){% endif %}">{% if r.inspection.grade %}Inspection {{ r.inspection.grade }}{% else %}Inspected{% endif %}</a>
+              {% else %}
+                <span class="tag grade grade-none">No inspection data</span>
+              {% endif %}
             </div>
           </div>
         {% endfor %}
@@ -129,11 +135,7 @@
       points.forEach((p, i) => {
         const marker = new AdvancedMarkerElement({ map, position: { lat: p.lat, lng: p.lng }, title: p.name });
         marker.addListener("click", () => {
-          const content = document.createElement("div");
-          const name = document.createElement("strong");
-          name.textContent = p.name;
-          content.append(name, document.createElement("br"), p.price || "");
-          info.setContent(content);
+          info.setContent(rfPopupContent(p));
           info.open({ map, anchor: marker });
           setActive(i, true);
         });
@@ -157,6 +159,7 @@
       });
     }
   </script>
+  <script src="{% static 'restaurants/popup.js' %}"></script>
   <script async src="https://maps.googleapis.com/maps/api/js?key={{ maps_key|urlencode }}&loading=async&language=en&region=US&callback=initMap"></script>
 {% endif %}
 
