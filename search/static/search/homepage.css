@@ -133,6 +133,47 @@
 .restaurant-pagination span { color: var(--muted); font-size: 0.9rem; }
 .restaurant-home__empty { padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--muted); text-align: center; }
 
+/* ---- Regular Restaurant list section & segregation ---- */
+.restaurant-list-section {
+  width: 100%;
+}
+.restaurant-list-section--with-divider {
+  margin-top: 36px;
+  padding-top: 36px;
+  border-top: 1px solid var(--border);
+}
+.restaurant-list-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0 0 20px;
+}
+.restaurant-list-header__copy {
+  flex: 1 1 auto;
+}
+.restaurant-list-header__eyebrow {
+  margin: 0 0 4px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.restaurant-list-header h2 {
+  margin: 0 0 4px;
+  font-size: 1.55rem;
+  letter-spacing: -0.03em;
+}
+.restaurant-list-header .muted {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.restaurant-list-header .restaurant-pagination {
+  margin: 0 0 4px;
+}
+
 /* ---- Top Picks section ---- */
 .top-picks {
   margin: 0 0 44px 60px;
@@ -328,6 +369,57 @@
   letter-spacing: 0.05em;
 }
 
+/* Google Review Comment */
+.top-pick-card__review {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  border-radius: 10px;
+  background: rgba(14, 17, 22, 0.45);
+}
+.top-pick-card__review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 5px;
+}
+.top-pick-card__review-label {
+  font-size: 0.68rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--warn);
+}
+.top-pick-card__review-rating {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #f5b324;
+}
+.top-pick-card__review-quote {
+  margin: 0 0 6px;
+  padding: 0;
+  font-size: 0.83rem;
+  font-style: italic;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  quotes: none;
+}
+.top-pick-card__review-author {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.top-pick-card__review-author .author-name {
+  font-weight: 600;
+}
+.top-pick-card__review-author .review-time {
+  font-size: 0.72rem;
+}
+
 .top-pick-card__meta {
   display: flex;
   flex-wrap: wrap;
@@ -373,6 +465,8 @@
   .restaurant-borough-filter { flex-wrap: wrap; margin: 0; }
   .restaurant-card__art { min-height: 120px; }
   .restaurant-card__description { min-height: 0; }
+  .restaurant-list-header { flex-direction: column; align-items: stretch; gap: 12px; }
+  .restaurant-list-header .restaurant-pagination { justify-content: flex-start; }
 }
 
 @media (max-width: 440px) {

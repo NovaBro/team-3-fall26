@@ -23,7 +23,7 @@ from restaurants.forms import (
     RestaurantFilterForm,
 )
 from community.keys import dohmh_key, farmers_market_key, google_key, grocery_key
-from community.models import PlaceEnrichment
+from community.models import PlaceEnrichment, PlaceReview
 from restaurants.inspections import _latest, _match, _restaurants_in_zip, google_zip
 from restaurants.places import PlacesError, find_restaurant_place, get_restaurants
 from search.models import FarmersMarket, HealthyStore, RestaurantInspection
@@ -222,6 +222,27 @@ def _top_picks(count=3):
             # Fallback: use the camis we already know from the DB row.
             pick["inspection"] = _latest(pick["camis"])
         pick["image"] = "search/images/nyc-restaurant.jpg"
+
+        # Choose one comment from Google API
+        # (fallback to saved PlaceReview if available).
+        chosen_review = (google or {}).get("review")
+        if not chosen_review:
+            camis_id = (pick.get("inspection") or {}).get("camis") or pick.get("camis")
+            if camis_id:
+                db_review = (
+                    PlaceReview.objects.filter(place__camis=camis_id)
+                    .exclude(text="")
+                    .order_by("-id")
+                    .first()
+                )
+                if db_review:
+                    chosen_review = {
+                        "text": db_review.text,
+                        "author_name": db_review.author_name,
+                        "rating": db_review.rating,
+                        "relative_time": db_review.relative_time,
+                    }
+        pick["review"] = chosen_review
 
     return picks
 
