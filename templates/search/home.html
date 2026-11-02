@@ -43,7 +43,12 @@
       {% for pick in top_picks %}
         <article class="top-pick-card">
           <div class="top-pick-card__art">
-            <img src="{% static pick.image %}" alt="" loading="lazy">
+            {% static 'search/images/nyc-restaurant.jpg' as fallback_img %}
+            <img
+              src="{% if pick.photo_url %}{{ pick.photo_url }}{% elif pick.image %}{% static pick.image %}{% else %}{{ fallback_img }}{% endif %}"
+              alt="{{ pick.name }}"
+              loading="lazy"
+              onerror="this.onerror=null;this.src='{{ fallback_img|escapejs }}';">
             <span class="top-pick-card__rank">#{{ forloop.counter }}</span>
             {% if pick.inspection.grade %}
               <span class="top-pick-card__grade grade grade-{{ pick.inspection.grade }}" title="NYC DOHMH Grade {{ pick.inspection.grade }}">
@@ -161,7 +166,12 @@
       {% for restaurant in restaurants %}
         <article class="restaurant-card">
           <div class="restaurant-card__art">
-            <img src="{% static restaurant.image %}" alt="" loading="lazy">
+            {% static 'search/images/nyc-restaurant.jpg' as fallback_img %}
+          <img
+            src="{% if restaurant.photo_url %}{{ restaurant.photo_url }}{% elif restaurant.image %}{% static restaurant.image %}{% else %}{{ fallback_img }}{% endif %}"
+            alt="{{ restaurant.name }}"
+            loading="lazy"
+            onerror="this.onerror=null;this.src='{{ fallback_img|escapejs }}';">
             {% if restaurant.google.price %}<span class="restaurant-card__price">{{ restaurant.google.price }}</span>{% endif %}
           </div>
           <div class="restaurant-card__body">

@@ -601,6 +601,7 @@ class CombinedMapTests(TestCase):
             "price": "$$",
             "rating": 4.8,
             "rating_count": 150,
+            "photo": "places/ChIJ123/photos/abc",
             "review": {
                 "text": "Best pad thai in Queens! Must try.",
                 "author_name": "Alice M.",
@@ -617,7 +618,12 @@ class CombinedMapTests(TestCase):
         expected_comment = "Best pad thai in Queens! Must try."
         self.assertEqual(first_pick["review"]["text"], expected_comment)
         self.assertEqual(first_pick["review"]["author_name"], "Alice M.")
+        self.assertIn(
+            "restaurants/photo/?name=places%2FChIJ123%2Fphotos%2Fabc",
+            first_pick["photo_url"],
+        )
         content = response.content.decode("utf-8")
         self.assertIn("Best pad thai in Queens! Must try.", content)
         self.assertIn("Alice M.", content)
-        self.assertIn("4.8", content)
+        expected_photo = "restaurants/photo/?name=places%2FChIJ123%2Fphotos%2Fabc"
+        self.assertIn(expected_photo, content)

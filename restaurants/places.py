@@ -44,6 +44,7 @@ HOMEPAGE_FIELD_MASK = ",".join(
         "places.rating",
         "places.userRatingCount",
         "places.reviews",
+        "places.photos",
     ]
 )
 
