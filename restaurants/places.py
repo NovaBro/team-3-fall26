@@ -40,6 +40,8 @@ HOMEPAGE_FIELD_MASK = ",".join(
         "places.formattedAddress",
         "places.priceLevel",
         "places.addressComponents",
+        "places.rating",
+        "places.userRatingCount",
     ]
 )
 
