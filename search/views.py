@@ -1,5 +1,6 @@
 import re
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.core.paginator import Paginator
@@ -167,6 +168,13 @@ def index(request):
     )
 
 
+def _photo_url_for(google_place):
+    photo = (google_place or {}).get("photo")
+    if photo:
+        return reverse("restaurants:photo") + "?" + urlencode({"name": photo})
+    return ""
+
+
 def _top_picks(count=3):
     """Return *count* grade-A restaurants enriched with Google Places data and
     DOHMH inspection details.  Each entry is a dict with keys: name, cuisine,
@@ -203,6 +211,7 @@ def _top_picks(count=3):
         ]
         for pick, lookup in zip(picks, lookups):
             pick["google"] = lookup.result()
+            pick["photo_url"] = _photo_url_for(pick["google"])
 
     # 3. Match each pick to its DOHMH inspection via _match() / _latest().
     for pick in picks:
@@ -292,6 +301,7 @@ def home(request):
         ]
         for row, lookup in zip(restaurants, lookups):
             row["google"] = lookup.result()
+            row["photo_url"] = _photo_url_for(row["google"])
 
     # Top 3 picks – only fetch on the first page (no borough filter) so we
     # don't slow down paginated browsing.
