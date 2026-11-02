@@ -32,6 +32,7 @@ FIELD_MASK = ",".join(
         "places.rating",
         "places.userRatingCount",
         "places.photos",
+        "places.reviews",
     ]
 )
 HOMEPAGE_FIELD_MASK = ",".join(
@@ -40,6 +41,9 @@ HOMEPAGE_FIELD_MASK = ",".join(
         "places.formattedAddress",
         "places.priceLevel",
         "places.addressComponents",
+        "places.rating",
+        "places.userRatingCount",
+        "places.reviews",
     ]
 )
 
@@ -99,6 +103,28 @@ def _normalize(place):
     if not zipcode:
         match = re.search(r"\b(\d{5})(?:-\d{4})?\b", place.get("formattedAddress", ""))
         zipcode = match.group(1) if match else ""
+    raw_reviews = place.get("reviews") or []
+    reviews = []
+    for r in raw_reviews:
+        text = r.get("text")
+        if isinstance(text, dict):
+            text = text.get("text", "")
+        author = r.get("authorAttribution") or {}
+        author_name = author.get("displayName") or ""
+        if isinstance(author_name, dict):
+            author_name = author_name.get("text", "")
+        clean_text = (text or "").strip()
+        if clean_text:
+            reviews.append(
+                {
+                    "text": clean_text,
+                    "author_name": (author_name or "").strip(),
+                    "rating": r.get("rating"),
+                    "relative_time": r.get("relativePublishTimeDescription", "") or "",
+                }
+            )
+    chosen_review = reviews[0] if reviews else None
+
     return {
         "id": place.get("id", ""),
         "name": place.get("displayName", {}).get("text", "(no name)"),
@@ -115,6 +141,8 @@ def _normalize(place):
         "rating": place.get("rating"),
         "rating_count": place.get("userRatingCount"),
         "photo": (place.get("photos") or [{}])[0].get("name", ""),
+        "reviews": reviews,
+        "review": chosen_review,
     }
 
 
