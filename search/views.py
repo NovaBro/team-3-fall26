@@ -1,5 +1,6 @@
 import re
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.core.paginator import Paginator
@@ -23,7 +24,8 @@ from restaurants.forms import (
     RestaurantFilterForm,
 )
 from community.keys import dohmh_key, farmers_market_key, google_key, grocery_key
-from community.models import PlaceEnrichment
+from community.models import PlaceEnrichment, PlaceReview
+from restaurants.inspections import _latest, _match, _restaurants_in_zip, google_zip
 from restaurants.places import PlacesError, find_restaurant_place, get_restaurants
 from search.models import FarmersMarket, HealthyStore, RestaurantInspection
 from search.registry import DATASETS
@@ -166,6 +168,94 @@ def index(request):
     )
 
 
+def _photo_url_for(google_place):
+    photo = (google_place or {}).get("photo")
+    if photo:
+        return reverse("restaurants:photo") + "?" + urlencode({"name": photo})
+    return ""
+
+
+def _top_picks(count=3):
+    """Return *count* grade-A restaurants enriched with Google Places data and
+    DOHMH inspection details.  Each entry is a dict with keys: name, cuisine,
+    street, boro, zipcode, google (Places dict or None), and inspection (dict
+    with camis/grade/date or None)."""
+
+    # 1. Pick distinct grade-A restaurants ordered by most-recent inspection.
+    candidates = (
+        RestaurantInspection.objects.filter(grade="A")
+        .exclude(dba="")
+        .values("camis")
+        .annotate(
+            name=Max("dba"),
+            boro=Max("boro"),
+            street=Max("street"),
+            zipcode=Max("zipcode"),
+            cuisine=Max("cuisine"),
+            last_date=Max("inspection_date"),
+        )
+        .order_by("-last_date")[:count]
+    )
+    picks = list(candidates)
+
+    # 2. Enrich each pick with Google Places data (concurrent).
+    with ThreadPoolExecutor(max_workers=count) as executor:
+        lookups = [
+            executor.submit(
+                find_restaurant_place,
+                pick["name"],
+                pick["zipcode"],
+                pick["street"],
+            )
+            for pick in picks
+        ]
+        for pick, lookup in zip(picks, lookups):
+            pick["google"] = lookup.result()
+            pick["photo_url"] = _photo_url_for(pick["google"])
+
+    # 3. Match each pick to its DOHMH inspection via _match() / _latest().
+    for pick in picks:
+        google = pick["google"]
+        if google and google.get("address"):
+            zipcode = google_zip(google["address"])
+            if zipcode:
+                camis = _match(
+                    google["name"],
+                    google["address"],
+                    _restaurants_in_zip(zipcode),
+                )
+                pick["inspection"] = _latest(camis) if camis else None
+            else:
+                pick["inspection"] = _latest(pick["camis"])
+        else:
+            # Fallback: use the camis we already know from the DB row.
+            pick["inspection"] = _latest(pick["camis"])
+        pick["image"] = "search/images/nyc-restaurant.jpg"
+
+        # Choose one comment from Google API
+        # (fallback to saved PlaceReview if available).
+        chosen_review = (google or {}).get("review")
+        if not chosen_review:
+            camis_id = (pick.get("inspection") or {}).get("camis") or pick.get("camis")
+            if camis_id:
+                db_review = (
+                    PlaceReview.objects.filter(place__camis=camis_id)
+                    .exclude(text="")
+                    .order_by("-id")
+                    .first()
+                )
+                if db_review:
+                    chosen_review = {
+                        "text": db_review.text,
+                        "author_name": db_review.author_name,
+                        "rating": db_review.rating,
+                        "relative_time": db_review.relative_time,
+                    }
+        pick["review"] = chosen_review
+
+    return picks
+
+
 def home(request):
     selected_boro = request.GET.get("boro", "").strip()
     borough_options = list(
@@ -211,6 +301,13 @@ def home(request):
         ]
         for row, lookup in zip(restaurants, lookups):
             row["google"] = lookup.result()
+            row["photo_url"] = _photo_url_for(row["google"])
+
+    # Top 3 picks – only fetch on the first page (no borough filter) so we
+    # don't slow down paginated browsing.
+    top_picks = []
+    if not selected_boro and page_obj.number == 1:
+        top_picks = _top_picks(count=3)
 
     return render(
         request,
@@ -220,6 +317,7 @@ def home(request):
             "page_obj": page_obj,
             "borough_options": borough_options,
             "selected_boro": selected_boro,
+            "top_picks": top_picks,
         },
     )
 

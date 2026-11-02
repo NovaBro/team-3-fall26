@@ -580,3 +580,50 @@ class CombinedMapTests(TestCase):
         response = self.client.get(reverse("search:combined_map_google"))
         self.assertEqual(response.status_code, 502)
         self.assertIn("missing key", response.json()["error"])
+
+    @patch("search.views.find_restaurant_place")
+    def test_home_page_shows_top_picks_with_google_review(self, mock_find_place):
+        RestaurantInspection.objects.create(
+            camis="999",
+            dba="Thai Garden",
+            boro="Queens",
+            street="4 Main St",
+            zipcode="11101",
+            cuisine="Thai",
+            inspection_date="2024-07-01",
+            grade="A",
+        )
+        mock_find_place.return_value = {
+            "name": "Thai Garden",
+            "address": "4 Main St, Queens, NY 11101",
+            "street": "4 Main St",
+            "zipcode": "11101",
+            "price": "$$",
+            "rating": 4.8,
+            "rating_count": 150,
+            "photo": "places/ChIJ123/photos/abc",
+            "review": {
+                "text": "Best pad thai in Queens! Must try.",
+                "author_name": "Alice M.",
+                "rating": 5,
+                "relative_time": "2 weeks ago",
+            },
+        }
+        response = self.client.get(reverse("search:home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("top_picks", response.context)
+        top_picks = response.context["top_picks"]
+        self.assertTrue(len(top_picks) > 0)
+        first_pick = top_picks[0]
+        expected_comment = "Best pad thai in Queens! Must try."
+        self.assertEqual(first_pick["review"]["text"], expected_comment)
+        self.assertEqual(first_pick["review"]["author_name"], "Alice M.")
+        self.assertIn(
+            "restaurants/photo/?name=places%2FChIJ123%2Fphotos%2Fabc",
+            first_pick["photo_url"],
+        )
+        content = response.content.decode("utf-8")
+        self.assertIn("Best pad thai in Queens! Must try.", content)
+        self.assertIn("Alice M.", content)
+        expected_photo = "restaurants/photo/?name=places%2FChIJ123%2Fphotos%2Fabc"
+        self.assertIn(expected_photo, content)
