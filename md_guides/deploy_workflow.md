@@ -31,15 +31,15 @@ Because `.ebignore` exists, `eb deploy` zips the working directory, minus what `
 |----------------|------------|
 | Uncommitted edits, on a laptop `eb deploy` | Yes |
 | Commits not yet pushed to GitHub, on a laptop `eb deploy` | Yes |
-| `database/nyc_food.db` and `database/community.db` | No. `.ebignore` excludes `database/*.db`. The instance downloads both from `s3://nycfood-databases-322134621417` |
+| `database/nyc_food.db` and `database/community.db` | No. `.ebignore` excludes `database/*.db`. The instance downloads both from the private database bucket |
 | `.env` | No (excluded); live keys come from SSM |
 | `.venv/`, `database/datasets/`, notebooks, `md_guides/`, `deploy/` | No (excluded) |
 
-Actions deploys the Git commit, so uncommitted laptop files are not in that bundle. The live SQLite files are whatever was last uploaded to the database bucket. Rows written on the instance, and files in `media/`, are replaced on the next deploy. Upload new canonical databases with:
+Actions deploys the Git commit, so uncommitted laptop files are not in that bundle. The live SQLite files are whatever was last uploaded to the database bucket. Rows written on the instance, and files in `media/`, are replaced on the next deploy. Upload new canonical databases with (use the real bucket name from a teammate or from `deploy/s3-db-read-policy.json` locally):
 
 ```bash
-aws s3 cp database/nyc_food.db s3://nycfood-databases-322134621417/nyc_food.db
-aws s3 cp database/community.db s3://nycfood-databases-322134621417/community.db
+aws s3 cp database/nyc_food.db s3://<database-bucket>/nyc_food.db
+aws s3 cp database/community.db s3://<database-bucket>/community.db
 ```
 
 ## Branches and environments
@@ -98,4 +98,4 @@ Or: EB console → `nycfood` → Application versions → select a version → D
 
 ## GitHub Actions
 
-`.github/workflows/ci.yml` deploys only when all of these are true: the `test` job succeeded, the event is a push, the branch is `develop`, and the repository is `gcivil-nyu-org/team-3-fall26`. The job assumes `arn:aws:iam::322134621417:role/github-nycfood-deploy` through GitHub's OIDC provider and runs `eb deploy nycfood-env`. No AWS access keys are stored in the repository.
+`.github/workflows/ci.yml` deploys only when all of these are true: the `test` job succeeded, the event is a push, the branch is `develop`, and the repository is `gcivil-nyu-org/team-3-fall26`. The job assumes the `github-nycfood-deploy` IAM role through GitHub's OIDC provider and runs `eb deploy nycfood-env`. No AWS access keys are stored in the repository.
