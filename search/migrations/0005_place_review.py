@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('search', '0002_restaurantinspection_cuisine'),
+        ('search', '0004_delete_placeenrichment_placereview'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
