@@ -1,8 +1,15 @@
 from django import forms
-from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.contrib.auth.models import User
 
 from accounts.models import MoodLog, UserProfile
+
+
+class LoginForm(AuthenticationForm):
+    error_messages = {
+        **AuthenticationForm.error_messages,
+        "inactive": "Please confirm your email before logging in — check your inbox for the link.",
+    }
 
 
 class SignupForm(UserCreationForm):
@@ -91,6 +98,8 @@ class UserProfileForm(forms.ModelForm):
         fields = (
             "name",
             "picture",
+            "phone_number",
+            "promo_opt_in",
             "home_address",
             "age",
             "gender",
@@ -102,6 +111,7 @@ class UserProfileForm(forms.ModelForm):
             "allergies",
         )
         widgets = {
+            "phone_number": forms.TextInput(attrs={"placeholder": "(555) 555-0100"}),
             "home_address": forms.TextInput(
                 attrs={"placeholder": "Street, Brooklyn, NY"}
             ),
@@ -116,6 +126,7 @@ class UserProfileForm(forms.ModelForm):
         }
         labels = {
             "picture": "Profile picture",
+            "phone_number": "Phone number",
             "home_address": "Place (home address)",
             "favorite_foods": "Favorite foods (comma separated)",
             "disliked_foods": "Disliked foods (comma separated)",
@@ -131,6 +142,8 @@ class UserProfileForm(forms.ModelForm):
         "last_name",
         "name",
         "email",
+        "phone_number",
+        "promo_opt_in",
         "home_address",
         "age",
         "gender",

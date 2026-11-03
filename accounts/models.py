@@ -1,5 +1,10 @@
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import models
+
+phone_validator = RegexValidator(
+    r"^\+?[0-9\s\-()]{7,20}$", "Enter a valid phone number."
+)
 
 
 class UserProfile(models.Model):
@@ -27,6 +32,12 @@ class UserProfile(models.Model):
     )
     name = models.CharField(max_length=100, blank=True)
     picture = models.ImageField(upload_to="profile_pictures/", blank=True)
+    phone_number = models.CharField(
+        max_length=20, blank=True, validators=[phone_validator]
+    )
+    promo_opt_in = models.BooleanField(
+        default=False, verbose_name="Send me promotions and updates"
+    )
     home_address = models.CharField(max_length=255, blank=True)
     age = models.PositiveIntegerField(null=True, blank=True)
     gender = models.CharField(max_length=32, blank=True, choices=GENDER_CHOICES)
