@@ -8,29 +8,66 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('search', '0004_delete_placeenrichment_placereview'),
+        ("search", "0004_delete_placeenrichment_placereview"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='Place',
+            name="Place",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('kind', models.CharField(choices=[('restaurant', 'Restaurant'), ('farmers_market', 'Farmers market'), ('grocery_store', 'Grocery store')], max_length=32)),
-                ('name', models.CharField(max_length=255)),
-                ('external_id', models.CharField(max_length=255)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "kind",
+                    models.CharField(
+                        choices=[
+                            ("restaurant", "Restaurant"),
+                            ("farmers_market", "Farmers market"),
+                            ("grocery_store", "Grocery store"),
+                        ],
+                        max_length=32,
+                    ),
+                ),
+                ("name", models.CharField(max_length=255)),
+                ("external_id", models.CharField(max_length=255)),
             ],
         ),
         migrations.CreateModel(
-            name='Review',
+            name="Review",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('rating', models.PositiveSmallIntegerField()),
-                ('text', models.TextField()),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('place', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='search.place')),
-                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("rating", models.PositiveSmallIntegerField()),
+                ("text", models.TextField()),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "place",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE, to="search.place"
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
         ),
     ]

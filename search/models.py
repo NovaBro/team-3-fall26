@@ -153,6 +153,7 @@ class ParkEatery(models.Model):
     def __str__(self):
         return self.name
 
+
 class Place(models.Model):
     RESTAURANT = "restaurant"
     FARMERS_MARKET = "farmers_market"
@@ -166,7 +167,10 @@ class Place(models.Model):
     kind = models.CharField(max_length=32, choices=KIND_CHOICES)
     name = models.CharField(max_length=255)
     external_id = models.CharField(max_length=255)
-    def __str__(self): return self.name
+
+    def __str__(self):
+        return self.name
+
 
 class Review(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)

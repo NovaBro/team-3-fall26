@@ -28,7 +28,13 @@ from community.keys import dohmh_key, farmers_market_key, google_key, grocery_ke
 from community.models import PlaceEnrichment, PlaceReview
 from restaurants.inspections import _latest, _match, _restaurants_in_zip, google_zip
 from restaurants.places import PlacesError, find_restaurant_place, get_restaurants
-from search.models import FarmersMarket, HealthyStore, Place, RestaurantInspection, Review
+from search.models import (
+    FarmersMarket,
+    HealthyStore,
+    Place,
+    RestaurantInspection,
+    Review,
+)
 from search.registry import DATASETS
 from search.services.places import PlacesAPIError, enrich_camis
 

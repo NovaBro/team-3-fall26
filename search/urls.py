@@ -13,7 +13,11 @@ urlpatterns = [
     path("combined-map/", views.combined_map, name="combined_map"),
     path("combined-map/google/", views.combined_map_google, name="combined_map_google"),
     path("restaurant/<str:camis>/", views.restaurant_detail, name="restaurant_detail"),
-path("farmers-markets/review/", views.create_farmers_market_review, name="create_farmers_market_review"),
+    path(
+        "farmers-markets/review/",
+        views.create_farmers_market_review,
+        name="create_farmers_market_review",
+    ),
     path(
         "restaurant/<str:camis>/refresh-google/",
         views.refresh_place,
