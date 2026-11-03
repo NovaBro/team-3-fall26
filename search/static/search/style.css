@@ -376,33 +376,44 @@ tbody tr:hover { background: var(--raised); }
   font-size: 0.9rem;
 }
 
+/* MapLibre attribution: keep compact dark so it doesn't flash white. */
 .farmers-market-map .maplibregl-ctrl-attrib,
-.combined-map .maplibregl-ctrl-attrib {
+.combined-map .maplibregl-ctrl-attrib,
+.farmers-market-map .maplibregl-ctrl-attrib.maplibregl-compact,
+.combined-map .maplibregl-ctrl-attrib.maplibregl-compact,
+.farmers-market-map .maplibregl-ctrl-attrib.maplibregl-compact-show,
+.combined-map .maplibregl-ctrl-attrib.maplibregl-compact-show {
   font-size: 11px;
-  background: rgba(14, 17, 22, 0.88);
-  color: var(--muted);
+  background: rgba(14, 17, 22, 0.92);
+  background-color: rgba(14, 17, 22, 0.92);
+  color: #c8d0dc;
   box-shadow: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .farmers-market-map .maplibregl-ctrl-attrib a,
 .combined-map .maplibregl-ctrl-attrib a {
-  color: var(--ink);
+  color: #e8edf5;
+}
+
+.farmers-market-map .maplibregl-ctrl-attrib a:hover,
+.combined-map .maplibregl-ctrl-attrib a:hover {
+  color: #ffffff;
 }
 
 .farmers-market-map .maplibregl-ctrl-attrib-button,
-.combined-map .maplibregl-ctrl-attrib-button {
-  background-color: rgba(14, 17, 22, 0.88);
-  color: var(--muted);
+.combined-map .maplibregl-ctrl-attrib-button,
+.farmers-market-map .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button,
+.combined-map .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+  background-color: rgba(14, 17, 22, 0.92);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='%23c8d0dc' fill-rule='evenodd' viewBox='0 0 20 20'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E");
   border-radius: 50%;
   box-shadow: none;
 }
 
-.farmers-market-map .maplibregl-ctrl-attrib-button:hover,
-.combined-map .maplibregl-ctrl-attrib-button:hover,
-.farmers-market-map .maplibregl-ctrl-attrib-button:focus,
-.combined-map .maplibregl-ctrl-attrib-button:focus {
-  background-color: var(--raised);
-  color: var(--ink);
+.farmers-market-map .maplibregl-ctrl-attrib.maplibregl-compact:after,
+.combined-map .maplibregl-ctrl-attrib.maplibregl-compact:after {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='%23c8d0dc' fill-rule='evenodd' viewBox='0 0 20 20'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E");
 }
 
 .maplibregl-popup-content {
