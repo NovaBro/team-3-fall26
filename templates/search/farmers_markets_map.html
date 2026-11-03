@@ -9,7 +9,7 @@
 
 {% if market_year %}
   <form class="filters" method="get" action="{% url 'search:farmers_markets_map' %}">
-    <input type="text" name="q" value="{{ name }}" placeholder="Farmers market name">
+    <input type="text" name="q" value="{{ name }}" placeholder="Farmers market name" aria-label="Farmers market name">
     <input type="text" name="zip" value="{{ zip }}" placeholder="ZIP code"
            inputmode="numeric" maxlength="5" pattern="[0-9]{5}" aria-label="ZIP code">
     <select name="day" aria-label="Day of the week">

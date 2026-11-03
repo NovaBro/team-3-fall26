@@ -34,11 +34,25 @@ MIN_RATING_CHOICES = [
 
 CUISINE_CHOICES = [
     ("", "Any cuisine"),
-    *((name, name) for name in (
-        "American", "Caribbean", "Chinese", "French", "Greek", "Indian",
-        "Italian", "Japanese", "Korean", "Mediterranean", "Mexican",
-        "Spanish", "Thai", "Vietnamese",
-    )),
+    *(
+        (name, name)
+        for name in (
+            "American",
+            "Caribbean",
+            "Chinese",
+            "French",
+            "Greek",
+            "Indian",
+            "Italian",
+            "Japanese",
+            "Korean",
+            "Mediterranean",
+            "Mexican",
+            "Spanish",
+            "Thai",
+            "Vietnamese",
+        )
+    ),
 ]
 
 
@@ -51,13 +65,21 @@ class RestaurantFilterForm(forms.Form):
     area = forms.ChoiceField(
         required=False,
         choices=AREA_CHOICES,
-        error_messages={"invalid_choice": "%(value)s is not a valid borough. Choose one from the list."},
+        error_messages={
+            "invalid_choice": (
+                "%(value)s is not a valid borough. Choose one from the list."
+            )
+        },
     )
     price = forms.MultipleChoiceField(
         required=False,
         choices=PRICE_CHOICES,
         widget=forms.CheckboxSelectMultiple,
-        error_messages={"invalid_choice": "%(value)s is not a valid price. Choose $, $$, $$$ or $$$$."},
+        error_messages={
+            "invalid_choice": (
+                "%(value)s is not a valid price. Choose $, $$, $$$ or $$$$."
+            )
+        },
     )
     diet = forms.ChoiceField(
         required=False,
@@ -86,14 +108,18 @@ class RestaurantFilterForm(forms.Form):
         min_value=-90,
         max_value=90,
         widget=forms.HiddenInput,
-        error_messages={"invalid": "Your location is invalid. Click “Use my location” again."},
+        error_messages={
+            "invalid": "Your location is invalid. Click “Use my location” again."
+        },
     )
     lng = forms.FloatField(
         required=False,
         min_value=-180,
         max_value=180,
         widget=forms.HiddenInput,
-        error_messages={"invalid": "Your location is invalid. Click “Use my location” again."},
+        error_messages={
+            "invalid": "Your location is invalid. Click “Use my location” again."
+        },
     )
 
     def clean(self):
@@ -102,7 +128,9 @@ class RestaurantFilterForm(forms.Form):
         if "lat" in self.errors or "lng" in self.errors:
             return data
         if (lat is None) != (lng is None):
-            raise forms.ValidationError("Your location is incomplete. Click “Use my location” again.")
+            raise forms.ValidationError(
+                "Your location is incomplete. Click “Use my location” again."
+            )
         if data.get("distance") and lat is None:
             self.add_error("distance", "Click “Use my location” to filter by distance.")
         return data

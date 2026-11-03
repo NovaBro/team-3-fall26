@@ -20,7 +20,7 @@
   }));
   const map = new maplibregl.Map({
     container: mapElement,
-    style: "https://tiles.openfreemap.org/styles/positron",
+    style: "https://tiles.openfreemap.org/styles/dark",
     center: [-73.95, 40.72],
     zoom: 10,
     maxZoom: 18,
@@ -48,8 +48,8 @@
       source: "farmers-markets",
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 14, 9],
-        "circle-color": "#1f5fbf",
-        "circle-stroke-color": "#ffffff",
+        "circle-color": "#5aa9ff",
+        "circle-stroke-color": "#0e1116",
         "circle-stroke-width": 2,
       },
     });

@@ -10,14 +10,28 @@ from restaurants.places import PlacesError, build_request, distance_m, get_resta
 WSP = (40.7308, -73.9973)
 FAKE = {
     "places": [
-        {"id": "a", "displayName": {"text": "Cheap Veg"}, "formattedAddress": "1 A St",
-         "priceLevel": "PRICE_LEVEL_INEXPENSIVE", "servesVegetarianFood": True,
-         "location": {"latitude": 40.7320, "longitude": -73.9980}},
-        {"id": "b", "displayName": {"text": "Mid Meat"}, "formattedAddress": "2 B St",
-         "priceLevel": "PRICE_LEVEL_MODERATE", "servesVegetarianFood": False,
-         "location": {"latitude": 40.7400, "longitude": -73.9900}},
-        {"id": "c", "displayName": {"text": "No Price"}, "formattedAddress": "3 C St",
-         "location": {"latitude": 40.7000, "longitude": -73.9500}},
+        {
+            "id": "a",
+            "displayName": {"text": "Cheap Veg"},
+            "formattedAddress": "1 A St",
+            "priceLevel": "PRICE_LEVEL_INEXPENSIVE",
+            "servesVegetarianFood": True,
+            "location": {"latitude": 40.7320, "longitude": -73.9980},
+        },
+        {
+            "id": "b",
+            "displayName": {"text": "Mid Meat"},
+            "formattedAddress": "2 B St",
+            "priceLevel": "PRICE_LEVEL_MODERATE",
+            "servesVegetarianFood": False,
+            "location": {"latitude": 40.7400, "longitude": -73.9900},
+        },
+        {
+            "id": "c",
+            "displayName": {"text": "No Price"},
+            "formattedAddress": "3 C St",
+            "location": {"latitude": 40.7000, "longitude": -73.9500},
+        },
     ]
 }
 
@@ -45,7 +59,9 @@ class BuildRequestTests(SimpleTestCase):
 
     def test_price_range_sent_to_google(self):
         body = build_request(prices=["$", "$$"])
-        self.assertEqual(body["priceLevels"], ["PRICE_LEVEL_INEXPENSIVE", "PRICE_LEVEL_MODERATE"])
+        self.assertEqual(
+            body["priceLevels"], ["PRICE_LEVEL_INEXPENSIVE", "PRICE_LEVEL_MODERATE"]
+        )
 
     def test_vegan_uses_strict_place_type(self):
         body = build_request(diet="vegan")
@@ -59,12 +75,16 @@ class BuildRequestTests(SimpleTestCase):
 
     def test_keto_uses_text_query_only(self):
         body = build_request(diet="keto", area="Queens")
-        self.assertEqual(body["textQuery"], "keto-friendly restaurants in Queens, New York, NY")
+        self.assertEqual(
+            body["textQuery"], "keto-friendly restaurants in Queens, New York, NY"
+        )
         self.assertNotIn("includedType", body)
 
     def test_cuisine_is_prepended_to_query(self):
         body = build_request(cuisine="Thai", area="Manhattan")
-        self.assertEqual(body["textQuery"], "Thai restaurants in Manhattan, New York, NY")
+        self.assertEqual(
+            body["textQuery"], "Thai restaurants in Manhattan, New York, NY"
+        )
 
     def test_open_now_is_only_sent_when_checked(self):
         self.assertNotIn("openNow", build_request())
@@ -90,15 +110,22 @@ class GetRestaurantsTests(SimpleTestCase):
 
     def test_price_filter_drops_other_and_unknown_prices(self, post):
         post.return_value = fake_response()
-        self.assertEqual(names(get_restaurants(prices=["$"], api_key="k")), ["Cheap Veg"])
+        self.assertEqual(
+            names(get_restaurants(prices=["$"], api_key="k")), ["Cheap Veg"]
+        )
 
     def test_price_range(self, post):
         post.return_value = fake_response()
-        self.assertEqual(names(get_restaurants(prices=["$", "$$"], api_key="k")), ["Cheap Veg", "Mid Meat"])
+        self.assertEqual(
+            names(get_restaurants(prices=["$", "$$"], api_key="k")),
+            ["Cheap Veg", "Mid Meat"],
+        )
 
     def test_vegetarian_excludes_false_and_unknown(self, post):
         post.return_value = fake_response()
-        self.assertEqual(names(get_restaurants(diet="vegetarian", api_key="k")), ["Cheap Veg"])
+        self.assertEqual(
+            names(get_restaurants(diet="vegetarian", api_key="k")), ["Cheap Veg"]
+        )
 
     def test_multiple_filters_combine(self, post):
         post.return_value = fake_response()
@@ -117,34 +144,84 @@ class GetRestaurantsTests(SimpleTestCase):
         self.assertEqual(names(res), ["Cheap Veg", "Mid Meat", "No Price"])
 
     def test_avoid_nuts_drops_nut_heavy_primary_type(self, post):
-        data = {"places": [
-            {"id": "t", "displayName": {"text": "Thai Spot"}, "primaryType": "thai_restaurant"},
-            {"id": "p", "displayName": {"text": "Pizza Spot"}, "primaryType": "pizza_restaurant"},
-        ]}
+        data = {
+            "places": [
+                {
+                    "id": "t",
+                    "displayName": {"text": "Thai Spot"},
+                    "primaryType": "thai_restaurant",
+                },
+                {
+                    "id": "p",
+                    "displayName": {"text": "Pizza Spot"},
+                    "primaryType": "pizza_restaurant",
+                },
+            ]
+        }
         post.return_value = fake_response(data=data)
-        self.assertEqual(names(get_restaurants(avoid=["nuts"], api_key="k")), ["Pizza Spot"])
+        self.assertEqual(
+            names(get_restaurants(avoid=["nuts"], api_key="k")), ["Pizza Spot"]
+        )
 
     def test_avoid_nuts_checks_secondary_types(self, post):
-        data = {"places": [
-            {"id": "b", "displayName": {"text": "Cafe"}, "primaryType": "cafe",
-             "types": ["cafe", "bakery", "food"]},
-        ]}
+        data = {
+            "places": [
+                {
+                    "id": "b",
+                    "displayName": {"text": "Cafe"},
+                    "primaryType": "cafe",
+                    "types": ["cafe", "bakery", "food"],
+                },
+            ]
+        }
         post.return_value = fake_response(data=data)
         self.assertEqual(get_restaurants(avoid=["nuts"], api_key="k"), [])
 
     def test_avoid_shellfish_and_nuts_combine(self, post):
-        data = {"places": [
-            {"id": "s", "displayName": {"text": "Oyster Bar"}, "primaryType": "seafood_restaurant"},
-            {"id": "t", "displayName": {"text": "Thai Spot"}, "primaryType": "thai_restaurant"},
-            {"id": "i", "displayName": {"text": "Curry House"}, "primaryType": "indian_restaurant"},
-            {"id": "p", "displayName": {"text": "Pizza Spot"}, "primaryType": "pizza_restaurant"},
-        ]}
+        data = {
+            "places": [
+                {
+                    "id": "s",
+                    "displayName": {"text": "Oyster Bar"},
+                    "primaryType": "seafood_restaurant",
+                },
+                {
+                    "id": "t",
+                    "displayName": {"text": "Thai Spot"},
+                    "primaryType": "thai_restaurant",
+                },
+                {
+                    "id": "i",
+                    "displayName": {"text": "Curry House"},
+                    "primaryType": "indian_restaurant",
+                },
+                {
+                    "id": "p",
+                    "displayName": {"text": "Pizza Spot"},
+                    "primaryType": "pizza_restaurant",
+                },
+            ]
+        }
         post.return_value = fake_response(data=data)
-        self.assertEqual(names(get_restaurants(avoid=["shellfish"], api_key="k")), ["Curry House", "Pizza Spot"])
-        self.assertEqual(names(get_restaurants(avoid=["shellfish", "nuts"], api_key="k")), ["Pizza Spot"])
+        self.assertEqual(
+            names(get_restaurants(avoid=["shellfish"], api_key="k")),
+            ["Curry House", "Pizza Spot"],
+        )
+        self.assertEqual(
+            names(get_restaurants(avoid=["shellfish", "nuts"], api_key="k")),
+            ["Pizza Spot"],
+        )
 
     def test_no_avoid_keeps_nut_heavy_places(self, post):
-        data = {"places": [{"id": "t", "displayName": {"text": "Thai Spot"}, "primaryType": "thai_restaurant"}]}
+        data = {
+            "places": [
+                {
+                    "id": "t",
+                    "displayName": {"text": "Thai Spot"},
+                    "primaryType": "thai_restaurant",
+                }
+            ]
+        }
         post.return_value = fake_response(data=data)
         self.assertEqual(names(get_restaurants(api_key="k")), ["Thai Spot"])
 
@@ -172,8 +249,16 @@ class FilterFormTests(SimpleTestCase):
         return form.errors
 
     def test_valid_filters(self):
-        form = RestaurantFilterForm({"area": "Manhattan", "price": ["$", "$$"], "diet": "halal",
-                                     "distance": "0.5", "lat": "40.73", "lng": "-73.99"})
+        form = RestaurantFilterForm(
+            {
+                "area": "Manhattan",
+                "price": ["$", "$$"],
+                "diet": "halal",
+                "distance": "0.5",
+                "lat": "40.73",
+                "lng": "-73.99",
+            }
+        )
         self.assertTrue(form.is_valid(), form.errors)
         self.assertAlmostEqual(form.radius_m, 804.672)
 
@@ -192,7 +277,9 @@ class FilterFormTests(SimpleTestCase):
         self.assertIn("diet", self.errors({"diet": "paleo"}))
 
     def test_invalid_distance(self):
-        self.assertIn("distance", self.errors({"distance": "100", "lat": "40.7", "lng": "-74"}))
+        self.assertIn(
+            "distance", self.errors({"distance": "100", "lat": "40.7", "lng": "-74"})
+        )
 
     def test_distance_needs_location(self):
         self.assertIn("distance", self.errors({"distance": "1"}))
@@ -234,16 +321,46 @@ class SearchViewTests(SimpleTestCase):
 
     def test_filters_are_passed_together(self, gr):
         gr.return_value = []
-        self.client.get(self.url, {"area": "Manhattan", "price": ["$", "$$"], "diet": "vegan",
-                                   "distance": "1", "lat": "40.73", "lng": "-73.99",
-                                   "cuisine": "", "open_now": "", "min_rating": ""})
-        gr.assert_called_once_with(area="Manhattan", prices=["$", "$$"], diet="vegan",
-                                   lat=40.73, lng=-73.99, radius_m=1609.344, avoid=[],
-                                   cuisine="", open_now=False, min_rating=None)
+        self.client.get(
+            self.url,
+            {
+                "area": "Manhattan",
+                "price": ["$", "$$"],
+                "diet": "vegan",
+                "distance": "1",
+                "lat": "40.73",
+                "lng": "-73.99",
+                "cuisine": "",
+                "open_now": "",
+                "min_rating": "",
+            },
+        )
+        gr.assert_called_once_with(
+            area="Manhattan",
+            prices=["$", "$$"],
+            diet="vegan",
+            lat=40.73,
+            lng=-73.99,
+            radius_m=1609.344,
+            avoid=[],
+            cuisine="",
+            open_now=False,
+            min_rating=None,
+        )
 
     def test_results_are_shown(self, gr):
-        gr.return_value = [{"name": "Test Place", "address": "x", "price": "$$", "vegetarian": True,
-                            "lat": 40.7, "lng": -74.0, "maps_url": "", "distance_mi": 0.3}]
+        gr.return_value = [
+            {
+                "name": "Test Place",
+                "address": "x",
+                "price": "$$",
+                "vegetarian": True,
+                "lat": 40.7,
+                "lng": -74.0,
+                "maps_url": "",
+                "distance_mi": 0.3,
+            }
+        ]
         resp = self.client.get(self.url, {"area": "Brooklyn", "price": "$$"})
         self.assertContains(resp, "Test Place")
         self.assertContains(resp, "1 restaurant found.")
@@ -287,8 +404,18 @@ class SearchViewTests(SimpleTestCase):
         self.assertNotContains(resp, 'id="clear-location"')
 
     def test_missing_map_key_is_not_an_error(self, gr):
-        gr.return_value = [{"name": "P", "address": "", "price": "", "vegetarian": None,
-                            "lat": 40.7, "lng": -74.0, "maps_url": "", "distance_mi": None}]
+        gr.return_value = [
+            {
+                "name": "P",
+                "address": "",
+                "price": "",
+                "vegetarian": None,
+                "lat": 40.7,
+                "lng": -74.0,
+                "maps_url": "",
+                "distance_mi": None,
+            }
+        ]
         with patch.dict("os.environ", {"GOOGLE_MAPS_JS_KEY": ""}):
             resp = self.client.get(self.url, {"area": "Queens"})
         self.assertContains(resp, "Map not shown")

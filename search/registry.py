@@ -17,7 +17,9 @@ DATASETS = {
     "menu-items": {
         "title": "Menu Nutrition Stats",
         "model": MenuItem,
-        "description": "MenuStat nutrition for large chain restaurant menu items (2017-2018).",
+        "description": (
+            "MenuStat nutrition for large chain restaurant menu items (2017-2018)."
+        ),
         "columns": [
             ("restaurant", "Restaurant"),
             ("item_name", "Item"),
@@ -96,7 +98,11 @@ DATASETS = {
             ("phone", "Phone"),
             ("website", "Website"),
         ],
-        "search_fields": ["name__icontains", "location__icontains", "type_name__icontains"],
+        "search_fields": [
+            "name__icontains",
+            "location__icontains",
+            "type_name__icontains",
+        ],
         "search_label": "name, location, or type",
     },
 }

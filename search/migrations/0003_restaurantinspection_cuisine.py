@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("search", "0001_initial"),
+        ("search", "0002_placeenrichment_placereview"),
     ]
 
     operations = [

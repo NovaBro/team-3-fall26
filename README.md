@@ -1,12 +1,15 @@
 # Team Project repo
 
+[![CI](https://github.com/NovaBro/team-3-fall26/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/NovaBro/team-3-fall26/actions/workflows/ci.yml)
+[![Coverage Status](https://coveralls.io/repos/github/NovaBro/team-3-fall26/badge.svg?branch=develop)](https://coveralls.io/github/NovaBro/team-3-fall26?branch=develop)
+
 NYC food / open-data search project. Raw datasets live in `database/datasets/`.
 
 ## Setup
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python manage.py migrate
 .venv/bin/python manage.py import_datasets   # loads CSVs/JSON into database/nyc_food.db
 .venv/bin/python manage.py runserver
@@ -17,9 +20,16 @@ Then open http://127.0.0.1:8000/.
 ## Web interface
 
 - `/` — search restaurant inspections by name, borough, ZIP, grade, diet, or allergy.
+- `/home/` — card view of NYC restaurants, filterable by borough, with a Google Places lookup on each card.
 - `/restaurant/<camis>/` — full inspection/violation history for one restaurant.
 - `/explore/` — browse the other five datasets with text search and pagination.
-- `/restaurants/` — find restaurants by area, price range, diet, allergy, and walking distance
+- `/farmers-markets/` — map of NYC farmers markets.
+- `/combined-map/` — Google Map of farmers markets, Shop Healthy stores, DOHMH
+  restaurants with saved Places enrichment, and (on demand) live Google
+  restaurants. Needs `GOOGLE_MAPS_JS_KEY`; live Google layer also needs
+  `GOOGLE_API_KEY` and is off until you load it.
+- `/restaurants/` — find restaurants by area, price range, diet, allergy, cuisine,
+  minimum rating, open now, and walking distance
   from your location (live Google Places data; see below).
 
 ## Restaurant filters (`/restaurants/`)
@@ -33,6 +43,23 @@ Cloud project). Copy `.env.example` to `.env` and fill in `GOOGLE_API_KEY`; add
 - Invalid filter values (e.g. `?price=cheap`) show an error instead of searching.
 - Results come from Google at request time and are not stored (Google's terms
   restrict caching Places data). Each search is one billable Text Search request.
+
+## Google Places enrichment
+
+Set a Google Maps Platform API key (with the **Places API (New)** enabled) as an
+environment variable, then either click **Get Google data** on a restaurant page
+or seed in bulk:
+
+```bash
+export GOOGLE_PLACES_API_KEY="your-key"
+.venv/bin/python manage.py enrich_places --limit 25 --sleep 0.5
+```
+
+`enrich_places` skips restaurants that already have stored data; pass
+`--refresh` to overwrite. Each restaurant costs two API calls (Text Search +
+Place Details) and the result is stored in the `PlaceEnrichment`/`PlaceReview`
+tables. Ratings, price level, location, website, and reviews are then served
+from the local database without further API calls.
 
 ## Diet and allergy filters
 
@@ -61,7 +88,8 @@ safe. The results always show a note telling users to confirm allergies with the
 restaurant. Restaurants with no cuisine listed are kept.
 
 The cuisine and place-type lists are a best guess; review them in
-`restaurants/diet_filters.py`.
+`restaurants/diet_filters.py`. `/restaurants/` also filters by cuisine name, minimum
+star rating, and whether the place is open now.
 
 ## Data
 
@@ -102,3 +130,20 @@ After pulling changes to the models or datasets, rebuild your local database:
 ```bash
 .venv/bin/python manage.py test
 ```
+
+## Elastic Beanstalk
+
+The live site is http://nycfood-env.eba-jht3rtv2.us-east-1.elasticbeanstalk.com. The Elastic Beanstalk application is `nycfood`, the environment is `nycfood-env`, and the region is `us-east-1`. A push to `develop` on `gcivil-nyu-org/team-3-fall26` runs tests, then GitHub Actions deploys that commit with `eb deploy nycfood-env`. The workflow assumes the IAM role `github-nycfood-deploy`; no AWS keys are stored in GitHub.
+
+The instance downloads `database/nyc_food.db` and `database/community.db` from the private bucket `nycfood-databases-322134621417` before migrate. Those files are not in Git and are not in the deploy bundle. Django still opens them as local SQLite files. Rows written on the live site, and files in `media/`, are replaced by the next deploy. To change the canonical databases, upload them again:
+
+```bash
+aws s3 cp database/nyc_food.db s3://nycfood-databases-322134621417/nyc_food.db
+aws s3 cp database/community.db s3://nycfood-databases-322134621417/community.db
+```
+
+Before the first Actions deploy, create that bucket, upload both files, and attach `deploy/s3-db-read-policy.json` to the instance role `aws-elasticbeanstalk-ec2-role`. A failed download fails the deploy. API keys come from SSM Parameter Store.
+
+If the deploy fails, run `eb logs nycfood-env` and read `eb-engine.log` and `web.stdout.log`.
+
+More detail: [md_guides/deploy_workflow.md](md_guides/deploy_workflow.md) (checklist and team rules) and [md_guides/aws_deployment.md](md_guides/aws_deployment.md) (IAM, SSM, and troubleshooting).

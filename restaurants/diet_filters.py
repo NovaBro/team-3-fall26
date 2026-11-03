@@ -83,7 +83,7 @@ ALLERGIES = {
 #   cuisines:     DOHMH cuisines for the homepage search (None = not offered there)
 #   google:       how /restaurants/ asks Google (None = not offered there)
 #       query:    words used in the Text Search query
-#       type:     strict Google place type, if one exists
+# type: strict Google place type, if one exists
 # Vegetarian on Google is also checked against servesVegetarianFood (places.py).
 # Keto has no cuisine or place type, so it relies on Google's text matching and
 # on low-carb-leaning cuisines; both are approximate.

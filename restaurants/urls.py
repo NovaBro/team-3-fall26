@@ -6,4 +6,5 @@ app_name = "restaurants"
 
 urlpatterns = [
     path("", views.search, name="search"),
+    path("photo/", views.photo, name="photo"),
 ]
