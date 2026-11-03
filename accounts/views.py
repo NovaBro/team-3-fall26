@@ -1,12 +1,18 @@
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.core.mail import send_mail
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.http import require_POST
 
 from accounts.forms import MoodLogForm, SignupForm, UserProfileForm
 from accounts.models import MoodLog, UserProfile
+from accounts.tokens import email_verification_token
 
 MOOD_HISTORY_LIMIT = 10
 WIDE_FIELDS = {
@@ -18,19 +24,43 @@ WIDE_FIELDS = {
 }
 
 
+def _send_verification_email(request, user):
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = email_verification_token.make_token(user)
+    verify_url = request.build_absolute_uri(
+        reverse("accounts:verify_email", args=[uid, token])
+    )
+    send_mail(
+        subject="Confirm your NYC Food Search account",
+        message=(
+            f"Hi {user.username},\n\n"
+            "Confirm your email address to finish creating your account:\n"
+            f"{verify_url}\n\n"
+            "If you didn't sign up for NYC Food Search, you can ignore this email."
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+    )
+
+
 def signup(request):
     if request.user.is_authenticated:
         return redirect("accounts:profile")
     if request.method == "POST":
         form = SignupForm(request.POST)
         if form.is_valid():
-            user = form.save()
+            user = form.save(commit=False)
+            user.is_active = False
+            user.save()
             UserProfile.objects.get_or_create(
                 user=user, defaults={"name": form.cleaned_data["name"]}
             )
-            login(request, user)
-            messages.success(request, "Welcome! Tell us a bit about yourself below.")
-            return redirect("accounts:profile")
+            _send_verification_email(request, user)
+            messages.success(
+                request,
+                "Almost there! We emailed you a link to confirm your account.",
+            )
+            return redirect("accounts:login")
         if "email" in form.errors and any(
             "already exists" in error for error in form.errors["email"]
         ):
@@ -40,6 +70,32 @@ def signup(request):
     else:
         form = SignupForm()
     return render(request, "registration/signup.html", {"form": form})
+
+
+def verify_email(request, uidb64, token):
+    try:
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        user = User.objects.get(pk=uid)
+    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        user = None
+
+    if user is None or not email_verification_token.check_token(user, token):
+        messages.error(request, "This verification link is invalid or has expired.")
+        return redirect("accounts:login")
+
+    if user.is_active:
+        # Already confirmed (link opened twice): don't hand out a fresh
+        # session on every replay, just send them to log in normally.
+        messages.info(request, "This account is already confirmed. Please log in.")
+        return redirect("accounts:login")
+
+    user.is_active = True
+    user.save(update_fields=["is_active"])
+    login(
+        request, user, backend="django.contrib.auth.backends.AllowAllUsersModelBackend"
+    )
+    messages.success(request, "Email confirmed. Welcome!")
+    return redirect("accounts:profile")
 
 
 @login_required

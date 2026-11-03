@@ -114,6 +114,13 @@ DATABASE_ROUTERS = ["community.router.CommunityRouter"]
 # on the signup form (enforced by UserCreationForm).
 AUTH_PASSWORD_VALIDATORS = []
 
+# The default ModelBackend silently refuses to authenticate an inactive user,
+# which means our own "please confirm your email" message on LoginForm never
+# gets a chance to show (it falls back to Django's generic bad-login error
+# instead). AllowAllUsersModelBackend authenticates regardless of is_active
+# and leaves that check to the login form, where our message lives.
+AUTHENTICATION_BACKENDS = ["django.contrib.auth.backends.AllowAllUsersModelBackend"]
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
@@ -150,3 +157,20 @@ GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 LOGIN_URL = "accounts:login"
 LOGIN_REDIRECT_URL = "accounts:profile"
 LOGOUT_REDIRECT_URL = "search:index"
+
+# Email. Defaults to printing to the console (free, zero setup, good for local
+# dev). Set these env vars to send real email for free via Gmail SMTP: enable
+# 2-Step Verification on the sending Gmail account, then create an "app
+# password" at https://myaccount.google.com/apppasswords and use it below
+# (not the account's normal password). No paid service involved.
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True") == "True"
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL", "no-reply@nycfoodsearch.local"
+)
