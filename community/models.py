@@ -139,3 +139,33 @@ class UserPhoto(models.Model):
 
     def __str__(self):
         return f"{self.user_id} photo of {self.subject}"
+
+
+class LocationLookup(models.Model):
+    """Coordinates Google found for a dataset row that had none.
+
+    Keyed by the same (kind, key) pin identity as CommunitySubject. Misses are
+    stored too (found=False) so the same row is not looked up on every visit.
+    Google's terms allow caching coordinates for 30 days, so older rows are
+    treated as missing and looked up again.
+    """
+
+    kind = models.CharField(max_length=32)
+    key = models.CharField(max_length=512)
+    query = models.CharField(max_length=512, blank=True)
+    found = models.BooleanField(default=False)
+    place_id = models.CharField(max_length=255, blank=True)
+    latitude = models.FloatField(null=True)
+    longitude = models.FloatField(null=True)
+    formatted_address = models.CharField(max_length=512, blank=True)
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["kind", "key"], name="community_location_kind_key"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.kind}:{self.key} ({'found' if self.found else 'not found'})"
