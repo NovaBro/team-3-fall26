@@ -4,8 +4,8 @@
   const CATEGORY_LABELS = {
     farmers_market: "Farmers market",
     grocery: "Grocery (Shop Healthy)",
-    restaurant_dohmh: "DOHMH restaurant",
-    restaurant_google: "Google restaurant",
+    restaurant_dohmh: "Restaurant (NYC inspection records)",
+    restaurant_google: "Restaurant (Google Places)",
   };
 
   const PIN_COLORS = {
@@ -27,7 +27,7 @@
       farmers_market: true,
       grocery: true,
       restaurant_dohmh: true,
-      restaurant_google: false,
+      restaurant_google: true,
     },
     openKey: "",
   };
@@ -79,19 +79,6 @@
   function syncSource(category) {
     const source = state.map?.getSource(category);
     if (source) source.setData(featureCollection(category));
-  }
-
-  function fitVisible() {
-    if (!state.map) return;
-    const points = visiblePoints();
-    if (!points.length) {
-      state.map.setCenter([-73.95, 40.72]);
-      state.map.setZoom(10);
-      return;
-    }
-    const bounds = new maplibregl.LngLatBounds();
-    points.forEach((point) => bounds.extend([point.lng, point.lat]));
-    state.map.fitBounds(bounds, { padding: 48, maxZoom: points.length === 1 ? 14 : 13 });
   }
 
   function csrfToken() {
@@ -162,77 +149,12 @@
     }
 
     const average = payload.average_rating == null
-      ? "No visitor ratings yet."
+      ? "Be the first to review!"
       : `Visitors ${payload.average_rating} (${payload.rating_count})`;
     addText(panel, "h3", "", average);
 
     if (payload.authenticated) {
-      const ratingForm = document.createElement("form");
-      ratingForm.className = "community-form";
-      const select = document.createElement("select");
-      select.name = "rating";
-      select.setAttribute("aria-label", "Your rating");
-      const placeholder = document.createElement("option");
-      placeholder.value = "";
-      placeholder.textContent = "Your rating";
-      select.appendChild(placeholder);
-      for (let score = 1; score <= 5; score += 1) {
-        const option = document.createElement("option");
-        option.value = String(score);
-        option.textContent = `${score} star${score === 1 ? "" : "s"}`;
-        if (payload.user_rating === score) option.selected = true;
-        select.appendChild(option);
-      }
-      const ratingButton = document.createElement("button");
-      ratingButton.type = "submit";
-      ratingButton.className = "btn";
-      ratingButton.textContent = "Save rating";
-      ratingForm.appendChild(select);
-      ratingForm.appendChild(ratingButton);
-      ratingForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        postCommunity(point, "rating", new FormData(ratingForm));
-      });
-      panel.appendChild(ratingForm);
-
-      const commentForm = document.createElement("form");
-      commentForm.className = "community-form";
-      const textarea = document.createElement("textarea");
-      textarea.name = "text";
-      textarea.rows = 3;
-      textarea.maxLength = 2000;
-      textarea.placeholder = "Add a comment";
-      textarea.setAttribute("aria-label", "Comment");
-      const commentButton = document.createElement("button");
-      commentButton.type = "submit";
-      commentButton.className = "btn";
-      commentButton.textContent = "Post comment";
-      commentForm.appendChild(textarea);
-      commentForm.appendChild(commentButton);
-      commentForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        postCommunity(point, "comment", new FormData(commentForm));
-      });
-      panel.appendChild(commentForm);
-
-      const photoForm = document.createElement("form");
-      photoForm.className = "community-form";
-      const file = document.createElement("input");
-      file.type = "file";
-      file.name = "photo";
-      file.accept = "image/*";
-      file.setAttribute("aria-label", "Photo");
-      const photoButton = document.createElement("button");
-      photoButton.type = "submit";
-      photoButton.className = "btn";
-      photoButton.textContent = "Upload photo";
-      photoForm.appendChild(file);
-      photoForm.appendChild(photoButton);
-      photoForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        postCommunity(point, "photo", new FormData(photoForm));
-      });
-      panel.appendChild(photoForm);
+      panel.appendChild(createVisitorForm(point, payload));
     } else {
       const login = document.createElement("p");
       const link = document.createElement("a");
@@ -314,7 +236,64 @@
     }
   }
 
-  async function postCommunity(point, action, formData) {
+  function createVisitorForm(point, payload) {
+    const form = document.createElement("form");
+    form.className = "community-form community-form--visitor";
+
+    const formId = `community-${(point.key || "pin").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+    const stars = document.createElement("div");
+    stars.className = "review-stars";
+    stars.setAttribute("role", "radiogroup");
+    stars.setAttribute("aria-label", "Your rating");
+    for (let value = 5; value >= 1; value -= 1) {
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "rating";
+      input.id = `${formId}-star-${value}`;
+      input.value = String(value);
+      input.required = true;
+      if (payload.user_rating === value) input.checked = true;
+      const label = document.createElement("label");
+      label.htmlFor = input.id;
+      label.textContent = `${value} ${value === 1 ? "star" : "stars"}`;
+      stars.append(input, label);
+    }
+    form.appendChild(stars);
+
+    const textarea = document.createElement("textarea");
+    textarea.name = "text";
+    textarea.rows = 3;
+    textarea.maxLength = 2000;
+    textarea.placeholder = "Leave a review (optional)";
+    textarea.setAttribute("aria-label", "Comment");
+    form.appendChild(textarea);
+
+    const file = document.createElement("input");
+    file.type = "file";
+    file.name = "photo";
+    file.accept = "image/*";
+    file.setAttribute("aria-label", "Photo");
+    form.appendChild(file);
+
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.className = "btn";
+    submit.textContent = "Submit";
+    submit.disabled = !payload.user_rating;
+    form.appendChild(submit);
+
+    stars.addEventListener("change", () => {
+      submit.disabled = !form.querySelector('input[name="rating"]:checked');
+    });
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitVisitorContribution(point, form);
+    });
+    return form;
+  }
+
+  async function postCommunity(point, action, formData, options = {}) {
     formData.set("name", point.name || "");
     formData.set("address", point.address || "");
     const panel = panelElement();
@@ -330,17 +309,52 @@
       });
       if (response.type === "opaqueredirect" || response.status === 302 || response.status === 0) {
         showCommunityMessage("Log in to post.");
-        return;
+        return null;
       }
       const payload = await response.json();
       if (!response.ok) {
         if (panel) addText(panel, "p", "community-error", payload.error || "Could not save.");
-        return;
+        return null;
       }
-      renderPanel(point, payload);
+      if (!options.deferRender) renderPanel(point, payload);
+      return payload;
     } catch (_error) {
       if (panel) addText(panel, "p", "community-error", "Could not save.");
+      return null;
     }
+  }
+
+  async function submitVisitorContribution(point, form) {
+    const ratingInput = form.querySelector('input[name="rating"]:checked');
+    if (!ratingInput) return;
+
+    const panel = panelElement();
+    const ratingData = new FormData();
+    ratingData.set("rating", ratingInput.value);
+    let payload = await postCommunity(point, "rating", ratingData, { deferRender: true });
+    if (!payload) return;
+
+    const text = (form.querySelector('textarea[name="text"]')?.value || "").trim();
+    if (text) {
+      const commentData = new FormData();
+      commentData.set("text", text);
+      const next = await postCommunity(point, "comment", commentData, { deferRender: true });
+      if (!next) return;
+      payload = next;
+    }
+
+    const photoInput = form.querySelector('input[name="photo"]');
+    const photo = photoInput?.files?.[0];
+    if (photo) {
+      const photoData = new FormData();
+      photoData.set("photo", photo);
+      const next = await postCommunity(point, "photo", photoData, { deferRender: true });
+      if (!next) return;
+      payload = next;
+    }
+
+    renderPanel(point, payload);
+    if (panel) panel.scrollIntoView({ block: "nearest" });
   }
 
   function pointFromFeature(feature) {
@@ -355,83 +369,141 @@
     };
   }
 
+  function cardFor(key) {
+    return Array.from(document.querySelectorAll(".result[data-key]")).find(
+      (card) => card.dataset.key === key
+    );
+  }
+
+  function highlightCard(key, scroll) {
+    document.querySelectorAll(".result[data-key]").forEach((card) => {
+      card.classList.toggle("active", card.dataset.key === key);
+    });
+    const card = cardFor(key);
+    if (card && scroll) card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function showCommunityPanel() {
+    const layout = document.querySelector(".combined-map-layout");
+    if (!layout || layout.classList.contains("is-panel-open")) {
+      if (state.map) state.map.resize();
+      return;
+    }
+    layout.classList.add("is-panel-open");
+    if (state.map) {
+      // Let the grid reflow before MapLibre measures the new width.
+      requestAnimationFrame(() => state.map.resize());
+    }
+  }
+
   function openPoint(point) {
     state.openKey = point.key || "";
+    highlightCard(state.openKey, true);
+    showCommunityPanel();
     loadCommunityPanel(point);
   }
 
-  function setLayerVisible(category, visible) {
-    state.visibility[category] = visible;
-    if (state.map?.getLayer(category)) {
-      state.map.setLayoutProperty(category, "visibility", visible ? "visible" : "none");
-    }
-    const googleControls = document.getElementById("google-load-controls");
-    if (category === "restaurant_google" && googleControls) {
-      googleControls.hidden = !visible;
-    }
-    fitVisible();
-    setStatus(`${visiblePoints().length} visible points`);
+  function pointByKey(key) {
+    return CATEGORIES.flatMap((category) => state.points[category]).find(
+      (point) => point.key === key
+    );
   }
 
-  async function loadGoogleRestaurants() {
-    const config = readJson("combined-map-config");
-    if (!config?.googleUrl) return;
+  function bindSplitter() {
+    const layout = document.querySelector(".combined-map-layout");
+    const splitter = document.getElementById("combined-map-splitter");
+    if (!layout || !splitter) return;
 
-    const area = document.getElementById("google-area")?.value || "";
-    const diet = document.getElementById("google-diet")?.value || "";
-    const prices = Array.from(
-      document.querySelectorAll('input[name="google-price"]:checked')
-    ).map((input) => input.value);
+    // Change this number to set the default reviews-panel width when it opens.
+    // Width stays while you click other pins; a full page reload resets to this.
+    const DEFAULT_PANEL_WIDTH = 300;
+    const MIN_PANEL = 240;
+    const MAX_PANEL = 800;
 
-    const params = new URLSearchParams();
-    if (area) params.set("area", area);
-    if (diet) params.set("diet", diet);
-    prices.forEach((price) => params.append("price", price));
-
-    setStatus("Loading Google restaurants…");
-    const button = document.getElementById("load-google-btn");
-    if (button) button.disabled = true;
-
-    try {
-      const response = await fetch(`${config.googleUrl}?${params.toString()}`, {
-        headers: { Accept: "application/json" },
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        setStatus(payload.error || "Could not load Google restaurants.");
-        return;
-      }
-      state.points.restaurant_google = payload.points || [];
-      syncSource("restaurant_google");
-      state.visibility.restaurant_google = true;
-      if (state.map?.getLayer("restaurant_google")) {
-        state.map.setLayoutProperty("restaurant_google", "visibility", "visible");
-      }
-      const checkbox = document.querySelector('input[data-layer="restaurant_google"]');
-      if (checkbox) checkbox.checked = true;
-      const googleControls = document.getElementById("google-load-controls");
-      if (googleControls) googleControls.hidden = false;
-      fitVisible();
-      setStatus(
-        `Loaded ${state.points.restaurant_google.length} Google restaurants · ${visiblePoints().length} visible points`
-      );
-    } catch (_error) {
-      setStatus("Could not load Google restaurants. Try again.");
-    } finally {
-      if (button) button.disabled = false;
+    function clampWidth(width) {
+      const layoutWidth = layout.getBoundingClientRect().width;
+      const maxForLayout = Math.max(MIN_PANEL, layoutWidth - 280);
+      return Math.round(Math.min(MAX_PANEL, maxForLayout, Math.max(MIN_PANEL, width)));
     }
-  }
 
-  function bindControls() {
-    document.querySelectorAll("input[data-layer]").forEach((input) => {
-      const category = input.dataset.layer;
-      input.addEventListener("change", () => {
-        setLayerVisible(category, input.checked);
-      });
+    function applyWidth(width) {
+      const next = clampWidth(width);
+      layout.style.setProperty("--community-panel-width", `${next}px`);
+      splitter.setAttribute("aria-valuenow", String(next));
+      if (state.map) state.map.resize();
+      return next;
+    }
+
+    // Drop any previously saved width so reloads always start at the default.
+    localStorage.removeItem("combined-map-panel-width");
+    applyWidth(DEFAULT_PANEL_WIDTH);
+
+    let dragging = false;
+
+    function onPointerMove(event) {
+      if (!dragging) return;
+      const bounds = layout.getBoundingClientRect();
+      const width = bounds.right - event.clientX - 8;
+      applyWidth(width);
+    }
+
+    function stopDragging() {
+      if (!dragging) return;
+      dragging = false;
+      layout.classList.remove("is-resizing");
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", stopDragging);
+    }
+
+    splitter.addEventListener("pointerdown", (event) => {
+      if (window.matchMedia("(max-width: 900px)").matches) return;
+      event.preventDefault();
+      dragging = true;
+      layout.classList.add("is-resizing");
+      splitter.setPointerCapture?.(event.pointerId);
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", stopDragging);
     });
 
-    const loadBtn = document.getElementById("load-google-btn");
-    if (loadBtn) loadBtn.addEventListener("click", loadGoogleRestaurants);
+    splitter.addEventListener("keydown", (event) => {
+      const current = Number.parseInt(
+        getComputedStyle(layout).getPropertyValue("--community-panel-width"),
+        10,
+      ) || DEFAULT_PANEL_WIDTH;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        applyWidth(current + 16);
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        applyWidth(current - 16);
+      }
+    });
+  }
+
+  function bindCards() {
+    document.querySelectorAll(".result[data-key]").forEach((card) => {
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("a")) return;
+        const point = pointByKey(card.dataset.key);
+        if (!point) return;
+        if (state.map && point.lat != null && point.lng != null) {
+          state.map.flyTo({ center: [point.lng, point.lat], zoom: Math.max(state.map.getZoom(), 15) });
+        }
+        state.openKey = point.key || "";
+        highlightCard(state.openKey, false);
+        showCommunityPanel();
+        loadCommunityPanel(point);
+      });
+    });
+  }
+
+  function addUserMarker() {
+    const userPos = readJson("user-location");
+    if (!userPos || !state.map) return;
+    const dot = document.createElement("div");
+    dot.className = "user-location-dot";
+    dot.title = "You are here";
+    new maplibregl.Marker({ element: dot }).setLngLat([userPos.lng, userPos.lat]).addTo(state.map);
   }
 
   function initMap() {
@@ -447,12 +519,22 @@
       const category = point.category;
       if (state.points[category]) state.points[category].push(point);
     });
+    readJson("result-points")?.forEach((point) => {
+      if (!pointByKey(point.key) && state.points[point.category]) {
+        state.points[point.category].push(point);
+      }
+    });
+    bindCards();
+    bindSplitter();
 
     const opening = visiblePoints();
+    const userPos = readJson("user-location");
+    if (userPos) opening.push(userPos);
     const mapOptions = {
       container: mapElement,
       style: "https://tiles.openfreemap.org/styles/dark",
       maxZoom: 18,
+      attributionControl: false,
       customAttribution:
         '&copy; <a href="https://openfreemap.org/">OpenFreeMap</a> contributors &middot; ' +
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -469,6 +551,10 @@
 
     state.map = new maplibregl.Map(mapOptions);
     state.map.addControl(new maplibregl.NavigationControl(), "top-left");
+    state.map.addControl(
+      new maplibregl.AttributionControl({ compact: true }),
+      "bottom-right",
+    );
 
     state.map.on("error", (event) => {
       if (!state.map.isStyleLoaded() || event.sourceId === "openmaptiles") {
@@ -508,7 +594,7 @@
         openPoint(pointFromFeature(feature));
       });
 
-      setStatus(`${visiblePoints().length} visible points`);
+      setStatus(`${visiblePoints().length} places on the map`);
     }
 
     state.map.on("style.load", () => {
@@ -516,8 +602,58 @@
       addPinLayers();
     });
     if (state.map.isStyleLoaded()) addPinLayers();
-    bindControls();
+    addUserMarker();
   }
 
+  // Sidebar: hide filters that don't apply, and "Use my location".
+  function bindFilterForm() {
+    const form = document.getElementById("filter-form");
+    if (!form) return;
+
+    function sync() {
+      const types = Array.from(form.querySelectorAll('input[name="types"]'));
+      const checked = types.filter((input) => input.checked).map((input) => input.value);
+      form.querySelectorAll("[data-for-type]").forEach((section) => {
+        const show = !checked.length || checked.includes(section.dataset.forType);
+        section.hidden = !show;
+        section.disabled = !show;
+      });
+      const google = form.querySelector('input[name="source"][value="google"]');
+      const googleFilters = document.getElementById("google-filters");
+      if (googleFilters && google) {
+        googleFilters.hidden = !google.checked;
+        googleFilters.disabled = !google.checked;
+      }
+    }
+    form.addEventListener("change", sync);
+    sync();
+
+    const status = document.getElementById("loc-status");
+    document.getElementById("use-location")?.addEventListener("click", () => {
+      if (!navigator.geolocation) {
+        status.textContent = "Your browser does not support location.";
+        return;
+      }
+      status.textContent = "Getting your location...";
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          form.elements.lat.value = pos.coords.latitude;
+          form.elements.lng.value = pos.coords.longitude;
+          form.submit();
+        },
+        () => {
+          status.textContent = "Could not get your location. Allow location access in the browser and try again.";
+        }
+      );
+    });
+    document.getElementById("clear-location")?.addEventListener("click", () => {
+      form.elements.lat.value = "";
+      form.elements.lng.value = "";
+      form.elements.distance.value = "";
+      form.submit();
+    });
+  }
+
+  bindFilterForm();
   initMap();
 })();

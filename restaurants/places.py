@@ -3,8 +3,9 @@
 Views only call get_restaurants(). To switch to another data source, replace
 the body of get_restaurants() and keep the return shape the same.
 
-Google terms restrict caching/bulk storage of Places data, so we call the
-API at request time and store nothing.
+Google terms restrict caching/bulk storage of Places data, so search results
+are fetched at request time and not stored. locate_place() is the exception:
+callers may keep its place ID and, for up to 30 days, its coordinates.
 """
 
 import math
@@ -32,6 +33,7 @@ FIELD_MASK = ",".join(
         "places.rating",
         "places.userRatingCount",
         "places.photos",
+        "places.reviews",
     ]
 )
 HOMEPAGE_FIELD_MASK = ",".join(
@@ -40,6 +42,10 @@ HOMEPAGE_FIELD_MASK = ",".join(
         "places.formattedAddress",
         "places.priceLevel",
         "places.addressComponents",
+        "places.rating",
+        "places.userRatingCount",
+        "places.reviews",
+        "places.photos",
     ]
 )
 
@@ -99,6 +105,28 @@ def _normalize(place):
     if not zipcode:
         match = re.search(r"\b(\d{5})(?:-\d{4})?\b", place.get("formattedAddress", ""))
         zipcode = match.group(1) if match else ""
+    raw_reviews = place.get("reviews") or []
+    reviews = []
+    for r in raw_reviews:
+        text = r.get("text")
+        if isinstance(text, dict):
+            text = text.get("text", "")
+        author = r.get("authorAttribution") or {}
+        author_name = author.get("displayName") or ""
+        if isinstance(author_name, dict):
+            author_name = author_name.get("text", "")
+        clean_text = (text or "").strip()
+        if clean_text:
+            reviews.append(
+                {
+                    "text": clean_text,
+                    "author_name": (author_name or "").strip(),
+                    "rating": r.get("rating"),
+                    "relative_time": r.get("relativePublishTimeDescription", "") or "",
+                }
+            )
+    chosen_review = reviews[0] if reviews else None
+
     return {
         "id": place.get("id", ""),
         "name": place.get("displayName", {}).get("text", "(no name)"),
@@ -115,6 +143,8 @@ def _normalize(place):
         "rating": place.get("rating"),
         "rating_count": place.get("userRatingCount"),
         "photo": (place.get("photos") or [{}])[0].get("name", ""),
+        "reviews": reviews,
+        "review": chosen_review,
     }
 
 
@@ -202,6 +232,58 @@ def find_restaurant_place(name, zipcode, street, api_key=None):
         if len(partial_street) == 1:
             return partial_street[0]
     return None
+
+
+LOCATE_FIELD_MASK = "places.id,places.formattedAddress,places.location"
+
+
+def has_api_key():
+    return bool(os.environ.get("GOOGLE_API_KEY", ""))
+
+
+def locate_place(query, api_key=None):
+    """Return the coordinates of the top NYC match for ``query``, or None.
+
+    Used for dataset rows that have no latitude/longitude. Returns a dict with
+    id, address, lat and lng. Raises PlacesError when Google can't be asked
+    (no key, network, HTTP error) so callers can tell that apart from "no match".
+    """
+    api_key = api_key or os.environ.get("GOOGLE_API_KEY", "")
+    if not api_key:
+        raise PlacesError("GOOGLE_API_KEY is not set.")
+    try:
+        response = requests.post(
+            SEARCH_URL,
+            json={
+                "textQuery": query,
+                "maxResultCount": 1,
+                "languageCode": "en",
+                "locationRestriction": {"rectangle": NYC_BOUNDS},
+            },
+            headers={
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": api_key,
+                "X-Goog-FieldMask": LOCATE_FIELD_MASK,
+            },
+            timeout=8,
+        )
+    except requests.RequestException:
+        raise PlacesError("Could not reach Google Places.")
+    if response.status_code != 200:
+        raise PlacesError(f"Google Places returned an error ({response.status_code}).")
+    try:
+        places = response.json().get("places") or []
+    except (TypeError, ValueError):
+        raise PlacesError("Google Places returned an unreadable response.")
+    location = (places[0].get("location") or {}) if places else {}
+    if location.get("latitude") is None or location.get("longitude") is None:
+        return None
+    return {
+        "id": places[0].get("id", ""),
+        "address": places[0].get("formattedAddress", ""),
+        "lat": location["latitude"],
+        "lng": location["longitude"],
+    }
 
 
 def build_request(

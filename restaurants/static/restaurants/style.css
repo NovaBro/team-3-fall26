@@ -134,3 +134,31 @@
 .tag.grade-c { color: var(--grade-c); background: rgba(251, 146, 60, 0.14); }
 .tag.grade:hover { color: var(--ink); }
 .tag.grade-none { color: var(--muted); background: var(--raised); font-weight: 400; }
+
+/* Find food page (issue #109): the sidebar above, plus map legend and result cards. */
+.restaurant-filters input[type="text"] { width: 100%; }
+.restaurant-filters .swatch { display: inline-block; }
+.filter-section { padding-top: 14px; border-top: 1px solid var(--border); gap: 14px; }
+.filter-section[hidden] { display: none; }
+.filter-section > legend { float: left; width: 100%; color: var(--ink); font-weight: 600; }
+.filter-section > legend + * { clear: both; }
+.source-choice { display: flex; flex-direction: column; gap: 2px; }
+
+.result-summary { margin: 0 0 10px; }
+.map-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 6px; font-size: 0.85rem; color: var(--muted); }
+.map-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+
+.find-food-layout { margin-top: 16px; }
+.find-food-layout .results-list { max-height: min(80vh, 900px); }
+.result-details { margin-top: 4px; font-size: 0.85rem; color: var(--ink-soft); }
+.type-tag { display: inline-flex; align-items: center; gap: 6px; }
+.tag.location-missing { color: var(--warn); }
+
+.user-location-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #1a73e8;
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.4);
+}
