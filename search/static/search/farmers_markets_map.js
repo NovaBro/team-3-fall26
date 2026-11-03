@@ -24,11 +24,13 @@
     center: [-73.95, 40.72],
     zoom: 10,
     maxZoom: 18,
+    attributionControl: false,
     customAttribution:
       '&copy; <a href="https://openfreemap.org/">OpenFreeMap</a> contributors &middot; ' +
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   });
   map.addControl(new maplibregl.NavigationControl(), "top-left");
+  map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
 
   map.on("error", (event) => {
     if (!map.isStyleLoaded() || event.sourceId === "openmaptiles") {
