@@ -22,6 +22,7 @@
   </form>
 
   <p id="map-status" class="muted map-status" role="status">Loading map…</p>
+  <div hidden>{% csrf_token %}</div>
   <div id="farmers-market-map" class="farmers-market-map" role="region"
        aria-label="Map of New York City farmers markets"></div>
   {{ markets|json_script:"farmers-market-data" }}

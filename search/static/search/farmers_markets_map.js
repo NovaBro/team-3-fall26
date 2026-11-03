@@ -93,6 +93,8 @@
 
   map.on("style.load", () => map.resize());
 
+  let reviewFormCount = 0;
+
   function createPopup(market) {
     const container = document.createElement("div");
     container.className = "market-popup";
@@ -100,6 +102,9 @@
     const heading = document.createElement("h2");
     heading.textContent = market.market_name || "Farmers market";
     container.appendChild(heading);
+
+    const details = document.createElement("div");
+    details.className = "market-popup__details";
 
     const hoursRow = document.createElement("div");
     hoursRow.className = "market-popup__hours";
@@ -112,13 +117,18 @@
     status.className = "market-status";
     status.setAttribute("aria-live", "polite");
     hoursRow.appendChild(status);
-    container.appendChild(hoursRow);
+    details.appendChild(hoursRow);
 
     if (market.days_of_operation) {
-      appendDetail(container, "Days", market.days_of_operation);
+      appendDetail(details, "Days", market.days_of_operation);
     }
-    if (market.street_address) appendDetail(container, "Address", market.street_address);
-    if (market.borough) appendDetail(container, "Borough", market.borough);
+    if (market.street_address) appendDetail(details, "Address", market.street_address);
+    if (market.borough) appendDetail(details, "Borough", market.borough);
+
+    const actions = document.createElement("div");
+    actions.style.display = "flex";
+    actions.style.flexDirection = "column";
+    actions.style.gap = "2px";
 
     const directions = document.createElement("a");
     directions.href =
@@ -126,8 +136,82 @@
     directions.target = "_blank";
     directions.rel = "noopener noreferrer";
     directions.textContent = "Get directions";
-    container.appendChild(directions);
+    directions.style.display = "block";
+    details.appendChild(directions);
+
+    const leaveReview = document.createElement("a");
+    leaveReview.href = "#review";
+    leaveReview.className = "market-popup__review-link";
+    leaveReview.textContent = "Leave Review";
+    leaveReview.style.display = "block";
+    details.appendChild(leaveReview);
+
+    const form = createReviewForm(market);
+    form.hidden = true;
+    leaveReview.addEventListener("click", (event) => {
+      event.preventDefault();
+      details.hidden = true;
+      form.hidden = false;
+    });
+
+    container.append(details, form);
     return container;
+  }
+
+  function createReviewForm(market) {
+    reviewFormCount += 1;
+    const formId = reviewFormCount;
+    const form = document.createElement("form");
+    form.className = "market-popup__review";
+    form.method = "post";
+    form.action = "/farmers-markets/review/";
+  
+    const csrf = document.querySelector("[name=csrfmiddlewaretoken]");
+    if (csrf) form.appendChild(csrf.cloneNode());
+  
+    const marketName = document.createElement("input");
+    marketName.type = "hidden";
+    marketName.name = "market_name";
+    marketName.value = market.market_name || "";
+    form.appendChild(marketName);
+  
+    const address = document.createElement("input");
+    address.type = "hidden";
+    address.name = "street_address";
+    address.value = market.street_address || "";
+    form.appendChild(address);
+  
+    const stars = document.createElement("div");
+    stars.className = "review-stars";
+    stars.setAttribute("role", "radiogroup");
+    stars.setAttribute("aria-label", "Star rating");
+    for (let value = 5; value >= 1; value -= 1) {
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "rating";
+      input.id = `review-${formId}-star-${value}`;
+      input.value = String(value);
+      input.required = true;
+      const label = document.createElement("label");
+      label.htmlFor = input.id;
+      label.textContent = `${value} ${value === 1 ? "star" : "stars"}`;
+      stars.append(input, label);
+    }
+    form.appendChild(stars);
+  
+    const review = document.createElement("textarea");
+    review.name = "review";
+    review.maxLength = 200;
+    review.rows = 3;
+    review.placeholder = "200 characters max";
+    review.setAttribute("aria-label", "Review");
+    form.appendChild(review);
+  
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.textContent = "Submit";
+    form.appendChild(submit);
+    return form;
   }
 
   function getMarketStatus(market, now) {

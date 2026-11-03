@@ -4,6 +4,7 @@ from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.core.paginator import Paginator
+from django.contrib.auth.decorators import login_required
 from django.db.models import Max, Q, Subquery, OuterRef
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
@@ -27,7 +28,13 @@ from community.keys import dohmh_key, farmers_market_key, google_key, grocery_ke
 from community.models import PlaceEnrichment, PlaceReview
 from restaurants.inspections import _latest, _match, _restaurants_in_zip, google_zip
 from restaurants.places import PlacesError, find_restaurant_place, get_restaurants
-from search.models import FarmersMarket, HealthyStore, RestaurantInspection
+from search.models import (
+    FarmersMarket,
+    HealthyStore,
+    Place,
+    RestaurantInspection,
+    Review,
+)
 from search.registry import DATASETS
 from search.services.places import PlacesAPIError, enrich_camis
 
@@ -421,6 +428,29 @@ def farmers_markets_map(request):
             "day_options": MARKET_DAYS,
         },
     )
+
+
+@login_required
+@require_POST
+def create_farmers_market_review(request):
+    name = request.POST.get("market_name", "").strip()
+    address = request.POST.get("street_address", "").strip()
+    rating_text = request.POST.get("rating", "").strip()
+    text = request.POST.get("review", "").strip()
+    if not name or rating_text not in {"1", "2", "3", "4", "5"} or len(text) > 200:
+        return redirect("search:farmers_markets_map")
+    place, _created = Place.objects.get_or_create(
+        kind=Place.FARMERS_MARKET,
+        external_id=f"{name}|{address}",
+        defaults={"name": name},
+    )
+    Review.objects.create(
+        user=request.user,
+        place=place,
+        rating=int(rating_text),
+        text=text,
+    )
+    return redirect("search:farmers_markets_map")
 
 
 def explore(request, slug):
