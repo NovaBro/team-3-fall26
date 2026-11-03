@@ -162,77 +162,12 @@
     }
 
     const average = payload.average_rating == null
-      ? "No visitor ratings yet."
+      ? "Be the first to review!"
       : `Visitors ${payload.average_rating} (${payload.rating_count})`;
     addText(panel, "h3", "", average);
 
     if (payload.authenticated) {
-      const ratingForm = document.createElement("form");
-      ratingForm.className = "community-form";
-      const select = document.createElement("select");
-      select.name = "rating";
-      select.setAttribute("aria-label", "Your rating");
-      const placeholder = document.createElement("option");
-      placeholder.value = "";
-      placeholder.textContent = "Your rating";
-      select.appendChild(placeholder);
-      for (let score = 1; score <= 5; score += 1) {
-        const option = document.createElement("option");
-        option.value = String(score);
-        option.textContent = `${score} star${score === 1 ? "" : "s"}`;
-        if (payload.user_rating === score) option.selected = true;
-        select.appendChild(option);
-      }
-      const ratingButton = document.createElement("button");
-      ratingButton.type = "submit";
-      ratingButton.className = "btn";
-      ratingButton.textContent = "Save rating";
-      ratingForm.appendChild(select);
-      ratingForm.appendChild(ratingButton);
-      ratingForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        postCommunity(point, "rating", new FormData(ratingForm));
-      });
-      panel.appendChild(ratingForm);
-
-      const commentForm = document.createElement("form");
-      commentForm.className = "community-form";
-      const textarea = document.createElement("textarea");
-      textarea.name = "text";
-      textarea.rows = 3;
-      textarea.maxLength = 2000;
-      textarea.placeholder = "Add a comment";
-      textarea.setAttribute("aria-label", "Comment");
-      const commentButton = document.createElement("button");
-      commentButton.type = "submit";
-      commentButton.className = "btn";
-      commentButton.textContent = "Post comment";
-      commentForm.appendChild(textarea);
-      commentForm.appendChild(commentButton);
-      commentForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        postCommunity(point, "comment", new FormData(commentForm));
-      });
-      panel.appendChild(commentForm);
-
-      const photoForm = document.createElement("form");
-      photoForm.className = "community-form";
-      const file = document.createElement("input");
-      file.type = "file";
-      file.name = "photo";
-      file.accept = "image/*";
-      file.setAttribute("aria-label", "Photo");
-      const photoButton = document.createElement("button");
-      photoButton.type = "submit";
-      photoButton.className = "btn";
-      photoButton.textContent = "Upload photo";
-      photoForm.appendChild(file);
-      photoForm.appendChild(photoButton);
-      photoForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        postCommunity(point, "photo", new FormData(photoForm));
-      });
-      panel.appendChild(photoForm);
+      panel.appendChild(createVisitorForm(point, payload));
     } else {
       const login = document.createElement("p");
       const link = document.createElement("a");
@@ -314,7 +249,64 @@
     }
   }
 
-  async function postCommunity(point, action, formData) {
+  function createVisitorForm(point, payload) {
+    const form = document.createElement("form");
+    form.className = "community-form community-form--visitor";
+
+    const formId = `community-${(point.key || "pin").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+    const stars = document.createElement("div");
+    stars.className = "review-stars";
+    stars.setAttribute("role", "radiogroup");
+    stars.setAttribute("aria-label", "Your rating");
+    for (let value = 5; value >= 1; value -= 1) {
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "rating";
+      input.id = `${formId}-star-${value}`;
+      input.value = String(value);
+      input.required = true;
+      if (payload.user_rating === value) input.checked = true;
+      const label = document.createElement("label");
+      label.htmlFor = input.id;
+      label.textContent = `${value} ${value === 1 ? "star" : "stars"}`;
+      stars.append(input, label);
+    }
+    form.appendChild(stars);
+
+    const textarea = document.createElement("textarea");
+    textarea.name = "text";
+    textarea.rows = 3;
+    textarea.maxLength = 2000;
+    textarea.placeholder = "Leave a review (optional)";
+    textarea.setAttribute("aria-label", "Comment");
+    form.appendChild(textarea);
+
+    const file = document.createElement("input");
+    file.type = "file";
+    file.name = "photo";
+    file.accept = "image/*";
+    file.setAttribute("aria-label", "Photo");
+    form.appendChild(file);
+
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.className = "btn";
+    submit.textContent = "Submit";
+    submit.disabled = !payload.user_rating;
+    form.appendChild(submit);
+
+    stars.addEventListener("change", () => {
+      submit.disabled = !form.querySelector('input[name="rating"]:checked');
+    });
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitVisitorContribution(point, form);
+    });
+    return form;
+  }
+
+  async function postCommunity(point, action, formData, options = {}) {
     formData.set("name", point.name || "");
     formData.set("address", point.address || "");
     const panel = panelElement();
@@ -330,17 +322,52 @@
       });
       if (response.type === "opaqueredirect" || response.status === 302 || response.status === 0) {
         showCommunityMessage("Log in to post.");
-        return;
+        return null;
       }
       const payload = await response.json();
       if (!response.ok) {
         if (panel) addText(panel, "p", "community-error", payload.error || "Could not save.");
-        return;
+        return null;
       }
-      renderPanel(point, payload);
+      if (!options.deferRender) renderPanel(point, payload);
+      return payload;
     } catch (_error) {
       if (panel) addText(panel, "p", "community-error", "Could not save.");
+      return null;
     }
+  }
+
+  async function submitVisitorContribution(point, form) {
+    const ratingInput = form.querySelector('input[name="rating"]:checked');
+    if (!ratingInput) return;
+
+    const panel = panelElement();
+    const ratingData = new FormData();
+    ratingData.set("rating", ratingInput.value);
+    let payload = await postCommunity(point, "rating", ratingData, { deferRender: true });
+    if (!payload) return;
+
+    const text = (form.querySelector('textarea[name="text"]')?.value || "").trim();
+    if (text) {
+      const commentData = new FormData();
+      commentData.set("text", text);
+      const next = await postCommunity(point, "comment", commentData, { deferRender: true });
+      if (!next) return;
+      payload = next;
+    }
+
+    const photoInput = form.querySelector('input[name="photo"]');
+    const photo = photoInput?.files?.[0];
+    if (photo) {
+      const photoData = new FormData();
+      photoData.set("photo", photo);
+      const next = await postCommunity(point, "photo", photoData, { deferRender: true });
+      if (!next) return;
+      payload = next;
+    }
+
+    renderPanel(point, payload);
+    if (panel) panel.scrollIntoView({ block: "nearest" });
   }
 
   function pointFromFeature(feature) {
@@ -355,8 +382,22 @@
     };
   }
 
+  function showCommunityPanel() {
+    const layout = document.querySelector(".combined-map-layout");
+    if (!layout || layout.classList.contains("is-panel-open")) {
+      if (state.map) state.map.resize();
+      return;
+    }
+    layout.classList.add("is-panel-open");
+    if (state.map) {
+      // Let the grid reflow before MapLibre measures the new width.
+      requestAnimationFrame(() => state.map.resize());
+    }
+  }
+
   function openPoint(point) {
     state.openKey = point.key || "";
+    showCommunityPanel();
     loadCommunityPanel(point);
   }
 
@@ -422,6 +463,77 @@
     }
   }
 
+  function bindSplitter() {
+    const layout = document.querySelector(".combined-map-layout");
+    const splitter = document.getElementById("combined-map-splitter");
+    if (!layout || !splitter) return;
+
+    // Change this number to set the default reviews-panel width when it opens.
+    // Width stays while you click other pins; a full page reload resets to this.
+    const DEFAULT_PANEL_WIDTH = 300;
+    const MIN_PANEL = 240;
+    const MAX_PANEL = 800;
+
+    function clampWidth(width) {
+      const layoutWidth = layout.getBoundingClientRect().width;
+      const maxForLayout = Math.max(MIN_PANEL, layoutWidth - 280);
+      return Math.round(Math.min(MAX_PANEL, maxForLayout, Math.max(MIN_PANEL, width)));
+    }
+
+    function applyWidth(width) {
+      const next = clampWidth(width);
+      layout.style.setProperty("--community-panel-width", `${next}px`);
+      splitter.setAttribute("aria-valuenow", String(next));
+      if (state.map) state.map.resize();
+      return next;
+    }
+
+    // Drop any previously saved width so reloads always start at the default.
+    localStorage.removeItem("combined-map-panel-width");
+    applyWidth(DEFAULT_PANEL_WIDTH);
+
+    let dragging = false;
+
+    function onPointerMove(event) {
+      if (!dragging) return;
+      const bounds = layout.getBoundingClientRect();
+      const width = bounds.right - event.clientX - 8;
+      applyWidth(width);
+    }
+
+    function stopDragging() {
+      if (!dragging) return;
+      dragging = false;
+      layout.classList.remove("is-resizing");
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", stopDragging);
+    }
+
+    splitter.addEventListener("pointerdown", (event) => {
+      if (window.matchMedia("(max-width: 900px)").matches) return;
+      event.preventDefault();
+      dragging = true;
+      layout.classList.add("is-resizing");
+      splitter.setPointerCapture?.(event.pointerId);
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", stopDragging);
+    });
+
+    splitter.addEventListener("keydown", (event) => {
+      const current = Number.parseInt(
+        getComputedStyle(layout).getPropertyValue("--community-panel-width"),
+        10,
+      ) || DEFAULT_PANEL_WIDTH;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        applyWidth(current + 16);
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        applyWidth(current - 16);
+      }
+    });
+  }
+
   function bindControls() {
     document.querySelectorAll("input[data-layer]").forEach((input) => {
       const category = input.dataset.layer;
@@ -432,6 +544,7 @@
 
     const loadBtn = document.getElementById("load-google-btn");
     if (loadBtn) loadBtn.addEventListener("click", loadGoogleRestaurants);
+    bindSplitter();
   }
 
   function initMap() {
@@ -453,6 +566,7 @@
       container: mapElement,
       style: "https://tiles.openfreemap.org/styles/dark",
       maxZoom: 18,
+      attributionControl: false,
       customAttribution:
         '&copy; <a href="https://openfreemap.org/">OpenFreeMap</a> contributors &middot; ' +
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -469,6 +583,10 @@
 
     state.map = new maplibregl.Map(mapOptions);
     state.map.addControl(new maplibregl.NavigationControl(), "top-left");
+    state.map.addControl(
+      new maplibregl.AttributionControl({ compact: true }),
+      "bottom-right",
+    );
 
     state.map.on("error", (event) => {
       if (!state.map.isStyleLoaded() || event.sourceId === "openmaptiles") {
