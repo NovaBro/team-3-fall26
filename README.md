@@ -133,7 +133,7 @@ After pulling changes to the models or datasets, rebuild your local database:
 
 ## Elastic Beanstalk
 
-The live site is http://nycfood-env.eba-jht3rtv2.us-east-1.elasticbeanstalk.com. The Elastic Beanstalk application is `nycfood`, the environment is `nycfood-env`, and the region is `us-east-1`. A push to `develop` on `gcivil-nyu-org/team-3-fall26` runs tests, then GitHub Actions deploys that commit with `eb deploy nycfood-env`. The workflow assumes the IAM role `github-nycfood-deploy`; no AWS keys are stored in GitHub.
+The live site is http://Nycfood-env.eba-jht3rtv2.us-east-1.elasticbeanstalk.com. The Elastic Beanstalk application is `nycfood`, the environment is `Nycfood-env`, and the region is `us-east-1`. A push to `develop` on `NovaBro/team-3-fall26` runs tests, then GitHub Actions deploys that commit with `eb deploy Nycfood-env`. The workflow assumes the IAM role `github-nycfood-deploy`; no AWS keys are stored in GitHub.
 
 The instance downloads `database/nyc_food.db` and `database/community.db` from the private bucket `nycfood-databases-322134621417` before migrate. Those files are not in Git and are not in the deploy bundle. Django still opens them as local SQLite files. Rows written on the live site, and files in `media/`, are replaced by the next deploy. To change the canonical databases, upload them again:
 
@@ -144,6 +144,6 @@ aws s3 cp database/community.db s3://nycfood-databases-322134621417/community.db
 
 Before the first Actions deploy, create that bucket, upload both files, and attach `deploy/s3-db-read-policy.json` to the instance role `aws-elasticbeanstalk-ec2-role`. A failed download fails the deploy. API keys come from SSM Parameter Store.
 
-If the deploy fails, run `eb logs nycfood-env` and read `eb-engine.log` and `web.stdout.log`.
+If the deploy fails, run `eb logs Nycfood-env` and read `eb-engine.log` and `web.stdout.log`.
 
 More detail: [md_guides/deploy_workflow.md](md_guides/deploy_workflow.md) (checklist and team rules) and [md_guides/aws_deployment.md](md_guides/aws_deployment.md) (IAM, SSM, and troubleshooting).
