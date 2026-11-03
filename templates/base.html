@@ -21,11 +21,7 @@
       </a>
       <nav aria-label="Main">
         <a href="{% url 'search:home' %}"{% if view == 'search:home' %} aria-current="page"{% endif %}>Home</a>
-        <a href="{% url 'search:index' %}"{% if view == 'search:index' or view == 'search:restaurant_detail' %} aria-current="page"{% endif %}>Restaurants</a>
-        <a href="{% url 'restaurants:search' %}"{% if view == 'restaurants:search' %} aria-current="page"{% endif %}>Find restaurants</a>
-        <a href="{% url 'search:explore_index' %}"{% if view == 'search:explore_index' or view == 'search:explore' %} aria-current="page"{% endif %}>Explore datasets</a>
-        <a href="{% url 'search:farmers_markets_map' %}"{% if view == 'search:farmers_markets_map' %} aria-current="page"{% endif %}>Farmers market</a>
-        <a href="{% url 'search:combined_map' %}"{% if view == 'search:combined_map' %} aria-current="page"{% endif %}>Combined map</a>
+        <a href="{% url 'search:index' %}"{% if view == 'search:index' or view == 'search:restaurant_detail' %} aria-current="page"{% endif %}>Find food</a>
         {% if user.is_authenticated %}
           <a href="{% url 'accounts:profile' %}"{% if view == 'accounts:profile' %} aria-current="page"{% endif %}>Profile</a>
           <a href="{% url 'accounts:view_profile' user.username %}"{% if view == 'accounts:view_profile' %} aria-current="page"{% endif %}>{{ user.username }}</a>

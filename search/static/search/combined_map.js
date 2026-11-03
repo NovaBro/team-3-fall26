@@ -4,8 +4,8 @@
   const CATEGORY_LABELS = {
     farmers_market: "Farmers market",
     grocery: "Grocery (Shop Healthy)",
-    restaurant_dohmh: "DOHMH restaurant",
-    restaurant_google: "Google restaurant",
+    restaurant_dohmh: "Restaurant (NYC inspection records)",
+    restaurant_google: "Restaurant (Google Places)",
   };
 
   const PIN_COLORS = {
@@ -27,7 +27,7 @@
       farmers_market: true,
       grocery: true,
       restaurant_dohmh: true,
-      restaurant_google: false,
+      restaurant_google: true,
     },
     openKey: "",
   };
@@ -79,19 +79,6 @@
   function syncSource(category) {
     const source = state.map?.getSource(category);
     if (source) source.setData(featureCollection(category));
-  }
-
-  function fitVisible() {
-    if (!state.map) return;
-    const points = visiblePoints();
-    if (!points.length) {
-      state.map.setCenter([-73.95, 40.72]);
-      state.map.setZoom(10);
-      return;
-    }
-    const bounds = new maplibregl.LngLatBounds();
-    points.forEach((point) => bounds.extend([point.lng, point.lat]));
-    state.map.fitBounds(bounds, { padding: 48, maxZoom: points.length === 1 ? 14 : 13 });
   }
 
   function csrfToken() {
@@ -355,83 +342,55 @@
     };
   }
 
+  function cardFor(key) {
+    return Array.from(document.querySelectorAll(".result[data-key]")).find(
+      (card) => card.dataset.key === key
+    );
+  }
+
+  function highlightCard(key, scroll) {
+    document.querySelectorAll(".result[data-key]").forEach((card) => {
+      card.classList.toggle("active", card.dataset.key === key);
+    });
+    const card = cardFor(key);
+    if (card && scroll) card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
   function openPoint(point) {
     state.openKey = point.key || "";
+    highlightCard(state.openKey, true);
     loadCommunityPanel(point);
   }
 
-  function setLayerVisible(category, visible) {
-    state.visibility[category] = visible;
-    if (state.map?.getLayer(category)) {
-      state.map.setLayoutProperty(category, "visibility", visible ? "visible" : "none");
-    }
-    const googleControls = document.getElementById("google-load-controls");
-    if (category === "restaurant_google" && googleControls) {
-      googleControls.hidden = !visible;
-    }
-    fitVisible();
-    setStatus(`${visiblePoints().length} visible points`);
+  function pointByKey(key) {
+    return CATEGORIES.flatMap((category) => state.points[category]).find(
+      (point) => point.key === key
+    );
   }
 
-  async function loadGoogleRestaurants() {
-    const config = readJson("combined-map-config");
-    if (!config?.googleUrl) return;
-
-    const area = document.getElementById("google-area")?.value || "";
-    const diet = document.getElementById("google-diet")?.value || "";
-    const prices = Array.from(
-      document.querySelectorAll('input[name="google-price"]:checked')
-    ).map((input) => input.value);
-
-    const params = new URLSearchParams();
-    if (area) params.set("area", area);
-    if (diet) params.set("diet", diet);
-    prices.forEach((price) => params.append("price", price));
-
-    setStatus("Loading Google restaurants…");
-    const button = document.getElementById("load-google-btn");
-    if (button) button.disabled = true;
-
-    try {
-      const response = await fetch(`${config.googleUrl}?${params.toString()}`, {
-        headers: { Accept: "application/json" },
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        setStatus(payload.error || "Could not load Google restaurants.");
-        return;
-      }
-      state.points.restaurant_google = payload.points || [];
-      syncSource("restaurant_google");
-      state.visibility.restaurant_google = true;
-      if (state.map?.getLayer("restaurant_google")) {
-        state.map.setLayoutProperty("restaurant_google", "visibility", "visible");
-      }
-      const checkbox = document.querySelector('input[data-layer="restaurant_google"]');
-      if (checkbox) checkbox.checked = true;
-      const googleControls = document.getElementById("google-load-controls");
-      if (googleControls) googleControls.hidden = false;
-      fitVisible();
-      setStatus(
-        `Loaded ${state.points.restaurant_google.length} Google restaurants · ${visiblePoints().length} visible points`
-      );
-    } catch (_error) {
-      setStatus("Could not load Google restaurants. Try again.");
-    } finally {
-      if (button) button.disabled = false;
-    }
-  }
-
-  function bindControls() {
-    document.querySelectorAll("input[data-layer]").forEach((input) => {
-      const category = input.dataset.layer;
-      input.addEventListener("change", () => {
-        setLayerVisible(category, input.checked);
+  function bindCards() {
+    document.querySelectorAll(".result[data-key]").forEach((card) => {
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("a")) return;
+        const point = pointByKey(card.dataset.key);
+        if (!point) return;
+        if (state.map && point.lat != null && point.lng != null) {
+          state.map.flyTo({ center: [point.lng, point.lat], zoom: Math.max(state.map.getZoom(), 15) });
+        }
+        state.openKey = point.key || "";
+        highlightCard(state.openKey, false);
+        loadCommunityPanel(point);
       });
     });
+  }
 
-    const loadBtn = document.getElementById("load-google-btn");
-    if (loadBtn) loadBtn.addEventListener("click", loadGoogleRestaurants);
+  function addUserMarker() {
+    const userPos = readJson("user-location");
+    if (!userPos || !state.map) return;
+    const dot = document.createElement("div");
+    dot.className = "user-location-dot";
+    dot.title = "You are here";
+    new maplibregl.Marker({ element: dot }).setLngLat([userPos.lng, userPos.lat]).addTo(state.map);
   }
 
   function initMap() {
@@ -447,8 +406,16 @@
       const category = point.category;
       if (state.points[category]) state.points[category].push(point);
     });
+    readJson("result-points")?.forEach((point) => {
+      if (!pointByKey(point.key) && state.points[point.category]) {
+        state.points[point.category].push(point);
+      }
+    });
+    bindCards();
 
     const opening = visiblePoints();
+    const userPos = readJson("user-location");
+    if (userPos) opening.push(userPos);
     const mapOptions = {
       container: mapElement,
       style: "https://tiles.openfreemap.org/styles/dark",
@@ -508,7 +475,7 @@
         openPoint(pointFromFeature(feature));
       });
 
-      setStatus(`${visiblePoints().length} visible points`);
+      setStatus(`${visiblePoints().length} places on the map`);
     }
 
     state.map.on("style.load", () => {
@@ -516,8 +483,58 @@
       addPinLayers();
     });
     if (state.map.isStyleLoaded()) addPinLayers();
-    bindControls();
+    addUserMarker();
   }
 
+  // Sidebar: hide filters that don't apply, and "Use my location".
+  function bindFilterForm() {
+    const form = document.getElementById("filter-form");
+    if (!form) return;
+
+    function sync() {
+      const types = Array.from(form.querySelectorAll('input[name="types"]'));
+      const checked = types.filter((input) => input.checked).map((input) => input.value);
+      form.querySelectorAll("[data-for-type]").forEach((section) => {
+        const show = !checked.length || checked.includes(section.dataset.forType);
+        section.hidden = !show;
+        section.disabled = !show;
+      });
+      const google = form.querySelector('input[name="source"][value="google"]');
+      const googleFilters = document.getElementById("google-filters");
+      if (googleFilters && google) {
+        googleFilters.hidden = !google.checked;
+        googleFilters.disabled = !google.checked;
+      }
+    }
+    form.addEventListener("change", sync);
+    sync();
+
+    const status = document.getElementById("loc-status");
+    document.getElementById("use-location")?.addEventListener("click", () => {
+      if (!navigator.geolocation) {
+        status.textContent = "Your browser does not support location.";
+        return;
+      }
+      status.textContent = "Getting your location...";
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          form.elements.lat.value = pos.coords.latitude;
+          form.elements.lng.value = pos.coords.longitude;
+          form.submit();
+        },
+        () => {
+          status.textContent = "Could not get your location. Allow location access in the browser and try again.";
+        }
+      );
+    });
+    document.getElementById("clear-location")?.addEventListener("click", () => {
+      form.elements.lat.value = "";
+      form.elements.lng.value = "";
+      form.elements.distance.value = "";
+      form.submit();
+    });
+  }
+
+  bindFilterForm();
   initMap();
 })();

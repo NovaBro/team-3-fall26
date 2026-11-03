@@ -19,20 +19,32 @@ Then open http://127.0.0.1:8000/.
 
 ## Web interface
 
-- `/` — search restaurant inspections by name, borough, ZIP, grade, diet, or allergy.
+- `/` — **Find food**: farmers markets, Shop Healthy grocery stores, and
+  restaurants on one map (MapLibre) with a shared filter sidebar: store type,
+  name, borough, ZIP, distance from your location, market day, and restaurant
+  filters (cuisine, inspection grade, diet, allergies). Restaurant results come
+  from NYC inspection records by default, or live from Google Places, which
+  adds price, minimum rating, and open-now filters. Clicking a pin or result
+  opens community ratings, comments, and photos.
 - `/home/` — card view of NYC restaurants, filterable by borough, with a Google Places lookup on each card.
 - `/restaurant/<camis>/` — full inspection/violation history for one restaurant.
-- `/explore/` — browse the other five datasets with text search and pagination.
-- `/farmers-markets/` — map of NYC farmers markets.
-- `/combined-map/` — Google Map of farmers markets, Shop Healthy stores, DOHMH
-  restaurants with saved Places enrichment, and (on demand) live Google
-  restaurants. Needs `GOOGLE_MAPS_JS_KEY`; live Google layer also needs
-  `GOOGLE_API_KEY` and is off until you load it.
-- `/restaurants/` — find restaurants by area, price range, diet, allergy, cuisine,
-  minimum rating, open now, and walking distance
-  from your location (live Google Places data; see below).
+- The old `/restaurants/`, `/combined-map/`, `/farmers-markets/`, and `/explore/`
+  tabs were merged into `/` (issue #109) and now redirect there.
 
-## Restaurant filters (`/restaurants/`)
+### Missing locations
+
+Inspection records have no coordinates, and a few markets and stores don't
+either. For the rows on the page you're viewing, Find food asks Google Places
+Text Search (needs `GOOGLE_API_KEY`) and stores the answer in
+`community.LocationLookup`. Misses are stored too, and entries expire after 30
+days (Google's limit for caching coordinates). Backfill in bulk with:
+
+```bash
+.venv/bin/python manage.py locate_places                    # markets + grocery
+.venv/bin/python manage.py locate_places --type restaurant --limit 200
+```
+
+## Google Places restaurant results
 
 Needs a Google API key with **Places API (New)** enabled (and billing on the Google
 Cloud project). Copy `.env.example` to `.env` and fill in `GOOGLE_API_KEY`; add

@@ -59,30 +59,21 @@ Implemented in `search/management/commands/import_datasets.py`. The command is i
 
 Logic lives in `search/views.py` (`index`, `restaurant_detail`, `refresh_place`).
 
-### Other open-data tables (generic browser)
+### Find food page (`/`)
 
-`search/registry.py` maps URL slugs to models, display columns, and search fields. Restaurant inspections are **not** in this registry; they use the dedicated views above.
+Farmers markets (latest year), Shop Healthy stores, and restaurants (one row per
+`camis`, newest grade) are shown together on one map and paginated list
+(`search/find_food.py`, `search/views.py:index`). Rows without coordinates are
+located through `PlaceEnrichment`, then `community.LocationLookup`, then a
+Google Places Text Search for the visible page (`search/locations.py`). The
+`locate_places` command backfills `LocationLookup`.
 
-| Slug | Model | Search fields |
-|------|-------|---------------|
-| `menu-items` | `MenuItem` | restaurant, item name |
-| `agency-purchases` | `AgencyPurchase` | agency, product, vendor |
-| `farmers-markets` | `FarmersMarket` | market name, street address |
-| `healthy-stores` | `HealthyStore` | store name, street address |
-| `park-eateries` | `ParkEatery` | name, location, type |
-
-| Path | Behavior |
-|------|----------|
-| `/explore/` | Cards listing the five registry datasets |
-| `/explore/<slug>/` | Paginated table (25/page) with text search |
-
-### Farmers markets map
-
-`/farmers-markets/` loads the latest year of `FarmersMarket`, filters to NYC lat/long bounds, supports name / ZIP / day-of-week filters (with day-range parsing), and applies a hard-coded location override for one market (`Saratoga Farm Stand`).
+The MenuStat, agency purchase, and park eatery tables are still imported but are
+no longer shown in the UI (the Explore datasets tab was removed in issue #109).
 
 ### Not from local datasets
 
-`/restaurants/` (`restaurants/` app) queries Google Places at request time for area, price, diet, and distance filters. Results are **not** stored and do **not** use `database/datasets/` or `search` models.
+Choosing **Google Places (live)** for restaurants on `/` queries Google Places at request time for area, price, diet, rating, open-now, and distance filters. Those results are **not** stored.
 
 ## Google Places enrichment (cached)
 
@@ -116,14 +107,14 @@ database/datasets/*
         ▼
   import_datasets  ──►  SQLite (database/nyc_food.db)
                               │
-                              ├── /  + /restaurant/<camis>/
-                              ├── /explore/...
-                              └── /farmers-markets/
+                              ├── /  (Find food map + list)
+                              └── /restaurant/<camis>/
 
 Google Places API
         │
         ├── enrich_places / refresh-google  ──►  PlaceEnrichment (+ reviews on detail)
-        └── /restaurants/ (request-time only, not stored)
+        ├── / with Google Places source (request-time only, not stored)
+        └── / missing locations ──►  LocationLookup (30-day cache)
 ```
 
 ## Setup reminder
