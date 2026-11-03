@@ -8,7 +8,10 @@ from accounts.models import MoodLog, UserProfile
 class LoginForm(AuthenticationForm):
     error_messages = {
         **AuthenticationForm.error_messages,
-        "inactive": "Please confirm your email before logging in — check your inbox for the link.",
+        "inactive": (
+            "Please confirm your email before logging in — "
+            "check your inbox for the link."
+        ),
     }
 
 

@@ -30,7 +30,12 @@ class Command(BaseCommand):
         # One message per recipient (not one message addressed to everyone)
         # so opted-in users never see each other's email addresses.
         messages = [
-            (options["subject"], options["message"], settings.DEFAULT_FROM_EMAIL, [email])
+            (
+                options["subject"],
+                options["message"],
+                settings.DEFAULT_FROM_EMAIL,
+                [email],
+            )
             for email in recipients
         ]
         send_mass_mail(messages)
