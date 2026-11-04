@@ -2,14 +2,27 @@ name: CI
 
 on:
   push:
-    branches: [develop]
+    branches: [develop, main]
   pull_request:
+    branches: [develop, main]
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-22.04
     steps:
+      # Scheduled runs always start from the default branch (develop); test main instead.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'main' || '' }}
+
+      - name: Record checked-out commit
+        id: rev
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "branch=${{ github.event_name == 'schedule' && 'main' || github.head_ref || github.ref_name }}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v5
         with:
@@ -47,8 +60,10 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           file: coverage.lcov
           format: lcov
+          git-branch: ${{ steps.rev.outputs.branch }}
+          git-commit: ${{ steps.rev.outputs.sha }}
 
-  deploy:
+  deploy-integration:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && github.repository == 'gcivil-nyu-org/team-3-fall26'
     runs-on: ubuntu-22.04
@@ -73,3 +88,29 @@ jobs:
 
       - name: Deploy
         run: eb deploy Nycfood-env
+
+  deploy-production:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'gcivil-nyu-org/team-3-fall26'
+    runs-on: ubuntu-22.04
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install EB CLI
+        run: pip install awsebcli
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::322134621417:role/github-nycfood-deploy
+          aws-region: us-east-1
+
+      - name: Deploy
+        run: eb deploy Nycfood-env-main

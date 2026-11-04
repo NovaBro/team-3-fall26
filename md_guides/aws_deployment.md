@@ -122,7 +122,7 @@ Also set a billing budget alert in Google Cloud.
 
 Attach the policies in `deploy/ssm-read-policy.json` (`ssm:GetParameter(s)` on `/nycfood/*`) and `deploy/s3-db-read-policy.json` (`s3:GetObject` on the two database objects). This role is shared by every EB environment in the account.
 
-GitHub Actions deploys with a separate role, `github-nycfood-deploy`. Its trust policy is limited via GitHub OIDC to pushes on the org repo's `develop` branch. That role can upload an application version and update `nycfood-env`. It does not need access to the database bucket; the instance role downloads the databases.
+GitHub Actions deploys with a separate role, `github-nycfood-deploy`. Its trust policy is limited via GitHub OIDC to pushes on the org repo's `develop` and `main` branches (`sub` values `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/develop` and `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/main`). That role can upload an application version and update `Nycfood-env` (integration) and `Nycfood-env-main` (production). It does not need access to the database bucket; the instance role downloads the databases.
 
 ## First-time setup (already done)
 

@@ -1,7 +1,9 @@
 # Team Project repo
 
-[![CI](https://github.com/NovaBro/team-3-fall26/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/NovaBro/team-3-fall26/actions/workflows/ci.yml)
-[![Coverage Status](https://coveralls.io/repos/github/NovaBro/team-3-fall26/badge.svg?branch=develop)](https://coveralls.io/github/NovaBro/team-3-fall26?branch=develop)
+| Branch | Build | Coverage |
+|---|---|---|
+| develop | [![CI develop](https://github.com/gcivil-nyu-org/team-3-fall26/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/gcivil-nyu-org/team-3-fall26/actions/workflows/ci.yml?query=branch%3Adevelop) | [![Coverage develop](https://coveralls.io/repos/github/gcivil-nyu-org/team-3-fall26/badge.svg?branch=develop)](https://coveralls.io/github/gcivil-nyu-org/team-3-fall26?branch=develop) |
+| main | [![CI main](https://github.com/gcivil-nyu-org/team-3-fall26/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gcivil-nyu-org/team-3-fall26/actions/workflows/ci.yml?query=branch%3Amain) | [![Coverage main](https://coveralls.io/repos/github/gcivil-nyu-org/team-3-fall26/badge.svg?branch=main)](https://coveralls.io/github/gcivil-nyu-org/team-3-fall26?branch=main) |
 
 NYC food / open-data search project. Raw datasets live in `database/datasets/`.
 
@@ -143,9 +145,28 @@ After pulling changes to the models or datasets, rebuild your local database:
 .venv/bin/python manage.py test
 ```
 
+## CI/CD
+
+`.github/workflows/ci.yml` runs one `test` job (black, flake8, unit tests under coverage, Coveralls upload) on:
+
+- pull requests into `develop` or `main` (pre-submit)
+- pushes to `develop` or `main`
+- a daily schedule at 09:00 UTC, which tests `main` (post-submit)
+- manual runs from the Actions tab
+
+After `test` passes, a push to `develop` deploys to `Nycfood-env` (integration) and a push to `main` deploys to `Nycfood-env-main` (production). Deploys only run on `gcivil-nyu-org/team-3-fall26`, never on forks or pull requests.
+
+Scheduled runs use the copy of `ci.yml` on the default branch, `develop`. Change CI on `develop` first, then merge `develop` into `main`, so both branches keep the same workflow and README badges.
+
+Repository settings that the workflow depends on:
+
+- Branch protection on `develop` and `main` with "Require status checks to pass before merging" and the `test` check required.
+- `gcivil-nyu-org/team-3-fall26` enabled on coveralls.io.
+- The trust policy of the IAM role `github-nycfood-deploy` allows both `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/develop` and `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/main`, and the role may update both Elastic Beanstalk environments.
+
 ## Elastic Beanstalk
 
-The live site is http://Nycfood-env.eba-jht3rtv2.us-east-1.elasticbeanstalk.com. The Elastic Beanstalk application is `nycfood`, the environment is `Nycfood-env`, and the region is `us-east-1`. A push to `develop` on `NovaBro/team-3-fall26` runs tests, then GitHub Actions deploys that commit with `eb deploy Nycfood-env`. The workflow assumes the IAM role `github-nycfood-deploy`; no AWS keys are stored in GitHub.
+The integration site is http://Nycfood-env.eba-jht3rtv2.us-east-1.elasticbeanstalk.com. The Elastic Beanstalk application is `nycfood`, the environments are `Nycfood-env` (integration, from `develop`) and `Nycfood-env-main` (production, from `main`), and the region is `us-east-1`. GitHub Actions deploys with `eb deploy` after tests pass (see [CI/CD](#cicd)). The workflow assumes the IAM role `github-nycfood-deploy`; no AWS keys are stored in GitHub.
 
 The instance downloads `database/nyc_food.db` and `database/community.db` from the private bucket `nycfood-databases-322134621417` before migrate. Those files are not in Git and are not in the deploy bundle. Django still opens them as local SQLite files. Rows written on the live site, and files in `media/`, are replaced by the next deploy. To change the canonical databases, upload them again:
 
