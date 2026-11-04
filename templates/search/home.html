@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Restaurants - NYC Food Search{% endblock %}
+{% block main_class %}restaurant-main{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=11">
+{% endblock %}
+
+{% block content %}
+<section class="restaurant-home" aria-labelledby="restaurant-home-title">
+  <div class="restaurant-home__intro">
+    {% if selected_boro %}
+
+    {% else %}
+    <div class="restaurant-home__intro-copy">
+      <p class="restaurant-home__eyebrow">A taste of the city</p>
+      <h1 id="restaurant-home-title">Restaurants</h1>
+      <p class="muted">NYC restaurants near you.</p>
+    </div>
+    {% endif %}
+
+    <form class="restaurant-borough-filter" method="get">
+      <label for="restaurant-boro">Select your location</label>
+      <select id="restaurant-boro" name="boro" onchange="this.form.submit()">
+        <option value="">All boroughs</option>
+        {% for boro in borough_options %}
+          <option value="{{ boro }}" {% if selected_boro == boro %}selected{% endif %}>{{ boro|title }}</option>
+        {% endfor %}
+      </select>
+      <noscript><button type="submit">Apply</button></noscript>
+    </form>
+  </div>
+
+  {% if top_picks %}
+  <section class="top-picks" aria-labelledby="top-picks-title">
+    <div class="top-picks__header">
+      <h2 id="top-picks-title"><span class="top-picks__icon" aria-hidden="true">🏆</span> Today's Top Picks</h2>
+      <p class="top-picks__subtitle muted">Your next unforgettable food experience starts here!</p>
+    </div>
+    <div class="top-picks__grid">
+      {% for pick in top_picks %}
+        <article class="top-pick-card">
+          <div class="top-pick-card__art">
+            {% static 'search/images/nyc-restaurant.jpg' as fallback_img %}
+            <img
+              src="{% if pick.photo_url %}{{ pick.photo_url }}{% elif pick.image %}{% static pick.image %}{% else %}{{ fallback_img }}{% endif %}"
+              alt="{{ pick.name }}"
+              loading="lazy"
+              onerror="this.onerror=null;this.src='{{ fallback_img|escapejs }}';">
+            <span class="top-pick-card__rank">#{{ forloop.counter }}</span>
+            {% if pick.inspection.grade %}
+              <span class="top-pick-card__grade grade grade-{{ pick.inspection.grade }}" title="NYC DOHMH Grade {{ pick.inspection.grade }}">
+                Grade {{ pick.inspection.grade }}
+              </span>
+            {% endif %}
+            {% if pick.google.price %}
+              <span class="top-pick-card__price" title="Price level: {{ pick.google.price }}">{{ pick.google.price }}</span>
+            {% endif %}
+          </div>
+          <div class="top-pick-card__body">
+            <div class="top-pick-card__tags">
+              <span class="top-pick-card__category">{{ pick.cuisine|default:"Restaurant" }}</span>
+              {% if pick.boro %}<span class="top-pick-card__boro-tag">{{ pick.boro }}</span>{% endif %}
+            </div>
+            <h3>
+              {% if pick.inspection.camis %}
+                <a href="{% url 'search:restaurant_detail' pick.inspection.camis %}">{{ pick.name }}</a>
+              {% else %}
+                {{ pick.name }}
+              {% endif %}
+            </h3>
+            <p class="top-pick-card__address">
+              {% if pick.google.address %}{{ pick.google.address }}{% else %}{{ pick.street }}{% if pick.boro %}, {{ pick.boro }}{% endif %}{% if pick.zipcode %} {{ pick.zipcode }}{% endif %}{% endif %}
+            </p>
+
+            <!-- Google Star Rating in Card Details -->
+            {% if pick.google.rating %}
+              <div class="top-pick-card__rating-bar" title="Google rating: {{ pick.google.rating }} / 5">
+                <span class="top-pick-card__stars-visual" aria-hidden="true">
+                  <span class="top-pick-card__star top-pick-card__star--filled"></span>
+                  <span class="top-pick-card__star {% if pick.google.rating >= 1.8 %}top-pick-card__star--filled{% elif pick.google.rating >= 1.3 %}top-pick-card__star--half{% endif %}"></span>
+                  <span class="top-pick-card__star {% if pick.google.rating >= 2.8 %}top-pick-card__star--filled{% elif pick.google.rating >= 2.3 %}top-pick-card__star--half{% endif %}"></span>
+                  <span class="top-pick-card__star {% if pick.google.rating >= 3.8 %}top-pick-card__star--filled{% elif pick.google.rating >= 3.3 %}top-pick-card__star--half{% endif %}"></span>
+                  <span class="top-pick-card__star {% if pick.google.rating >= 4.8 %}top-pick-card__star--filled{% elif pick.google.rating >= 4.3 %}top-pick-card__star--half{% endif %}"></span>
+                </span>
+                <span class="top-pick-card__rating-value">{{ pick.google.rating }}</span>
+                {% if pick.google.rating_count %}
+                  <span class="top-pick-card__rating-count muted">({{ pick.google.rating_count }})</span>
+                {% endif %}
+                <span class="top-pick-card__rating-source">Google</span>
+              </div>
+            {% endif %}
+
+            <!-- Google Review Comment -->
+            {% if pick.review and pick.review.text %}
+              <div class="top-pick-card__review">
+                <div class="top-pick-card__review-header">
+                  <span class="top-pick-card__review-label">Google Review</span>
+                  {% if pick.review.rating %}
+                    <span class="top-pick-card__review-rating" title="Rated {{ pick.review.rating }} stars">
+                      ★ {{ pick.review.rating }}
+                    </span>
+                  {% endif %}
+                </div>
+                <blockquote class="top-pick-card__review-quote">
+                  “{{ pick.review.text|truncatechars:150 }}”
+                </blockquote>
+                {% if pick.review.author_name %}
+                  <div class="top-pick-card__review-author">
+                    <span class="author-name">— {{ pick.review.author_name }}</span>
+                    {% if pick.review.relative_time %}
+                      <span class="review-time muted">({{ pick.review.relative_time }})</span>
+                    {% endif %}
+                  </div>
+                {% endif %}
+              </div>
+            {% endif %}
+
+            <div class="top-pick-card__meta">
+              {% if pick.inspection.grade %}
+                <span class="top-pick-card__meta-item" title="Health Grade">
+                  <span class="top-pick-card__meta-dot grade-dot-{{ pick.inspection.grade }}"></span>
+                  Grade {{ pick.inspection.grade }}
+                </span>
+              {% endif %}
+              {% if pick.inspection.date %}
+                <span class="top-pick-card__meta-item muted" title="Last inspected">
+                  Inspected {{ pick.inspection.date }}
+                </span>
+              {% endif %}
+            </div>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if restaurants %}
+  <section class="restaurant-list-section {% if top_picks %}restaurant-list-section--with-divider{% endif %}" aria-labelledby="restaurant-list-title">
+    <div class="restaurant-list-header">
+      <div class="restaurant-list-header__copy">
+        <p class="restaurant-list-header__eyebrow">Explore more</p>
+        <h2 id="restaurant-list-title">
+          {% if selected_boro %}
+            Restaurants in {{ selected_boro|title }}
+          {% else %}
+            Good food is closer than you think. Let's find it!
+          {% endif %}
+        </h2>
+        <p class="muted">
+          Showing {{ page_obj.paginator.count }} verified NYC restaurant record{{ page_obj.paginator.count|pluralize }}
+        </p>
+      </div>
+
+      <nav class="restaurant-pagination" aria-label="Restaurant pages">
+        {% if page_obj.has_previous %}<a href="?boro={{ selected_boro|urlencode }}&amp;page={{ page_obj.previous_page_number }}" rel="prev" aria-label="Previous page">&larr;</a>{% endif %}
+        <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}<a href="?boro={{ selected_boro|urlencode }}&amp;page={{ page_obj.next_page_number }}" rel="next" aria-label="Next page">&rarr;</a>{% endif %}
+      </nav>
+    </div>
+
+    <div class="restaurant-grid">
+      {% for restaurant in restaurants %}
+        <article class="restaurant-card">
+          <div class="restaurant-card__art">
+            {% static 'search/images/nyc-restaurant.jpg' as fallback_img %}
+          <img
+            src="{% if restaurant.photo_url %}{{ restaurant.photo_url }}{% elif restaurant.image %}{% static restaurant.image %}{% else %}{{ fallback_img }}{% endif %}"
+            alt="{{ restaurant.name }}"
+            loading="lazy"
+            onerror="this.onerror=null;this.src='{{ fallback_img|escapejs }}';">
+            {% if restaurant.google.price %}<span class="restaurant-card__price">{{ restaurant.google.price }}</span>{% endif %}
+          </div>
+          <div class="restaurant-card__body">
+            <p class="restaurant-card__category">{{ restaurant.cuisine|default:"Restaurant" }}</p>
+            <h2>
+              {% if restaurant.camis %}
+                <a href="{% url 'search:restaurant_detail' restaurant.camis %}">{{ restaurant.name }}</a>
+              {% else %}
+                {{ restaurant.name }}
+              {% endif %}
+            </h2>
+            <p class="restaurant-card__description">
+              {% if restaurant.google.address %}{{ restaurant.google.address }}{% else %}{{ restaurant.street }}{% if restaurant.boro %}, {{ restaurant.boro }}{% endif %}{% if restaurant.zipcode %} {{ restaurant.zipcode }}{% endif %}{% endif %}
+            </p>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% else %}
+    <p class="restaurant-home__empty">No restaurant records are available. Import the CSV dataset to populate this page.</p>
+  {% endif %}
+</section>
+{% endblock %}

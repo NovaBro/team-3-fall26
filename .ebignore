@@ -1,0 +1,26 @@
+# Databases are downloaded from s3://nycfood-databases-322134621417 on deploy.
+# Raw datasets are only needed for import_datasets.
+database/*.db
+database/datasets/
+test.txt
+deploy/
+.venv/
+venv/
+env/
+.git/
+.gitignore
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+*.log
+.ipynb_checkpoints/
+*.ipynb
+staticfiles/
+.DS_Store
+AGENTS.md
+TODO.md
+.md_guides/
+md_guides/
+*.plan.md

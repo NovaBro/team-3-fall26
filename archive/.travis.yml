@@ -1,0 +1,29 @@
+language: python
+dist: jammy
+python:
+  - "3.11"
+install:
+  - pip install -r requirements.txt
+  - pip install black==26.10.1 flake8==7.4.1 coverage coveralls
+before_script:
+  - python manage.py migrate
+  - python manage.py collectstatic --noinput
+script:
+  - coverage run --source=nycfood,search,restaurants,accounts,community manage.py test
+  - black --check .
+  - flake8 .
+after_success:
+  - coveralls
+deploy:
+  provider: elasticbeanstalk
+  access_key_id:
+    secure: Q7gY/BvvtF15g22uDgGG86PO6+LfLoxdF1PBKp3PdbhQWKlfA3PlkPIQ3wbEF/Uufqu0ga1YDcQxiRsGBtmCQCZzHI/+aRFg4fnDHn8/MUGclDh2uE62TKja5XLjoMn9JybGo/Pmjnjn2OZ9M/vwtFRikt44kdirjZQVeQhBL43grhoPuTdHAm0fFr8rvrKe30pDD9gJ+elipFIuTx/XkPQwcGQ5OsusNdaF8kMSpF8V+hYrOaPY8h+ceEN9UTPgvmfmYthQPXjhoQEgGJaGax1BqTGFINwwTrw8+oIymv+mRj+TWl/ZlLtY5kgoylpmPmBUdcFUbd7CIpHcOfqjPIoySyHnBtIlGi2EMQZPBJ1gdRZmTOHrA9KfwX0Q0y7VU9TSpXq+EryRH6x9D5lRRzue9Xj9c6CjWoucSFaQJjqc4X7L5tsUUtw9aX7R4fGKCiuZ6CmjDHroJc8dWIVMYuXFvntgu/SR5Xs3X/iQ3ZZEPRep1kYc5cQw8wSA32TyDpadKiMyxiDFPd9YeIh6aSQaPA65SOd32UmPnEoW4CpreF120DvZKHJuUNx7BBWaLNArKpC+OaZHi7JgLNkhy8MQpRcI4dtox8csJZ2fqrznZRg5dmYBxlcyT+jbY8bcNAg1Kc1NvDrnppZ1U7+Wf7CJFRRNHkP7Ay3AK0ShuPc=
+  secret_access_key:
+    secure: sXu0SMnOoNiTrRG2URtmWJsZXGbSMn7PXkYdtou0FOaA6T1yCty72ND8/PCtuCWe0zZEPCOiGH8jeyH2UgTs8FgntynP0sxSVUc88ZIym/j+3fR/H9Fzkmyusmmkqzo0xCf2GXXhSKvUO8hkSvYGQqhq9LHrmEUgsI64keBiKP2sg7RSIgfGwxeEeUQYnzlBiV810Hz8QQVQKfTk2Pd3+Sxu+IQaX1GBVDeGPyfs+WTRNLubwm1sh9nhnM7sczjKDBDR3X0FYIl+eFj4mryIVI+WB95ihFQbvCO05nWRfW1kiohabIwulRxOoEbhLO4x4jLJVZeLWy4Aj6sio+g5rfWcUDpJ4InZJTzMNbT3yRvujIR8+TT5StXxL7xR++1waynyBNL8eGR/Ps98JHyCALfeP06H+4Aty8LASpkQD4Q3b3SqXf8ONOrzKFe2F0o8JdjKpsBnGm0E4RpN/vSD1j4ohTpi8Zuz+UmxgaOcHx0bHtNdSA4i6nTqvfv9Xz+i0AdB7wTXthd+6GPJKTixjc73feMRUvGJjzO+xUGgE2NKPilySB/uLB9ssKS6kbms5AX0ccARx8gRijhJTbczsZy0m5awBCb8lhMA5dQW07yLNsNsRFlTiJ/1G9MpD8xOhVTA97QmWDzIdYKVoUD8YOZErQBEvex4cbKU219KbJw=
+  region: us-east-1
+  app: nycfood
+  env: nycfood-env
+  bucket_name: elasticbeanstalk-us-east-1-322134621417
+  edge: true
+  on:
+    branch: develop

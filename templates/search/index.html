@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Find food - NYC Food Search{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="{% static 'restaurants/style.css' %}">
+<style>
+  /* After MapLibre CSS so compact attribution stays dark. */
+  .combined-map .maplibregl-ctrl-attrib.maplibregl-compact,
+  .combined-map .maplibregl-ctrl-attrib.maplibregl-compact-show {
+    background: rgba(14, 17, 22, 0.92) !important;
+    background-color: rgba(14, 17, 22, 0.92) !important;
+    color: #c8d0dc !important;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: none;
+  }
+  .combined-map .maplibregl-ctrl-attrib a { color: #e8edf5 !important; }
+  .combined-map .maplibregl-ctrl-attrib-button,
+  .combined-map .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+    background-color: rgba(14, 17, 22, 0.92) !important;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='%23c8d0dc' fill-rule='evenodd' viewBox='0 0 20 20'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E") !important;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>Find food</h1>
+<p class="muted">Restaurants, farmers markets, and Shop Healthy grocery stores across NYC.</p>
+
+<div class="finder">
+<form class="filters restaurant-filters" method="get" action="{% url 'search:index' %}" id="filter-form">
+  <fieldset class="price-group">
+    <legend>Show</legend>
+    {% for choice in form.types %}
+      <label class="check">{{ choice.tag }} <span class="swatch swatch--{{ choice.data.value }}" aria-hidden="true"></span> {{ choice.choice_label }}</label>
+    {% endfor %}
+  </fieldset>
+  <label>Name
+    {{ form.q }}
+  </label>
+  <label>Borough
+    {{ form.area }}
+  </label>
+  <label>ZIP code
+    {{ form.zip }}
+  </label>
+  <label>Distance
+    {{ form.distance }}
+  </label>
+
+  <fieldset class="price-group filter-section" id="restaurant-filters" data-for-type="restaurant">
+    <legend>Restaurants</legend>
+    <div class="source-choice" role="radiogroup" aria-label="Restaurant results from">
+      {% for choice in form.source %}
+        <label class="check">{{ choice.tag }} {{ choice.choice_label }}</label>
+      {% endfor %}
+    </div>
+    <label>Cuisine
+      {{ form.cuisine }}
+    </label>
+    <label>Inspection grade
+      {{ form.grade }}
+    </label>
+    <label>Diet
+      {{ form.diet }}
+    </label>
+    <fieldset class="price-group">
+      <legend>Allergies</legend>
+      {% for choice in form.avoid %}
+        <label class="check">{{ choice.tag }} {{ choice.choice_label }}</label>
+      {% endfor %}
+    </fieldset>
+    <fieldset class="price-group filter-section" id="google-filters">
+      <legend>Google Places only</legend>
+      <div class="price-toggles" aria-label="Price">
+        {% for choice in form.price %}
+          <label class="check">{{ choice.tag }} {{ choice.choice_label }}</label>
+        {% endfor %}
+      </div>
+      <label>Minimum rating
+        {{ form.min_rating }}
+      </label>
+      <label class="inline-check">{{ form.open_now }} Open now</label>
+    </fieldset>
+  </fieldset>
+
+  <fieldset class="price-group filter-section" data-for-type="farmers_market">
+    <legend>Farmers markets</legend>
+    <label>Market day
+      {{ form.day }}
+    </label>
+  </fieldset>
+
+  {{ form.lat }}
+  {{ form.lng }}
+  <div class="actions">
+    <button type="submit">Search</button>
+    <button type="button" class="secondary" id="use-location">Use my location</button>
+    {% if location %}
+      <button type="button" class="secondary" id="clear-location">Clear location</button>
+    {% endif %}
+  </div>
+  <p class="muted" id="loc-status" role="status">{% if location %}Using your location — results are sorted by distance.{% endif %}</p>
+</form>
+
+<div class="finder-results">
+{% if form.errors %}
+  <div class="error" role="alert">
+    <strong>Please fix these filters:</strong>
+    <ul>
+      {% for message in form.non_field_errors %}<li>{{ message }}</li>{% endfor %}
+      {% for field in form %}{% for message in field.errors %}<li>{{ message }}</li>{% endfor %}{% endfor %}
+    </ul>
+  </div>
+{% else %}
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  {% for note in notes %}<p class="allergy-note" role="note">{{ note }}</p>{% endfor %}
+  {% if avoiding_allergens %}
+    <p class="allergy-note" role="note">Allergy filters skip cuisines where the allergen is common. They can't guarantee a dish is safe. Always confirm allergies with the restaurant.</p>
+  {% endif %}
+
+  <p class="muted result-summary">
+    {{ total }} result{{ total|pluralize }}{% if counts.restaurant is not None %} · {{ counts.restaurant }} restaurant{{ counts.restaurant|pluralize }}{% endif %}{% if counts.farmers_market is not None %} · {{ counts.farmers_market }} farmers market{{ counts.farmers_market|pluralize }}{% endif %}{% if counts.grocery is not None %} · {{ counts.grocery }} grocery store{{ counts.grocery|pluralize }}{% endif %}
+  </p>
+
+  <div class="map-legend" aria-label="Map legend">
+    <span><span class="swatch swatch--restaurant_dohmh" aria-hidden="true"></span> Restaurant (inspection records)</span>
+    <span><span class="swatch swatch--restaurant_google" aria-hidden="true"></span> Restaurant (Google Places)</span>
+    <span><span class="swatch swatch--farmers_market" aria-hidden="true"></span> Farmers market</span>
+    <span><span class="swatch swatch--grocery" aria-hidden="true"></span> Grocery</span>
+  </div>
+  <p id="map-status" class="muted map-status" role="status">Loading map…</p>
+  {% csrf_token %}
+  <div id="combined-map" class="combined-map" role="region" aria-label="Map of matching NYC food locations"></div>
+
+  <div class="combined-map-layout find-food-layout">
+    <div class="results-list">
+      {% for item in items %}
+        <article class="result" data-key="{{ item.key }}" data-index="{{ forloop.counter0 }}">
+          <h2>{% if item.url %}<a href="{{ item.url }}"{% if item.external_url %} target="_blank" rel="noopener"{% endif %}>{{ item.name }}</a>{% else %}{{ item.name }}{% endif %}</h2>
+          <div class="muted">{{ item.address|default:"No address listed" }}</div>
+          {% if item.details %}<div class="result-details">{{ item.details|join:" · " }}</div>{% endif %}
+          <div class="tags">
+            <span class="tag type-tag"><span class="swatch swatch--{{ item.category }}" aria-hidden="true"></span> {{ item.type_label }}</span>
+            {% if item.has_inspection %}
+              <a class="tag grade grade-{{ item.grade|lower|default:'na' }}" href="{{ item.grade_url }}" title="Latest NYC health inspection">{% if item.grade %}Inspection {{ item.grade }}{% else %}Inspected{% endif %}</a>
+            {% elif item.has_inspection is False %}
+              <span class="tag grade grade-none">No inspection data</span>
+            {% endif %}
+            {% if item.price %}<span class="tag">{{ item.price }}</span>{% endif %}
+            {% if item.rating %}<span class="tag">★ {{ item.rating }}{% if item.rating_count %} ({{ item.rating_count }}){% endif %}</span>{% endif %}
+            {% if item.distance_mi is not None %}<span class="tag">{{ item.distance_mi|floatformat:2 }} mi away</span>{% endif %}
+            {% if item.lat is None %}<span class="tag location-missing">Location not found</span>{% elif item.location_source == "google" and item.kind != "restaurant_google" %}<span class="tag" title="This record had no coordinates; the location comes from Google Places.">Located via Google</span>{% endif %}
+          </div>
+        </article>
+      {% empty %}
+        <p class="empty">No results: nothing matches these filters. Try another borough, a wider distance, or fewer filters.</p>
+      {% endfor %}
+      {% include "search/_pagination.html" %}
+    </div>
+    <div
+      id="combined-map-splitter"
+      class="combined-map-splitter"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize results and reviews"
+      aria-valuemin="240"
+      aria-valuemax="800"
+      aria-valuenow="300"
+      tabindex="0"
+    ></div>
+    <aside id="community-panel" class="community-panel" aria-live="polite">
+      <h2>Reviews</h2>
+      <p class="muted">Click a pin or a result to see ratings, comments, and photos. Log in to add your own.</p>
+    </aside>
+  </div>
+{% endif %}
+</div>
+</div>
+
+{{ map_points|json_script:"combined-map-data" }}
+{{ result_points|json_script:"result-points" }}
+{{ location|json_script:"user-location" }}
+<script id="combined-map-config" type="application/json">
+  {"loginUrl": "{{ login_url|default:'/login/'|escapejs }}"}
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.js"></script>
+<script src="{% static 'search/combined_map.js' %}" defer></script>
+{% endblock %}

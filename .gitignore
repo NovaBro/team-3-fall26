@@ -1,0 +1,36 @@
+# testing change
+AGENTS.md
+TODO.md
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Secrets
+.env
+
+# Django
+*.log
+db.sqlite3
+database/*.db
+database/*.sqlite3
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+./database/.DS_Store
+
+# User uploads
+media/

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Log in - NYC Food Search{% endblock %}
+
+{% block content %}
+<h1>Log in</h1>
+<p class="muted">Log in to keep your profile and mood check-ins.</p>
+
+<form class="auth-form" method="post" action="{% url 'accounts:login' %}">
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+    <ul class="errorlist">{{ form.non_field_errors }}</ul>
+  {% endif %}
+  {% for field in form %}
+    <div class="field">
+      <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% for error in field.errors %}
+        <p class="field-errors">{{ error }}</p>
+      {% endfor %}
+    </div>
+  {% endfor %}
+  {% if next %}
+    <input type="hidden" name="next" value="{{ next }}">
+  {% endif %}
+  <button type="submit" class="btn">Log in</button>
+</form>
+
+<p class="muted">No account yet? <a href="{% url 'accounts:signup' %}">Sign up</a></p>
+{% endblock %}
