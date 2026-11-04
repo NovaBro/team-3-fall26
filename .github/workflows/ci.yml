@@ -50,7 +50,7 @@ jobs:
 
   deploy:
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && github.repository == 'NovaBro/team-3-fall26' 
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && github.repository == 'NovaBro/team-3-fall26'
     runs-on: ubuntu-22.04
     permissions:
       id-token: write
