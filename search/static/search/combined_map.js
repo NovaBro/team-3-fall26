@@ -213,7 +213,7 @@
       clearNode(panel);
       addText(panel, "h2", "", point.name || "Reviews");
       addText(panel, "p", "muted", "Loading reviews…");
-      panel.scrollIntoView({ block: "nearest" });
+      if (!panel.classList.contains("in-popup")) panel.scrollIntoView({ block: "nearest" });
     }
     const params = new URLSearchParams({
       name: point.name || "",
@@ -366,6 +366,8 @@
       kind: properties.kind || properties.category || "",
       key: properties.key || "",
       url: properties.url || "",
+      lng: feature.geometry && feature.geometry.coordinates ? feature.geometry.coordinates[0] : null,
+      lat: feature.geometry && feature.geometry.coordinates ? feature.geometry.coordinates[1] : null,
     };
   }
 
@@ -396,10 +398,33 @@
     }
   }
 
+  function showPointPopup(point) {
+    const panel = panelElement();
+    const gl = window.maplibregl;
+    if (!panel || !gl || !state.map || point.lat == null || point.lng == null) {
+      showCommunityPanel();
+      return;
+    }
+    if (state.popup) state.popup.remove();
+    if (!state.panelHome) state.panelHome = panel.parentNode;
+    panel.classList.add("in-popup");
+    const popup = new gl.Popup({ maxWidth: "none", closeOnClick: false, offset: 16, anchor: "bottom" })
+      .setLngLat([point.lng, point.lat])
+      .setDOMContent(panel)
+      .addTo(state.map);
+    popup.on("close", () => {
+      if (state.popup === popup) state.popup = null;
+      panel.classList.remove("in-popup");
+      if (state.panelHome) state.panelHome.appendChild(panel);
+    });
+    state.popup = popup;
+    state.map.easeTo({ center: [point.lng, point.lat], offset: [0, 170] });
+  }
+
   function openPoint(point) {
     state.openKey = point.key || "";
     highlightCard(state.openKey, true);
-    showCommunityPanel();
+    showPointPopup(point);
     loadCommunityPanel(point);
   }
 
@@ -491,7 +516,7 @@
         }
         state.openKey = point.key || "";
         highlightCard(state.openKey, false);
-        showCommunityPanel();
+        showPointPopup(point);
         loadCommunityPanel(point);
       });
     });
@@ -532,7 +557,7 @@
     if (userPos) opening.push(userPos);
     const mapOptions = {
       container: mapElement,
-      style: "https://tiles.openfreemap.org/styles/dark",
+      style: "https://tiles.openfreemap.org/styles/" + ((window.__theme && window.__theme() === "dark") ? "dark" : "positron"),
       maxZoom: 18,
       attributionControl: false,
       customAttribution:

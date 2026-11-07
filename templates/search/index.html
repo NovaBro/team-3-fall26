@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Find food - NYC Food Search{% endblock %}
+{% block title %}Search - NYC Food Search{% endblock %}
 
 {% block extra_head %}
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.css">
@@ -26,8 +26,10 @@
 {% endblock %}
 
 {% block content %}
-<h1>Find food</h1>
-<p class="muted">Restaurants, farmers markets, and Shop Healthy grocery stores across NYC.</p>
+<header class="ui-hero">
+  <h1>Eat well in New York</h1>
+  <p class="ui-lede">Find your place, your way</p>
+</header>
 
 <div class="finder">
 <form class="filters restaurant-filters" method="get" action="{% url 'search:index' %}" id="filter-form">
@@ -60,7 +62,7 @@
     <label>Cuisine
       {{ form.cuisine }}
     </label>
-    <label>Inspection grade
+    <label>Grade
       {{ form.grade }}
     </label>
     <label>Diet
@@ -97,7 +99,7 @@
   {{ form.lng }}
   <div class="actions">
     <button type="submit">Search</button>
-    <button type="button" class="secondary" id="use-location">Use my location</button>
+    <button type="button" class="secondary" id="use-location">Near me</button>
     {% if location %}
       <button type="button" class="secondary" id="clear-location">Clear location</button>
     {% endif %}
@@ -145,7 +147,7 @@
           <div class="tags">
             <span class="tag type-tag"><span class="swatch swatch--{{ item.category }}" aria-hidden="true"></span> {{ item.type_label }}</span>
             {% if item.has_inspection %}
-              <a class="tag grade grade-{{ item.grade|lower|default:'na' }}" href="{{ item.grade_url }}" title="Latest NYC health inspection">{% if item.grade %}Inspection {{ item.grade }}{% else %}Inspected{% endif %}</a>
+              <a class="tag grade grade-{{ item.grade|lower|default:'na' }}" href="{{ item.grade_url }}" title="Latest NYC health inspection">{% if item.grade %}Grade {{ item.grade }}{% else %}Inspected{% endif %}</a>
             {% elif item.has_inspection is False %}
               <span class="tag grade grade-none">No inspection data</span>
             {% endif %}

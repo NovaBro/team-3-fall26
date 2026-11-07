@@ -5,8 +5,8 @@ from search import views
 app_name = "search"
 
 urlpatterns = [
-    path("", views.index, name="index"),
-    path("home/", views.home, name="home"),
+    path("", views.home, name="home"),
+    path("search/", views.index, name="index"),
     path("restaurant/<str:camis>/", views.restaurant_detail, name="restaurant_detail"),
     path(
         "restaurant/<str:camis>/refresh-google/",

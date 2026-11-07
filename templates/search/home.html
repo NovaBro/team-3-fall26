@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Restaurants - NYC Food Search{% endblock %}
+{% block title %}Top picks - NYC Food Search{% endblock %}
 {% block main_class %}restaurant-main{% endblock %}
 
 {% block extra_head %}
@@ -10,18 +10,15 @@
 
 {% block content %}
 <section class="restaurant-home" aria-labelledby="restaurant-home-title">
-  <div class="restaurant-home__intro">
-    {% if selected_boro %}
+  
 
-    {% else %}
-    <div class="restaurant-home__intro-copy">
-      <p class="restaurant-home__eyebrow">A taste of the city</p>
-      <h1 id="restaurant-home-title">Restaurants</h1>
-      <p class="muted">NYC restaurants near you.</p>
-    </div>
-    {% endif %}
-
-    <form class="restaurant-borough-filter" method="get">
+  {% if top_picks %}
+  <section class="top-picks" aria-labelledby="top-picks-title">
+    <div class="top-picks__header">
+      <div class="top-picks__titles">
+      <h2 id="top-picks-title"><span class="top-picks__icon" aria-hidden="true">🏆</span> Today's Top Picks</h2>
+      <p class="top-picks__subtitle muted">Your next unforgettable food experience starts here!</p></div>
+      <div class="top-picks__loc"><form class="restaurant-borough-filter" method="get">
       <label for="restaurant-boro">Select your location</label>
       <select id="restaurant-boro" name="boro" onchange="this.form.submit()">
         <option value="">All boroughs</option>
@@ -30,14 +27,7 @@
         {% endfor %}
       </select>
       <noscript><button type="submit">Apply</button></noscript>
-    </form>
-  </div>
-
-  {% if top_picks %}
-  <section class="top-picks" aria-labelledby="top-picks-title">
-    <div class="top-picks__header">
-      <h2 id="top-picks-title"><span class="top-picks__icon" aria-hidden="true">🏆</span> Today's Top Picks</h2>
-      <p class="top-picks__subtitle muted">Your next unforgettable food experience starts here!</p>
+    </form></div>
     </div>
     <div class="top-picks__grid">
       {% for pick in top_picks %}
@@ -137,6 +127,17 @@
     </div>
   </section>
   {% endif %}
+
+  {% if not top_picks %}<div class="home-location"><form class="restaurant-borough-filter" method="get">
+      <label for="restaurant-boro">Select your location</label>
+      <select id="restaurant-boro" name="boro" onchange="this.form.submit()">
+        <option value="">All boroughs</option>
+        {% for boro in borough_options %}
+          <option value="{{ boro }}" {% if selected_boro == boro %}selected{% endif %}>{{ boro|title }}</option>
+        {% endfor %}
+      </select>
+      <noscript><button type="submit">Apply</button></noscript>
+    </form></div>{% endif %}
 
   {% if restaurants %}
   <section class="restaurant-list-section {% if top_picks %}restaurant-list-section--with-divider{% endif %}" aria-labelledby="restaurant-list-title">

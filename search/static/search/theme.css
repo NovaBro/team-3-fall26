@@ -1,0 +1,201 @@
+/* UI theme: calm light override of Night Line. Loaded last from base.html. */
+:root {
+  color-scheme: light;
+  --bg: #f6f7f6; --panel: #ffffff; --raised: #eceeed;
+  --ink: #1f2a28; --ink-soft: #3a4745; --muted: #6b7773;
+  --accent: #3458a5; --accent-hover: #27458b; --on-accent: #ffffff;
+  --border: #e3e7e5;
+  --grade-a: #3458a5; --grade-b: #5f8f3a; --grade-c: #c9772e;
+  --warn: #8a7340; --danger: #b5483f;
+  --font-ui: "Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+body { background: var(--bg); color: var(--ink); }
+/* Type system: Krona One = hero only, Fraunces (serif) = headings, Lexend = everything else */
+:root { --font-mono: "Lexend", sans-serif; --font-serif: "Fraunces", Georgia, "Times New Roman", serif; }
+h1, h2, h3 { font-family: var(--font-serif); font-weight: 600; letter-spacing: -0.01em; }
+h1 { font-size: 2.1rem; }
+.result h2, .top-pick-card h3, .restaurant-card h3, .restaurant-card h2 { font-family: var(--font-serif); font-weight: 600; font-size: 1.18rem; line-height: 1.25; letter-spacing: -0.005em; margin-bottom: 2px; }
+.result > .muted, .top-pick-card__address, .restaurant-card__description { font-family: "Lexend", sans-serif; font-weight: 300; font-size: .84rem; color: var(--muted); }
+.result .result-details { font-size: .8rem; color: var(--ink-soft); }
+.filters select, .filters input[type="text"] { font-size: .9rem; font-weight: 400; }
+.tag { font-weight: 500; }
+.tag, .mono, .place-price { font-family: "Lexend", sans-serif; font-size: .78rem; }
+.ui-hero h1 { font-family: "Krona One", "Lexend", sans-serif; font-weight: 400; letter-spacing: 0; font-size: 1.9rem; }
+.site-header { background: #fff; border-bottom: 1px solid var(--border); }
+.site-header nav a { color: #1f2a28; }
+.site-header nav a:hover { color: #1f2a28; background: var(--raised); }
+.site-header nav a[aria-current="page"] { color: #1f2a28; background: var(--raised); font-weight: 600; }
+.nav-link-button { color: #1f2a28; }
+.nav-link-button:hover { color: #1f2a28; background: var(--raised); }
+.brand-dots, .site-footer { display: none !important; }
+button, .button, input[type=submit] { background: var(--accent); color: #fff; border-color: var(--accent); }
+button:hover, .button:hover { background: var(--accent-hover); }
+button.secondary, .secondary { background: #fff; color: var(--accent); border: 1px solid var(--accent); }
+input, select, textarea { background: #fff; color: var(--ink); border-color: var(--border); }
+.filters, .filters fieldset { border-radius: 18px; }
+.filters select, .filters input[type="text"] { border-radius: 999px; padding: 0 16px; height: 44px; flex: 0 0 auto; }
+.filters label:not(.check):not(.inline-check), .filters legend { color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .16em; }
+.top-picks { background: #fff; border: 1px solid var(--border); box-shadow: 0 6px 24px rgba(20,35,32,.08); }
+.top-picks__subtitle, .top-pick-card { color: var(--ink); }
+
+
+.combined-map .maplibregl-ctrl-attrib.maplibregl-compact,
+.combined-map .maplibregl-ctrl-attrib.maplibregl-compact-show { background: rgba(255,255,255,.92) !important; color: #1f2a28 !important; border-color: #e3e7e5 !important; }
+.combined-map .maplibregl-ctrl-attrib a { color: #3458a5 !important; }
+.combined-map .maplibregl-ctrl-attrib-button,
+.combined-map .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button { background-color: rgba(255,255,255,.92) !important; background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='%231f2a28' fill-rule='evenodd' viewBox='0 0 20 20'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E") !important; }
+
+
+/* Night mode (toggle in nav) */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1116; --panel: #161b22; --raised: #1f2630;
+  --ink: #e6eaf0; --ink-soft: #c5ccd6; --muted: #9aa4b2;
+  --accent: #3a5489; --accent-hover: #4a6aa0; --on-accent: #e6ecfa;
+  --border: #2a313c;
+  --grade-a: #98b6ee; --grade-b: #4ade80; --grade-c: #fb923c; --warn: #f2c14e; --danger: #ff7b72;
+}
+:root[data-theme="dark"] .site-header { background: #0e1116; }
+:root[data-theme="dark"] .site-header nav a,
+:root[data-theme="dark"] .nav-link-button { color: #e6eaf0; }
+:root[data-theme="dark"] .site-header nav a:hover,
+:root[data-theme="dark"] .site-header nav a[aria-current="page"],
+:root[data-theme="dark"] .nav-link-button:hover { color: #fff; background: #1f2630; }
+:root[data-theme="dark"] button, :root[data-theme="dark"] .button { background: var(--accent); color: #e6ecfa; border-color: var(--accent); }
+:root[data-theme="dark"] button.secondary, :root[data-theme="dark"] .secondary { background: transparent; color: #a3b8e3; border: 1px solid #3a5489; }
+:root[data-theme="dark"] input, :root[data-theme="dark"] select, :root[data-theme="dark"] textarea { background: #0e1116; color: var(--ink); border-color: var(--border); }
+:root[data-theme="dark"] .top-picks { background: #161b22; border-color: var(--border); box-shadow: none; }
+:root[data-theme="dark"] .top-picks__subtitle, :root[data-theme="dark"] .top-pick-card { color: var(--ink); }
+:root[data-theme="dark"] .combined-map .maplibregl-ctrl-attrib.maplibregl-compact,
+:root[data-theme="dark"] .combined-map .maplibregl-ctrl-attrib.maplibregl-compact-show,
+:root[data-theme="dark"] .combined-map .maplibregl-ctrl-attrib-button { background-color: rgba(14,17,22,.92) !important; color: #c8d0dc !important; }
+:root[data-theme="dark"] .combined-map .maplibregl-ctrl-attrib a { color: #e8edf5 !important; }
+.theme-toggle { margin-left: 8px; display: inline-flex; align-items: center; padding: 8px 10px; }
+.theme-toggle .icon-sun { display: none; }
+:root[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+:root[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+
+/* Light-mode contrast fixes (cards, grades, reviews) */
+:root:not([data-theme="dark"]) .top-pick-card__review { background: #f1f4f2; border-color: var(--border); border-left-color: var(--warn); }
+:root:not([data-theme="dark"]) .top-pick-card__review-quote { color: #1f2a28; }
+:root:not([data-theme="dark"]) .top-pick-card__review-label { color: #7a6330; }
+:root:not([data-theme="dark"]) .top-pick-card__grade { background: #fff !important; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+:root:not([data-theme="dark"]) .grade-A { color: #27458b; background: rgba(52,88,165,.12); }
+:root:not([data-theme="dark"]) .grade-B { color: #4a7a2a; background: rgba(95,143,58,.16); }
+:root:not([data-theme="dark"]) .grade-C { color: #a65f1c; background: rgba(201,119,46,.18); }
+:root:not([data-theme="dark"]) .top-pick-card__grade.grade-A { color: #27458b; }
+:root:not([data-theme="dark"]) .top-pick-card__grade.grade-B { color: #4a7a2a; }
+:root:not([data-theme="dark"]) .top-pick-card__grade.grade-C { color: #a65f1c; }
+:root:not([data-theme="dark"]) .grade-dot-A { background: #3458a5; box-shadow: none; }
+:root:not([data-theme="dark"]) .grade-dot-B { background: #5f8f3a; box-shadow: none; }
+:root:not([data-theme="dark"]) .grade-dot-C { background: #c9772e; box-shadow: none; }
+
+/* Quiet buttons: nav icon + map controls */
+:root[data-theme="dark"] .nav-link-button, :root[data-theme="dark"] .theme-toggle { background: transparent; color: #c5ccd6; border: 0; }
+:root[data-theme="dark"] .nav-link-button:hover, :root[data-theme="dark"] .theme-toggle:hover { background: #1f2630; color: #fff; }
+.maplibregl-ctrl-group button, .maplibregl-ctrl-group button:hover { background-color: transparent; border-color: var(--border); }
+:root[data-theme="dark"] .maplibregl-ctrl-group { background: #1f2630; }
+:root[data-theme="dark"] .maplibregl-ctrl-group button + button { border-top-color: #2a313c; }
+:root[data-theme="dark"] .maplibregl-ctrl-icon { filter: invert(1) brightness(.85); }
+
+.swatch--restaurant { background: #e67e22; }
+:root[data-theme="dark"] .ui-hero {
+  background: linear-gradient(rgba(6,10,16,.55), rgba(6,10,16,.72)),
+    url("https://images.unsplash.com/photo-1567121938596-6d9d015d348b?auto=format&fit=crop&w=2000&q=70") center/cover, #121f3a;
+}
+
+:root[data-theme="dark"] .ui-hero h1 { color: #b9c2cc; }
+:root[data-theme="dark"] .ui-hero .ui-lede { color: #98a3ae; }
+
+:root[data-theme="dark"] .maplibregl-ctrl-group button,
+:root[data-theme="dark"] .maplibregl-ctrl-group button:hover { background-color: transparent !important; color: inherit; border-color: #2a313c; }
+:root[data-theme="dark"] .maplibregl-ctrl-group button:hover { background-color: #2a313c !important; }
+:root:not([data-theme="dark"]) .maplibregl-ctrl-group button { background-color: transparent !important; }
+:root:not([data-theme="dark"]) .maplibregl-ctrl-group button:hover { background-color: #eceeed !important; }
+
+/* Pin popup (replaces side panel) */
+.maplibregl-popup { z-index: 5; }
+.maplibregl-popup-content { background: var(--panel); color: var(--ink); padding: 0; border-radius: 16px; box-shadow: 0 12px 36px rgba(0,0,0,.28); border: 1px solid var(--border); }
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--panel); }
+.maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: var(--panel); }
+.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--panel); }
+.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--panel); }
+.maplibregl-popup .community-panel { display: block; width: 235px; max-width: 78vw; max-height: min(38vh, 280px); border: 0; border-radius: 14px; background: transparent; padding: 12px 12px 10px; font-size: .8rem; }
+.maplibregl-popup .community-panel h2 { font-size: .92rem; margin: 0 20px 2px 0; font-family: "Lexend", sans-serif; }
+.maplibregl-popup .community-panel h3 { font-size: .82rem; margin: 10px 0 3px; }
+.maplibregl-popup .community-panel p { margin: 4px 0; }
+.maplibregl-popup-close-button { font-size: 20px; color: var(--muted); background: transparent !important; border: 0 !important; padding: 4px 10px; z-index: 2; }
+.maplibregl-popup-close-button:focus, .maplibregl-popup-close-button:focus-visible { outline: none; box-shadow: none; }
+.maplibregl-popup-close-button:hover { color: var(--ink); background: transparent !important; }
+
+:root[data-theme="dark"] .top-pick-card__grade { background: rgba(14,17,22,.88) !important; border: 1px solid rgba(255,255,255,.14); backdrop-filter: blur(6px); }
+:root[data-theme="dark"] .top-pick-card__grade.grade-A { color: #a1bce8; }
+:root[data-theme="dark"] .top-pick-card__grade.grade-B { color: #4ade80; }
+:root[data-theme="dark"] .top-pick-card__grade.grade-C { color: #fb923c; }
+
+/* Centered login / sign up */
+main.wrap:has(.auth-form) { max-width: 560px; text-align: center; padding-top: 64px; }
+main.wrap:has(.auth-form) > p.muted { font-size: .9rem; }
+main.wrap:has(.auth-form) .auth-form { max-width: 350px; margin: 22px auto; padding: 22px 22px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 18px; text-align: left; box-shadow: 0 6px 24px rgba(20,35,32,.07); }
+main.wrap:has(.auth-form) .auth-form input:not([type=checkbox]):not([type=radio]) { width: 100%; }
+main.wrap:has(.auth-form) .auth-form button[type=submit] { width: 100%; margin-top: 6px; text-align: center; display: flex; justify-content: center; align-items: center; }
+main.wrap:has(.auth-form) .auth-form input:not([type=checkbox]):not([type=radio]) { height: 40px; }
+
+:root:not([data-theme="dark"]) .top-pick-card__price { background: #fff !important; color: #1f2a28; border: 0; box-shadow: 0 2px 8px rgba(0,0,0,.25); backdrop-filter: none; }
+
+:root:not([data-theme="dark"]) .top-pick-card, :root:not([data-theme="dark"]) .restaurant-card { border-color: var(--border); box-shadow: 0 4px 16px rgba(20,35,32,.07); }
+
+/* Search page: drop summary/legend/status line so the map lines up with the filters */
+.finder-results > .result-summary, .finder-results > .map-legend, .finder-results > .map-status { display: none; }
+.finder-results { margin-top: 0; }
+.finder-results .combined-map { margin-top: 0; }
+
+/* Back-to-top arrow */
+.to-top { position: fixed; right: 24px; bottom: 24px; width: 44px; height: 44px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--panel) !important; color: var(--accent) !important; border: 1px solid var(--border) !important; box-shadow: 0 6px 20px rgba(20,35,32,.18); cursor: pointer; opacity: 0; visibility: hidden; transform: translateY(8px); transition: opacity .2s, transform .2s, visibility .2s; z-index: 50; }
+.to-top.is-visible { opacity: 1; visibility: visible; transform: none; }
+.to-top:hover { background: var(--raised) !important; }
+
+/* Result list: scroll with the page instead of inside a clipped box */
+.find-food-layout .results-list, .results-list { max-height: none !important; overflow: visible; padding-right: 0; }
+
+/* Filters follow the page while scrolling the results */
+@media (min-width: 900px) {
+  .finder .restaurant-filters { position: sticky; top: 16px; align-self: flex-start; max-height: calc(100vh - 32px); overflow-y: auto; scrollbar-width: thin; flex-wrap: nowrap; }
+  .finder .restaurant-filters > * { flex-shrink: 0; }
+}
+
+.home-location { display: flex; justify-content: flex-end; margin: 4px 0 22px; }
+.home-location .restaurant-borough-filter, .top-picks__loc .restaurant-borough-filter { margin: 0; }
+.top-picks__header { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px 24px; flex-wrap: wrap; }
+.top-picks__loc { flex: 0 0 auto; }
+.top-picks__loc .restaurant-borough-filter select { min-width: 200px; }
+
+/* Hero */
+.ui-hero {
+  position: relative; width: 100vw; margin: -32px 0 40px calc(50% - 50vw);
+  padding: 54px 24px 84px; text-align: center; color: #fff;
+  background: linear-gradient(rgba(10,16,28,.22), rgba(10,16,28,.48)),
+    url("https://images.unsplash.com/photo-1567121938596-6d9d015d348b?auto=format&fit=crop&w=2000&q=70") center/cover, #2a3a5c;
+}
+.ui-hero::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 60px;
+  background: var(--bg); border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+}
+.ui-hero h1 { margin: 0; color: #fff; }
+.ui-hero .ui-lede {
+  margin: 12px 0 0; font-family: "Krona One", "Lexend", sans-serif; font-style: normal; font-weight: 400; color: #fff;
+  font-size: clamp(.62rem, 1vw, .72rem); letter-spacing: .1em;
+}
+.ui-hero .restaurant-borough-filter { justify-content: center; margin-top: 18px; }
+.ui-hero .restaurant-borough-filter label { color: #fff; }
+.restaurant-home__intro { margin-left: 0; }
+.top-picks { margin-left: 0; }
+.restaurant-home__eyebrow { color: #fff; }
+
+/* Brand wordmark (left) + nav (right) */
+.brand { gap: 0; font-family: "Lexend", sans-serif; font-weight: 600; font-size: 1.22rem; letter-spacing: -0.02em; color: var(--ink); }
+.brand-nyc { margin-left: 8px; padding: 1px 7px; border: 1.5px solid var(--accent); border-radius: 7px; color: var(--accent); font-size: .66rem; font-weight: 600; letter-spacing: .14em; line-height: 1.5; }
+.site-header nav a, .nav-link-button { font-family: "Lexend", sans-serif; font-size: .9rem; font-weight: 400; }
+.site-header nav a[aria-current="page"] { font-weight: 500; }
+:root:not([data-theme="dark"]) .nav-link-button, :root:not([data-theme="dark"]) .theme-toggle { background: transparent; border: 0; color: #1f2a28; }
+:root:not([data-theme="dark"]) .theme-toggle:hover { background: var(--raised); }
