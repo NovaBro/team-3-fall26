@@ -429,7 +429,8 @@ class RedirectTests(TestCase):
     def test_old_tabs_redirect_to_find_food(self):
         self.assertRedirectsTo("/restaurants/", "/search/")
         self.assertRedirectsTo(
-            "/restaurants/?area=Queens", "/search/?area=Queens&types=restaurant&source=google"
+            "/restaurants/?area=Queens",
+            "/search/?area=Queens&types=restaurant&source=google",
         )
         self.assertRedirectsTo("/combined-map/?q=x", "/search/?q=x")
         self.assertRedirectsTo("/farmers-markets/", "/search/?types=farmers_market")
