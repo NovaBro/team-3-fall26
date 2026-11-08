@@ -112,7 +112,7 @@ class FindFoodData(TestCase):
 class FindFoodPageTests(FindFoodData):
     def test_one_nav_tab_replaces_the_old_five(self):
         response = self.get()
-        self.assertContains(response, ">Find food</a>")
+        self.assertContains(response, ">Search</a>")
         for gone in ("Explore datasets", "Farmers market</a>", "Combined map"):
             self.assertNotContains(response, gone)
         self.assertNotContains(response, ">Find restaurants</a>")
@@ -398,7 +398,7 @@ class GooglePlacesSourceTests(FindFoodData):
         self.assertContains(response, "Live Spot")
         self.assertContains(response, "0.30 mi away")
         self.assertContains(response, "★ 4.4 (50)")
-        self.assertContains(response, "Inspection A")
+        self.assertContains(response, "Grade A")
         self.assertEqual(
             [p["category"] for p in response.context["map_points"]],
             ["restaurant_google"],
@@ -427,14 +427,15 @@ class RedirectTests(TestCase):
         self.assertEqual(response["Location"], target)
 
     def test_old_tabs_redirect_to_find_food(self):
-        self.assertRedirectsTo("/restaurants/", "/")
+        self.assertRedirectsTo("/restaurants/", "/search/")
         self.assertRedirectsTo(
-            "/restaurants/?area=Queens", "/?area=Queens&types=restaurant&source=google"
+            "/restaurants/?area=Queens",
+            "/search/?area=Queens&types=restaurant&source=google",
         )
-        self.assertRedirectsTo("/combined-map/?q=x", "/?q=x")
-        self.assertRedirectsTo("/farmers-markets/", "/?types=farmers_market")
-        self.assertRedirectsTo("/explore/", "/")
-        self.assertRedirectsTo("/explore/menu-items/", "/")
+        self.assertRedirectsTo("/combined-map/?q=x", "/search/?q=x")
+        self.assertRedirectsTo("/farmers-markets/", "/search/?types=farmers_market")
+        self.assertRedirectsTo("/explore/", "/search/")
+        self.assertRedirectsTo("/explore/menu-items/", "/search/")
 
 
 class ChainTests(SimpleTestCase):
