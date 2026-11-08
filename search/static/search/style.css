@@ -843,3 +843,63 @@ tbody tr:hover { background: var(--raised); }
   .farmers-market-map,
   .combined-map { min-height: 360px; }
 }
+
+/* Restaurant detail — healthiness score breakdown */
+.healthiness-score {
+  margin: 16px 0 28px;
+  padding: 16px 0 4px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.healthiness-score__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.healthiness-score__value {
+  margin: 4px 0 0;
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+}
+.healthiness-score__sub { margin: 2px 0 0; font-size: 0.88rem; }
+.healthiness-score__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0;
+}
+.healthiness-score__tag {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--raised);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.healthiness-score__how {
+  margin: 16px 0 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.healthiness-score__parts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.healthiness-score__parts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.healthiness-score__part-label { color: var(--ink-soft); }
+.healthiness-score__total {
+  font-weight: 650;
+  border-top: 1px solid var(--border);
+}
+.healthiness-score__total .healthiness-score__part-label { color: var(--ink); }
+.healthiness-score__note { margin: 10px 0 8px; font-size: 0.85rem; }

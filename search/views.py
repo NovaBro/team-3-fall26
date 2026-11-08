@@ -2,15 +2,17 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlencode
 
 from django.contrib import messages
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator
-from django.db.models import Max
+from django.db.models import Avg, Count, Max, Q
 from django.http import Http404, QueryDict
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from community.models import PlaceEnrichment, PlaceReview
-from restaurants.diet_filters import ALLERGY_CHOICES
+from community.keys import DOHMH, dohmh_key
+from community.models import CommunitySubject, PlaceEnrichment, PlaceReview
+from restaurants.diet_filters import ALLERGY_CHOICES, risky_cuisines
 from restaurants.inspections import _latest, _match, _restaurants_in_zip, google_zip
 from restaurants.places import PlacesError, find_restaurant_place
 from search import find_food
@@ -25,9 +27,21 @@ from search.forms import (
 )
 from search.locations import resolve
 from search.models import RestaurantInspection
+from search.menustat import calorie_score_for_name, top_low_calorie_meals
+from search.recommend import (
+    allergy_keys_from_text,
+    home_zip_boro,
+    score_restaurant,
+    split_foods,
+    whole_word_match,
+)
 from search.services.places import PlacesAPIError, enrich_camis
 
 PAGE_SIZE = 25
+POOL_SIZE = 9
+MAX_CANDIDATES = 15
+FAVORITE_EXTRA = 3
+NEARBY_EXTRA = 3
 
 
 def index(request):
@@ -170,14 +184,8 @@ def _photo_url_for(google_place):
     return ""
 
 
-def _top_picks(count=3):
-    """Return *count* grade-A restaurants enriched with Google Places data and
-    DOHMH inspection details.  Each entry is a dict with keys: name, cuisine,
-    street, boro, zipcode, google (Places dict or None), and inspection (dict
-    with camis/grade/date or None)."""
-
-    # 1. Pick distinct grade-A restaurants ordered by most-recent inspection.
-    candidates = (
+def _grade_a_queryset(exclude_cuisines=None):
+    qs = (
         RestaurantInspection.objects.filter(grade="A")
         .exclude(dba="")
         .values("camis")
@@ -189,12 +197,117 @@ def _top_picks(count=3):
             cuisine=Max("cuisine"),
             last_date=Max("inspection_date"),
         )
-        .order_by("-last_date")[:count]
     )
-    picks = list(candidates)
+    if exclude_cuisines:
+        qs = qs.exclude(cuisine__in=exclude_cuisines)
+    return qs
 
-    # 2. Enrich each pick with Google Places data (concurrent).
-    with ThreadPoolExecutor(max_workers=count) as executor:
+
+def _profile_for(request):
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return None
+    try:
+        return user.profile
+    except ObjectDoesNotExist:
+        return None
+
+
+def _whole_word_q(food):
+    """Case-insensitive whole-word match on cuisine or name (dba)."""
+    food = (food or "").strip()
+    if not food:
+        return Q()
+    # SQLite/Postgres: use icontains then filter precisely in Python if needed;
+    # for candidate expansion, icontains is enough and then we re-check.
+    return Q(cuisine__icontains=food) | Q(name__icontains=food)
+
+
+def _build_candidate_pool(profile):
+    """Up to 9 recent grade-A, plus favorites/nearby extras (max 15)."""
+    avoid = allergy_keys_from_text(getattr(profile, "allergies", "") if profile else "")
+    excluded = risky_cuisines(avoid) if avoid else set()
+
+    base = list(_grade_a_queryset(excluded).order_by("-last_date")[:POOL_SIZE])
+    by_camis = {row["camis"]: row for row in base}
+
+    if profile is not None and len(by_camis) < MAX_CANDIDATES:
+        favorites = split_foods(getattr(profile, "favorite_foods", ""))
+        added = 0
+        for food in favorites:
+            if added >= FAVORITE_EXTRA or len(by_camis) >= MAX_CANDIDATES:
+                break
+            for row in (
+                _grade_a_queryset(excluded)
+                .filter(_whole_word_q(food))
+                .order_by("-last_date")[: FAVORITE_EXTRA * 3]
+            ):
+                if row["camis"] in by_camis:
+                    continue
+                if not whole_word_match(food, row.get("cuisine"), row.get("name")):
+                    continue
+                by_camis[row["camis"]] = row
+                added += 1
+                if added >= FAVORITE_EXTRA or len(by_camis) >= MAX_CANDIDATES:
+                    break
+
+        _home_zip, home_boro = home_zip_boro(getattr(profile, "home_address", ""))
+        if home_boro and len(by_camis) < MAX_CANDIDATES:
+            nearby_added = 0
+            for row in (
+                _grade_a_queryset(excluded)
+                .filter(boro__iexact=home_boro)
+                .order_by("-last_date")[: NEARBY_EXTRA * 3]
+            ):
+                if row["camis"] in by_camis:
+                    continue
+                by_camis[row["camis"]] = row
+                nearby_added += 1
+                if nearby_added >= NEARBY_EXTRA or len(by_camis) >= MAX_CANDIDATES:
+                    break
+
+    return list(by_camis.values())[:MAX_CANDIDATES]
+
+
+def _app_rating_stats(camis):
+    subject = CommunitySubject.objects.filter(kind=DOHMH, key=dohmh_key(camis)).first()
+    if subject is None:
+        return None, 0
+    stats = subject.ratings.aggregate(average=Avg("score"), count=Count("id"))
+    return stats["average"], stats["count"] or 0
+
+
+def _reviews_for_pick(google, camis_id):
+    reviews = list((google or {}).get("reviews") or [])[:5]
+    if reviews:
+        return reviews
+    if not camis_id:
+        return []
+    db_reviews = (
+        PlaceReview.objects.filter(place__camis=camis_id)
+        .exclude(text="")
+        .order_by("-id")[:5]
+    )
+    return [
+        {
+            "text": r.text,
+            "author_name": r.author_name,
+            "rating": r.rating,
+            "relative_time": r.relative_time,
+        }
+        for r in db_reviews
+    ]
+
+
+def _top_picks(request, count=3):
+    """Score a pool of grade-A restaurants and return the top *count* picks."""
+    profile = _profile_for(request)
+    picks = _build_candidate_pool(profile)
+    if not picks:
+        return []
+
+    workers = min(8, max(1, len(picks)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         lookups = [
             executor.submit(
                 find_restaurant_place,
@@ -208,7 +321,6 @@ def _top_picks(count=3):
             pick["google"] = lookup.result()
             pick["photo_url"] = _photo_url_for(pick["google"])
 
-    # 3. Match each pick to its DOHMH inspection via _match() / _latest().
     for pick in picks:
         google = pick["google"]
         if google and google.get("address"):
@@ -223,32 +335,42 @@ def _top_picks(count=3):
             else:
                 pick["inspection"] = _latest(pick["camis"])
         else:
-            # Fallback: use the camis we already know from the DB row.
             pick["inspection"] = _latest(pick["camis"])
         pick["image"] = "search/images/nyc-restaurant.jpg"
 
-        # Choose one comment from Google API
-        # (fallback to saved PlaceReview if available).
+        camis_id = (pick.get("inspection") or {}).get("camis") or pick.get("camis")
+        reviews = _reviews_for_pick(google, camis_id)
         chosen_review = (google or {}).get("review")
-        if not chosen_review:
-            camis_id = (pick.get("inspection") or {}).get("camis") or pick.get("camis")
-            if camis_id:
-                db_review = (
-                    PlaceReview.objects.filter(place__camis=camis_id)
-                    .exclude(text="")
-                    .order_by("-id")
-                    .first()
-                )
-                if db_review:
-                    chosen_review = {
-                        "text": db_review.text,
-                        "author_name": db_review.author_name,
-                        "rating": db_review.rating,
-                        "relative_time": db_review.relative_time,
-                    }
+        if not chosen_review and reviews:
+            chosen_review = reviews[0]
         pick["review"] = chosen_review
 
-    return picks
+        app_avg, app_count = _app_rating_stats(camis_id) if camis_id else (None, 0)
+        inspection = pick.get("inspection") or {}
+        grade = inspection.get("grade") or "A"
+        pick_name = pick.get("name") or ""
+        calorie = calorie_score_for_name(pick_name)
+        score, tags, _breakdown = score_restaurant(
+            name=pick_name,
+            cuisine=pick.get("cuisine") or "",
+            grade=grade,
+            google_rating=(google or {}).get("rating"),
+            google_count=(google or {}).get("rating_count") or 0,
+            app_avg=app_avg,
+            app_count=app_count,
+            reviews=reviews,
+            price=(google or {}).get("price"),
+            zipcode=pick.get("zipcode") or "",
+            boro=pick.get("boro") or "",
+            profile=profile,
+            calorie_score=calorie,
+        )
+        pick["score"] = score
+        pick["reason_tags"] = tags
+        pick["calorie_score"] = calorie
+
+    picks.sort(key=lambda p: p.get("score", 0), reverse=True)
+    return picks[:count]
 
 
 def home(request):
@@ -302,7 +424,7 @@ def home(request):
     # don't slow down paginated browsing.
     top_picks = []
     if not selected_boro and page_obj.number == 1:
-        top_picks = _top_picks(count=3)
+        top_picks = _top_picks(request, count=3)
 
     return render(
         request,
@@ -327,6 +449,38 @@ def restaurant_detail(request, camis):
     place = (
         PlaceEnrichment.objects.filter(camis=camis).prefetch_related("reviews").first()
     )
+    menu_picks, menustat_name = top_low_calorie_meals(latest.dba, limit=5)
+
+    reviews = []
+    google_rating = None
+    google_count = 0
+    price = ""
+    if place is not None:
+        google_rating = place.rating
+        google_count = place.user_rating_count or 0
+        price = place.price_level_display or ""
+        reviews = [
+            {"text": r.text} for r in place.reviews.all() if (r.text or "").strip()
+        ][:5]
+    app_avg, app_count = _app_rating_stats(camis)
+    calorie = calorie_score_for_name(latest.dba)
+    grade = (latest.grade or "").strip() or "A"
+    healthiness_score, reason_tags, score_breakdown = score_restaurant(
+        name=latest.dba or "",
+        cuisine=latest.cuisine or "",
+        grade=grade,
+        google_rating=google_rating,
+        google_count=google_count,
+        app_avg=app_avg,
+        app_count=app_count,
+        reviews=reviews,
+        price=price,
+        zipcode=latest.zipcode or "",
+        boro=latest.boro or "",
+        profile=_profile_for(request),
+        calorie_score=calorie,
+    )
+
     return render(
         request,
         "search/restaurant_detail.html",
@@ -339,6 +493,11 @@ def restaurant_detail(request, camis):
             "cuisine": latest.cuisine,
             "inspections": inspections,
             "place": place,
+            "menu_picks": menu_picks,
+            "menustat_name": menustat_name,
+            "healthiness_score": healthiness_score,
+            "reason_tags": reason_tags,
+            "score_breakdown": score_breakdown,
         },
     )
 
