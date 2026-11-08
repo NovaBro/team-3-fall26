@@ -42,7 +42,7 @@ jobs:
           python manage.py collectstatic --noinput
 
       - name: Test
-        run: coverage run --source=nycfood,search,restaurants,accounts,community manage.py test
+        run: coverage run --source=nycfood,search,restaurants,accounts,community,assistant manage.py test
 
       - name: Format and lint
         run: |

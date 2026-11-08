@@ -9,6 +9,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from assistant.recommend import personalized_picks
 from community.models import PlaceEnrichment, PlaceReview
 from restaurants.diet_filters import ALLERGY_CHOICES
 from restaurants.inspections import _latest, _match, _restaurants_in_zip, google_zip
@@ -170,16 +171,9 @@ def _photo_url_for(google_place):
     return ""
 
 
-def _top_picks(count=3):
-    """Return *count* grade-A restaurants enriched with Google Places data and
-    DOHMH inspection details.  Each entry is a dict with keys: name, cuisine,
-    street, boro, zipcode, google (Places dict or None), and inspection (dict
-    with camis/grade/date or None)."""
-
-    # 1. Pick distinct grade-A restaurants ordered by most-recent inspection.
-    candidates = (
-        RestaurantInspection.objects.filter(grade="A")
-        .exclude(dba="")
+def _pick_rows(queryset):
+    return (
+        queryset.exclude(dba="")
         .values("camis")
         .annotate(
             name=Max("dba"),
@@ -189,9 +183,30 @@ def _top_picks(count=3):
             cuisine=Max("cuisine"),
             last_date=Max("inspection_date"),
         )
-        .order_by("-last_date")[:count]
     )
-    picks = list(candidates)
+
+
+def _top_picks(count=3, user=None):
+    """Return *count* restaurants enriched with Google Places data and DOHMH
+    inspection details.  Each entry is a dict with keys: name, cuisine, street,
+    boro, zipcode, google (Places dict or None), inspection (dict with
+    camis/grade/date or None), and reason (why Claude chose it, or "").
+
+    Logged-in users with a profile get Claude's ranking when it's available;
+    everyone else gets the most recently inspected grade-A restaurants."""
+
+    # 1. Pick the restaurants.
+    personalized = personalized_picks(user, count) if user else []
+    if personalized:
+        reasons = {pick["camis"]: pick["reason"] for pick in personalized}
+        rows = _pick_rows(RestaurantInspection.objects.filter(camis__in=list(reasons)))
+        order = list(reasons)
+        picks = sorted(rows, key=lambda row: order.index(row["camis"]))
+        for pick in picks:
+            pick["reason"] = reasons[pick["camis"]]
+    else:
+        rows = _pick_rows(RestaurantInspection.objects.filter(grade="A"))
+        picks = list(rows.order_by("-last_date")[:count])
 
     # 2. Enrich each pick with Google Places data (concurrent).
     with ThreadPoolExecutor(max_workers=count) as executor:
@@ -302,7 +317,7 @@ def home(request):
     # don't slow down paginated browsing.
     top_picks = []
     if not selected_boro and page_obj.number == 1:
-        top_picks = _top_picks(count=3)
+        top_picks = _top_picks(count=3, user=request.user)
 
     return render(
         request,
@@ -313,6 +328,7 @@ def home(request):
             "borough_options": borough_options,
             "selected_boro": selected_boro,
             "top_picks": top_picks,
+            "personalized_picks": any(pick.get("reason") for pick in top_picks),
         },
     )
 
