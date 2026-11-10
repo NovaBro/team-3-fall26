@@ -179,14 +179,14 @@ Repository settings that the workflow depends on:
 
 The integration site is http://Nycfood-env.eba-jht3rtv2.us-east-1.elasticbeanstalk.com. The Elastic Beanstalk application is `nycfood`, the environments are `Nycfood-env` (integration, from `develop`) and `Nycfood-env-main` (production, from `main`), and the region is `us-east-1`. GitHub Actions deploys with `eb deploy` after tests pass (see [CI/CD](#cicd)). The workflow assumes the IAM role `github-nycfood-deploy`; no AWS keys are stored in GitHub.
 
-The instance downloads `database/nyc_food.db` and `database/community.db` from the private bucket `nycfood-databases-322134621417` before migrate. Those files are not in Git and are not in the deploy bundle. Django still opens them as local SQLite files. Rows written on the live site, and files in `media/`, are replaced by the next deploy. To change the canonical databases, upload them again:
+The instance downloads `database/nyc_food.db` and `database/community.db` from `elasticbeanstalk-us-east-1-322134621417` before migrate. Those files are not in Git and are not in the deploy bundle. Django still opens them as local SQLite files. Rows written on the live site, and files in `media/`, are replaced by the next deploy. To change the canonical databases, upload them again:
 
 ```bash
-aws s3 cp database/nyc_food.db s3://nycfood-databases-322134621417/nyc_food.db
-aws s3 cp database/community.db s3://nycfood-databases-322134621417/community.db
+aws s3 cp database/nyc_food.db s3://elasticbeanstalk-us-east-1-322134621417/nyc_food.db
+aws s3 cp database/community.db s3://elasticbeanstalk-us-east-1-322134621417/community.db
 ```
 
-Before the first Actions deploy, create that bucket, upload both files, and attach `deploy/s3-db-read-policy.json` to the instance role `aws-elasticbeanstalk-ec2-role`. A failed download fails the deploy. API keys come from SSM Parameter Store.
+Before the first Actions deploy, upload both files and attach `deploy/s3-db-read-policy.json` to the instance role `aws-elasticbeanstalk-ec2-role` (so it can `GetObject` those keys). A failed download fails the deploy. API keys come from SSM Parameter Store.
 
 If the deploy fails, run `eb logs Nycfood-env` and read `eb-engine.log` and `web.stdout.log`.
 
