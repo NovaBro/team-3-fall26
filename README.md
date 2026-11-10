@@ -154,7 +154,7 @@ After pulling changes to the models or datasets, rebuild your local database:
 - a daily schedule at 09:00 UTC, which tests `main` (post-submit)
 - manual runs from the Actions tab
 
-After `test` passes, a push to `develop` deploys to `Nycfood-env` (integration) and a push to `main` deploys to `Nycfood-env-main` (production). Deploys only run on `gcivil-nyu-org/team-3-fall26`, never on forks or pull requests.
+After `test` passes, a push to `develop` or a same-repo pull request into `develop` deploys to `Nycfood-env` (integration). A push to `main` deploys to `Nycfood-env-main` (production). Deploys only run on `gcivil-nyu-org/team-3-fall26`; fork pull requests and production stay out of the PR path. Integration deploys share one concurrency group, so overlapping runs queue; whichever finishes last is what stays live (including an older commit).
 
 Scheduled runs use the copy of `ci.yml` on the default branch, `develop`. Change CI on `develop` first, then merge `develop` into `main`, so both branches keep the same workflow and README badges.
 
@@ -162,7 +162,7 @@ Repository settings that the workflow depends on:
 
 - Branch protection on `develop` and `main` with "Require status checks to pass before merging" and the `test` check required.
 - `gcivil-nyu-org/team-3-fall26` enabled on coveralls.io.
-- The trust policy of the IAM role `github-nycfood-deploy` allows both `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/develop` and `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/main`, and the role may update both Elastic Beanstalk environments.
+- The trust policy of the IAM role `github-nycfood-deploy` allows `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/develop`, `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/main`, and `repo:gcivil-nyu-org/team-3-fall26:pull_request`, and the role may update both Elastic Beanstalk environments.
 
 ## Elastic Beanstalk
 
