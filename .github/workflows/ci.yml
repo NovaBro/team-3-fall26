@@ -65,8 +65,22 @@ jobs:
 
   deploy-integration:
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && github.repository == 'gcivil-nyu-org/team-3-fall26'
+    # Integration: develop pushes, and same-repo PRs into develop.
+    # Fork PRs cannot assume the deploy role (no OIDC/secrets). Production stays push-to-main only.
+    if: >
+      github.repository == 'gcivil-nyu-org/team-3-fall26' &&
+      (
+        (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+        (
+          github.event_name == 'pull_request' &&
+          github.base_ref == 'develop' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        )
+      )
     runs-on: ubuntu-22.04
+    concurrency:
+      group: nycfood-integration-deploy
+      cancel-in-progress: false
     permissions:
       id-token: write
       contents: read
