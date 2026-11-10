@@ -3,10 +3,12 @@ from django.db import models
 
 
 class PlaceEnrichment(models.Model):
-    """Google Places (New) data cached for one restaurant, keyed by CAMIS.
+    """Google Places (New) data cached for one Find food pin.
 
-    A row is created the first time a restaurant is enriched and overwritten on
-    each manual refresh. There is no automatic expiry.
+    Keyed by the same (kind, key) identity as CommunitySubject. For DOHMH
+    restaurants, ``camis`` is also stored so older callers can still look up
+    by inspection id. Rows are overwritten on each manual refresh; there is
+    no automatic expiry.
     """
 
     PRICE_LEVEL_LABELS = {
@@ -17,7 +19,9 @@ class PlaceEnrichment(models.Model):
         "PRICE_LEVEL_VERY_EXPENSIVE": "$$$$",
     }
 
-    camis = models.CharField(max_length=20, unique=True, db_index=True)
+    kind = models.CharField(max_length=32, db_index=True)
+    key = models.CharField(max_length=512)
+    camis = models.CharField(max_length=20, blank=True, db_index=True)
     place_id = models.CharField(max_length=255, blank=True)
     display_name = models.CharField(max_length=255, blank=True)
     formatted_address = models.CharField(max_length=512, blank=True)
@@ -36,9 +40,15 @@ class PlaceEnrichment(models.Model):
     class Meta:
         verbose_name = "place enrichment"
         verbose_name_plural = "place enrichments"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["kind", "key"], name="community_enrichment_kind_key"
+            ),
+        ]
 
     def __str__(self):
-        return f"{self.display_name or self.camis} ({self.place_id})"
+        label = self.display_name or self.camis or self.key
+        return f"{label} ({self.place_id})"
 
     @property
     def price_level_display(self):

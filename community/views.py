@@ -7,7 +7,7 @@ from django.http import Http404, JsonResponse
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
-from community.keys import DOHMH, KINDS
+from community.keys import DOHMH, FARMERS_MARKET, GROCERY, KINDS
 from community.models import (
     CommunitySubject,
     PlaceEnrichment,
@@ -15,6 +15,8 @@ from community.models import (
     UserPhoto,
     UserRating,
 )
+
+GOOGLE_ENRICHMENT_KINDS = {DOHMH, FARMERS_MARKET, GROCERY}
 
 COMMENT_LIMIT = 50
 PHOTO_LIMIT = 24
@@ -44,11 +46,12 @@ def _author_labels(user_ids):
 
 
 def _google_payload(kind, key):
-    if kind != DOHMH or not key.startswith("camis:"):
+    if kind not in GOOGLE_ENRICHMENT_KINDS or not key:
         return None
-    camis = key.split(":", 1)[1]
     place = (
-        PlaceEnrichment.objects.filter(camis=camis).prefetch_related("reviews").first()
+        PlaceEnrichment.objects.filter(kind=kind, key=key)
+        .prefetch_related("reviews")
+        .first()
     )
     if place is None:
         return None

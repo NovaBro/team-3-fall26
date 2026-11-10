@@ -12,6 +12,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils.dateparse import parse_datetime
 
+from community.keys import DOHMH, dohmh_key
 from community.models import PlaceEnrichment, PlaceReview
 from search.models import RestaurantInspection
 
@@ -120,11 +121,13 @@ def _build_review(place, review):
     )
 
 
-def _save(camis, details):
+def _save(kind, key, details, camis=""):
     location = details.get("location") or {}
     enrichment, _created = PlaceEnrichment.objects.update_or_create(
-        camis=camis,
+        kind=kind,
+        key=key,
         defaults={
+            "camis": camis or "",
             "place_id": details.get("id", "") or "",
             "display_name": _localized_text(details.get("displayName"))[:255],
             "formatted_address": details.get("formattedAddress", "") or "",
@@ -151,6 +154,23 @@ def _save(camis, details):
 
 
 @transaction.atomic(using="community")
+def enrich_subject(kind, key, query, camis=""):
+    """Look up any Find food pin on Google and persist its data.
+
+    Overwrites any previously stored data for this (kind, key). Raises
+    ``PlacesAPIError`` on any failure.
+    """
+    if not query:
+        raise PlacesAPIError("No name or address to search with.")
+
+    match = find_place(query)
+    if not match or not match.get("id"):
+        raise PlacesAPIError(f"No Google place matched {query!r}.")
+
+    details = get_place_details(match["id"])
+    return _save(kind, key, details, camis=camis)
+
+
 def enrich_camis(camis):
     """Look up a restaurant on Google and persist its data.
 
@@ -169,9 +189,4 @@ def enrich_camis(camis):
     if not query:
         raise PlacesAPIError("Restaurant has no name or address to search with.")
 
-    match = find_place(query)
-    if not match or not match.get("id"):
-        raise PlacesAPIError(f"No Google place matched {query!r}.")
-
-    details = get_place_details(match["id"])
-    return _save(camis, details)
+    return enrich_subject(DOHMH, dohmh_key(camis), query, camis=camis)
