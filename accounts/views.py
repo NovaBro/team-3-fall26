@@ -282,16 +282,17 @@ def _admin_activity_counts(user_ids):
     if not user_ids:
         return {}
     counts = {
-        user_id: {"comments": 0, "ratings": 0, "photos": 0}
-        for user_id in user_ids
+        user_id: {"comments": 0, "ratings": 0, "photos": 0} for user_id in user_ids
     }
     for model, key in (
         (UserComment, "comments"),
         (UserRating, "ratings"),
         (UserPhoto, "photos"),
     ):
-        for row in model.objects.filter(user_id__in=user_ids).values("user_id").annotate(
-            total=Count("id")
+        for row in (
+            model.objects.filter(user_id__in=user_ids)
+            .values("user_id")
+            .annotate(total=Count("id"))
         ):
             counts[row["user_id"]][key] = row["total"]
     return counts

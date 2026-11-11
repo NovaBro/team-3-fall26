@@ -4,7 +4,6 @@ from django.db.models import Count
 
 from accounts.models import MoodLog, UserProfile
 
-
 admin.site.unregister(User)
 
 
@@ -51,8 +50,10 @@ class UserManagementAdmin(admin.ModelAdmin):
     )
 
     def get_queryset(self, request):
-        return super().get_queryset(request).annotate(
-            _mood_log_count=Count("mood_logs", distinct=True)
+        return (
+            super()
+            .get_queryset(request)
+            .annotate(_mood_log_count=Count("mood_logs", distinct=True))
         )
 
     @admin.display(description="Mood check-ins", ordering="_mood_log_count")
