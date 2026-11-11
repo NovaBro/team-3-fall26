@@ -93,6 +93,8 @@ class FindFoodData(TestCase):
             grade="B",
         )
         PlaceEnrichment.objects.create(
+            kind="restaurant_dohmh",
+            key="camis:1",
             camis="1",
             place_id="ChIJtest",
             display_name="Joe's Pizza",

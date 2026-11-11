@@ -7,7 +7,15 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from PIL import Image
 
-from community.keys import dohmh_key, farmers_market_key, google_key, grocery_key
+from community.keys import (
+    DOHMH,
+    FARMERS_MARKET,
+    GROCERY,
+    dohmh_key,
+    farmers_market_key,
+    google_key,
+    grocery_key,
+)
 from community.models import (
     PlaceEnrichment,
     PlaceReview,
@@ -53,6 +61,8 @@ class CommunityPanelTests(TestCase):
         self.kind = "restaurant_dohmh"
         self.key = dohmh_key("1")
         place = PlaceEnrichment.objects.create(
+            kind=DOHMH,
+            key=self.key,
             camis="1",
             display_name="Joe's Pizza",
             rating=4.5,
@@ -151,3 +161,50 @@ class CommunityPanelTests(TestCase):
             reverse("community:detail", kwargs={"kind": "not-a-pin", "key": "x"})
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_market_and_grocery_google_payload(self):
+        market_key = farmers_market_key(2026, "Union Square", "E 17th St")
+        grocery_key_value = grocery_key("Healthy Corner", "100 Main St", "11201")
+        PlaceEnrichment.objects.create(
+            kind=FARMERS_MARKET,
+            key=market_key,
+            display_name="Union Square Greenmarket",
+            rating=4.2,
+            user_rating_count=50,
+        )
+        store = PlaceEnrichment.objects.create(
+            kind=GROCERY,
+            key=grocery_key_value,
+            display_name="Healthy Corner",
+            rating=4.0,
+            user_rating_count=12,
+        )
+        PlaceReview.objects.create(
+            place=store,
+            author_name="Alex",
+            rating=4,
+            text="Fresh produce.",
+        )
+
+        market = self.client.get(
+            reverse(
+                "community:detail",
+                kwargs={"kind": FARMERS_MARKET, "key": market_key},
+            ),
+            {"name": "Union Square"},
+        )
+        self.assertEqual(market.status_code, 200)
+        self.assertEqual(market.json()["google"]["rating"], 4.2)
+        self.assertEqual(market.json()["google"]["reviews"], [])
+
+        grocery = self.client.get(
+            reverse(
+                "community:detail",
+                kwargs={"kind": GROCERY, "key": grocery_key_value},
+            ),
+            {"name": "Healthy Corner"},
+        )
+        self.assertEqual(grocery.status_code, 200)
+        self.assertEqual(
+            grocery.json()["google"]["reviews"][0]["text"], "Fresh produce."
+        )

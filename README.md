@@ -28,8 +28,8 @@ Then open http://127.0.0.1:8000/.
   from NYC inspection records by default, or live from Google Places, which
   adds price, minimum rating, and open-now filters. Clicking a pin or result
   opens community ratings, comments, and photos.
-- `/home/` — card view of NYC restaurants, filterable by borough, with a Google Places lookup on each card.
-- `/restaurant/<camis>/` — full inspection/violation history for one restaurant.
+- `/home/` — card view of NYC restaurants, filterable by borough, with a Google Places lookup on each card and scored **Today's Top Picks** on page 1 (see [`md_guides/scoring-algorithm.md`](md_guides/scoring-algorithm.md)).
+- `/restaurant/<camis>/` — full inspection/violation history for one restaurant; when MenuStat name-matches, a top-5 lower-calorie meal table.
 - The old `/restaurants/`, `/combined-map/`, `/farmers-markets/`, and `/explore/`
   tabs were merged into `/` (issue #109) and now redirect there.
 
@@ -62,18 +62,21 @@ Cloud project). Copy `.env.example` to `.env` and fill in `GOOGLE_API_KEY`; add
 
 Set a Google Maps Platform API key (with the **Places API (New)** enabled) as an
 environment variable, then either click **Get Google data** on a restaurant page
-or seed in bulk:
+or seed in bulk. Enrichment is stored by pin `(kind, key)` for DOHMH restaurants,
+farmers markets, and Shop Healthy stores:
 
 ```bash
 export GOOGLE_PLACES_API_KEY="your-key"
-.venv/bin/python manage.py enrich_places --limit 25 --sleep 0.5
+# Markets + stores first (fits free monthly caps), then capped restaurants:
+.venv/bin/python manage.py enrich_places --type farmers_market --type grocery --sleep 0.5
+.venv/bin/python manage.py enrich_places --type restaurant --limit 4000 --sleep 0.5
 ```
 
-`enrich_places` skips restaurants that already have stored data; pass
-`--refresh` to overwrite. Each restaurant costs two API calls (Text Search +
-Place Details) and the result is stored in the `PlaceEnrichment`/`PlaceReview`
-tables. Ratings, price level, location, website, and reviews are then served
-from the local database without further API calls.
+`enrich_places` skips pins that already have stored data; pass `--refresh` to
+overwrite. Restaurant targets prefer CAMIS that still lack coordinates. Each
+place costs two API calls (Text Search + Place Details); results go to
+`PlaceEnrichment`/`PlaceReview` in `community.db` and show in the Find food
+Reviews panel.
 
 ## Diet and allergy filters
 
@@ -120,6 +123,14 @@ any time with `import_datasets`; the command is idempotent.
 | `Recognized_Shop_Healthy_Stores_*.csv` | `HealthyStore` |
 | `DPR_Eateries_001.json` | `ParkEatery` |
 
+**MenuStat caveats:** menus are historical (often **2017–2018**) and may not match
+today’s offerings. Linking inspections to MenuStat is **fuzzy name match**, not
+CAMIS — there is no shared restaurant ID across the two datasets. Wrong or missing
+links are possible (renames, food halls, similar chain names). When a match has
+enough qualifying meals, Top Picks may use a 10% calorie weight and the detail
+page may show a top-5 lower-calorie menu. Full rules:
+[`md_guides/scoring-algorithm.md`](md_guides/scoring-algorithm.md).
+
 `restaurant_cuisines_*.csv` is a small CAMIS → cuisine lookup from NYC Open Data
 ("DOHMH New York City Restaurant Inspection Results", dataset `43nn-pn8j`). It is kept
 separate because the full export is too large for GitHub. To refresh it:
@@ -154,7 +165,7 @@ After pulling changes to the models or datasets, rebuild your local database:
 - a daily schedule at 09:00 UTC, which tests `main` (post-submit)
 - manual runs from the Actions tab
 
-After `test` passes, a push to `develop` deploys to `Nycfood-env` (integration) and a push to `main` deploys to `Nycfood-env-main` (production). Deploys only run on `gcivil-nyu-org/team-3-fall26`, never on forks or pull requests.
+After `test` passes, a push to `develop` or a same-repo pull request into `develop` deploys to `Nycfood-env` (integration). A push to `main` deploys to `Nycfood-env-main` (production). Deploys only run on `gcivil-nyu-org/team-3-fall26`; fork pull requests and production stay out of the PR path. Integration deploys share one concurrency group, so overlapping runs queue; whichever finishes last is what stays live (including an older commit).
 
 Scheduled runs use the copy of `ci.yml` on the default branch, `develop`. Change CI on `develop` first, then merge `develop` into `main`, so both branches keep the same workflow and README badges.
 
@@ -162,20 +173,20 @@ Repository settings that the workflow depends on:
 
 - Branch protection on `develop` and `main` with "Require status checks to pass before merging" and the `test` check required.
 - `gcivil-nyu-org/team-3-fall26` enabled on coveralls.io.
-- The trust policy of the IAM role `github-nycfood-deploy` allows both `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/develop` and `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/main`, and the role may update both Elastic Beanstalk environments.
+- The trust policy of the IAM role `github-nycfood-deploy` allows `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/develop`, `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/main`, and `repo:gcivil-nyu-org/team-3-fall26:pull_request`, and the role may update both Elastic Beanstalk environments.
 
 ## Elastic Beanstalk
 
 The integration site is http://Nycfood-env.eba-jht3rtv2.us-east-1.elasticbeanstalk.com. The Elastic Beanstalk application is `nycfood`, the environments are `Nycfood-env` (integration, from `develop`) and `Nycfood-env-main` (production, from `main`), and the region is `us-east-1`. GitHub Actions deploys with `eb deploy` after tests pass (see [CI/CD](#cicd)). The workflow assumes the IAM role `github-nycfood-deploy`; no AWS keys are stored in GitHub.
 
-The instance downloads `database/nyc_food.db` and `database/community.db` from the private bucket `nycfood-databases-322134621417` before migrate. Those files are not in Git and are not in the deploy bundle. Django still opens them as local SQLite files. Rows written on the live site, and files in `media/`, are replaced by the next deploy. To change the canonical databases, upload them again:
+The instance downloads `database/nyc_food.db` and `database/community.db` from `elasticbeanstalk-us-east-1-322134621417` before migrate. Those files are not in Git and are not in the deploy bundle. Django still opens them as local SQLite files. Rows written on the live site, and files in `media/`, are replaced by the next deploy. To change the canonical databases, upload them again:
 
 ```bash
-aws s3 cp database/nyc_food.db s3://nycfood-databases-322134621417/nyc_food.db
-aws s3 cp database/community.db s3://nycfood-databases-322134621417/community.db
+aws s3 cp database/nyc_food.db s3://elasticbeanstalk-us-east-1-322134621417/nyc_food.db
+aws s3 cp database/community.db s3://elasticbeanstalk-us-east-1-322134621417/community.db
 ```
 
-Before the first Actions deploy, create that bucket, upload both files, and attach `deploy/s3-db-read-policy.json` to the instance role `aws-elasticbeanstalk-ec2-role`. A failed download fails the deploy. API keys come from SSM Parameter Store.
+Before the first Actions deploy, upload both files and attach `deploy/s3-db-read-policy.json` to the instance role `aws-elasticbeanstalk-ec2-role` (so it can `GetObject` those keys). A failed download fails the deploy. API keys come from SSM Parameter Store.
 
 If the deploy fails, run `eb logs Nycfood-env` and read `eb-engine.log` and `web.stdout.log`.
 

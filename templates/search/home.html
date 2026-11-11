@@ -54,6 +54,13 @@
               <span class="top-pick-card__category">{{ pick.cuisine|default:"Restaurant" }}</span>
               {% if pick.boro %}<span class="top-pick-card__boro-tag">{{ pick.boro }}</span>{% endif %}
             </div>
+            {% if pick.reason_tags %}
+            <div class="top-pick-card__reasons" aria-label="Why this pick">
+              {% for tag in pick.reason_tags %}
+                <span class="top-pick-card__reason">{{ tag }}</span>
+              {% endfor %}
+            </div>
+            {% endif %}
             <h3>
               {% if pick.inspection.camis %}
                 <a href="{% url 'search:restaurant_detail' pick.inspection.camis %}">{{ pick.name }}</a>
@@ -83,7 +90,7 @@
               </div>
             {% endif %}
 
-            {% if pick.reason %}<p class="top-pick-card__reason">{{ pick.reason }}</p>{% endif %}
+            {% if pick.ai_reason %}<p class="top-pick-card__ai-reason">{{ pick.ai_reason }}</p>{% endif %}
 
             <!-- Google Review Comment -->
             {% if pick.review and pick.review.text %}

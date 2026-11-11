@@ -191,7 +191,7 @@
   .assistant-toggle { right: 76px; bottom: 16px; }
 }
 
-.top-pick-card__reason {
+.top-pick-card__ai-reason {
   margin: 8px 0;
   font-size: 0.86rem;
   color: var(--ink-soft);
