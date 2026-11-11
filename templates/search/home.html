@@ -5,7 +5,7 @@
 {% block main_class %}restaurant-main{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=11">
+<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=14">
 {% endblock %}
 
 {% block content %}
@@ -16,7 +16,7 @@
   <section class="top-picks" aria-labelledby="top-picks-title">
     <div class="top-picks__header">
       <div class="top-picks__titles">
-      <h2 id="top-picks-title"><span class="top-picks__icon" aria-hidden="true">🏆</span> {% if personalized_picks %}Picked for you{% else %}Today's Top Picks{% endif %}</h2>
+      <h2 id="top-picks-title"><span class="top-picks__icon" aria-hidden="true">🏆</span> {% if personalized_picks %}Picked for you{% else %}Today's Top Picks{% if selected_boro %} in {{ selected_boro|title }}{% endif %}{% endif %}</h2>
       <p class="top-picks__subtitle muted">{% if personalized_picks %}Ranked by AI using your profile. Always confirm allergies with the restaurant.{% else %}Your next unforgettable food experience starts here!{% endif %}</p></div>
       <div class="top-picks__loc"><form class="restaurant-borough-filter" method="get">
       <label for="restaurant-boro">Select your location</label>
@@ -40,27 +40,15 @@
               loading="lazy"
               onerror="this.onerror=null;this.src='{{ fallback_img|escapejs }}';">
             <span class="top-pick-card__rank">#{{ forloop.counter }}</span>
-            {% if pick.inspection.grade %}
-              <span class="top-pick-card__grade grade grade-{{ pick.inspection.grade }}" title="NYC DOHMH Grade {{ pick.inspection.grade }}">
-                Grade {{ pick.inspection.grade }}
-              </span>
-            {% endif %}
             {% if pick.google.price %}
               <span class="top-pick-card__price" title="Price level: {{ pick.google.price }}">{{ pick.google.price }}</span>
             {% endif %}
           </div>
           <div class="top-pick-card__body">
             <div class="top-pick-card__tags">
-              <span class="top-pick-card__category">{{ pick.cuisine|default:"Restaurant" }}</span>
+              <span class="top-pick-card__category" title="{{ pick.cuisine|default:'Restaurant' }}">{{ pick.cuisine|default:"Restaurant" }}</span>
               {% if pick.boro %}<span class="top-pick-card__boro-tag">{{ pick.boro }}</span>{% endif %}
             </div>
-            {% if pick.reason_tags %}
-            <div class="top-pick-card__reasons" aria-label="Why this pick">
-              {% for tag in pick.reason_tags %}
-                <span class="top-pick-card__reason">{{ tag }}</span>
-              {% endfor %}
-            </div>
-            {% endif %}
             <h3>
               {% if pick.inspection.camis %}
                 <a href="{% url 'search:restaurant_detail' pick.inspection.camis %}">{{ pick.name }}</a>
@@ -71,8 +59,21 @@
             <p class="top-pick-card__address">
               {% if pick.google.address %}{{ pick.google.address }}{% else %}{{ pick.street }}{% if pick.boro %}, {{ pick.boro }}{% endif %}{% if pick.zipcode %} {{ pick.zipcode }}{% endif %}{% endif %}
             </p>
+            {# Every section below is always rendered (empty when there is no data) #}
+            {# so each one lines up across the three cards (see homepage.css).    #}
+            <div class="top-pick-card__slot">
+            {% if pick.reason_tags %}
+            <div class="top-pick-card__reasons" aria-label="Why this pick">
+              {% for tag in pick.reason_tags %}
+                <span class="top-pick-card__reason">{{ tag }}</span>
+              {% endfor %}
+            </div>
+            {% endif %}
+            {% if pick.ai_reason %}<p class="top-pick-card__ai-reason">{{ pick.ai_reason }}</p>{% endif %}
+            </div>
 
             <!-- Google Star Rating in Card Details -->
+            <div class="top-pick-card__slot">
             {% if pick.google.rating %}
               <div class="top-pick-card__rating-bar" title="Google rating: {{ pick.google.rating }} / 5">
                 <span class="top-pick-card__stars-visual" aria-hidden="true">
@@ -89,10 +90,10 @@
                 <span class="top-pick-card__rating-source">Google</span>
               </div>
             {% endif %}
-
-            {% if pick.ai_reason %}<p class="top-pick-card__ai-reason">{{ pick.ai_reason }}</p>{% endif %}
+            </div>
 
             <!-- Google Review Comment -->
+            <div class="top-pick-card__slot">
             {% if pick.review and pick.review.text %}
               <div class="top-pick-card__review">
                 <div class="top-pick-card__review-header">
@@ -116,19 +117,21 @@
                 {% endif %}
               </div>
             {% endif %}
+            </div>
 
-            <div class="top-pick-card__meta">
-              {% if pick.inspection.grade %}
-                <span class="top-pick-card__meta-item" title="Health Grade">
-                  <span class="top-pick-card__meta-dot grade-dot-{{ pick.inspection.grade }}"></span>
-                  Grade {{ pick.inspection.grade }}
-                </span>
-              {% endif %}
-              {% if pick.inspection.date %}
-                <span class="top-pick-card__meta-item muted" title="Last inspected">
-                  Inspected {{ pick.inspection.date }}
-                </span>
-              {% endif %}
+            <div class="top-pick-card__slot top-pick-card__slot--bottom">
+            {% if user.is_authenticated %}
+              <form class="top-pick-card__feedback" method="post" action="{% url 'search:pick_feedback' pick.camis %}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <button type="submit" name="value" value="like"
+                        class="top-pick-card__feedback-btn{% if pick.feedback == 1 %} is-active{% endif %}"
+                        aria-pressed="{% if pick.feedback == 1 %}true{% else %}false{% endif %}">👍 Like</button>
+                <button type="submit" name="value" value="not_interested"
+                        class="top-pick-card__feedback-btn"
+                        title="We won't show this place to you again">🚫 Not interested</button>
+              </form>
+            {% endif %}
             </div>
           </div>
         </article>
