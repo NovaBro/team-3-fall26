@@ -628,6 +628,41 @@ tbody tr:hover { background: var(--raised); }
 
 .form-section h2:first-child { margin-top: 0; }
 
+.admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 22px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-tabs a {
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.admin-tabs a:hover,
+.admin-tabs a[aria-current="page"] {
+  color: var(--ink);
+  background: var(--raised);
+}
+
+.admin-tabs a[aria-current="page"] { font-weight: 600; }
+
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin: 22px 0;
+}
+
+.admin-stats .form-section { margin: 0; }
+.admin-stats h2 { font-size: 0.95rem; }
+.admin-stat { margin: 0; font-size: 2rem; font-weight: 700; }
+
 .field-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

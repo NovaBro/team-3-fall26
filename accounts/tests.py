@@ -4,7 +4,7 @@ import tempfile
 from io import BytesIO
 from tempfile import TemporaryDirectory
 
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Permission, User
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
@@ -15,6 +15,7 @@ from PIL import Image
 
 from accounts.models import MoodLog, UserProfile
 from accounts.tokens import email_verification_token
+from community.models import CommunitySubject, UserComment, UserRating
 
 VALID_PASSWORD = "sTr0ngPass!2026x"
 
@@ -449,6 +450,142 @@ class ViewProfileTests(TestCase):
     def test_unknown_username_404s(self):
         response = self.client.get(reverse("accounts:view_profile", args=["nope"]))
         self.assertEqual(response.status_code, 404)
+
+
+class AdminUserManagementTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            "target", "target@example.com", VALID_PASSWORD, is_active=True
+        )
+        self.list_url = reverse("admin:auth_user_changelist")
+        self.detail_url = reverse("admin:auth_user_change", args=[self.user.pk])
+
+    def test_anonymous_and_non_staff_users_cannot_view_user_management(self):
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, 302)
+
+        regular_user = User.objects.create_user(
+            "regular", "regular@example.com", VALID_PASSWORD
+        )
+        self.client.force_login(regular_user)
+        response = self.client.get(self.list_url)
+        self.assertNotEqual(response.status_code, 200)
+        self.assertNotContains(
+            response, "target@example.com", status_code=response.status_code
+        )
+
+    def test_staff_with_view_permission_can_search_and_view_read_only_details(self):
+        staff_user = User.objects.create_user(
+            "manager", "manager@example.com", VALID_PASSWORD, is_staff=True
+        )
+        view_user_permission = Permission.objects.get(
+            content_type__app_label="auth", codename="view_user"
+        )
+        staff_user.user_permissions.add(view_user_permission)
+        self.client.force_login(staff_user)
+
+        response = self.client.get(self.list_url, {"q": "target@example.com"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "target@example.com")
+
+        UserProfile.objects.create(user=self.user, allergies="peanuts")
+        MoodLog.objects.create(user=self.user, mood=5, energy_level=4)
+        response = self.client.get(self.detail_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "target@example.com")
+        self.assertContains(response, "Mood check-ins")
+        self.assertContains(response, ">1<")
+        self.assertNotContains(response, "peanuts")
+        self.assertNotContains(response, self.user.password)
+
+        response = self.client.post(self.detail_url, {"is_active": "0"})
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_active)
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_with_view_permission_cannot_add_or_delete_users(self):
+        staff_user = User.objects.create_user(
+            "manager", "manager@example.com", VALID_PASSWORD, is_staff=True
+        )
+        view_user_permission = Permission.objects.get(
+            content_type__app_label="auth", codename="view_user"
+        )
+        staff_user.user_permissions.add(view_user_permission)
+        self.client.force_login(staff_user)
+
+        add_url = reverse("admin:auth_user_add")
+        delete_url = reverse("admin:auth_user_delete", args=[self.user.pk])
+        self.assertEqual(self.client.get(add_url).status_code, 403)
+        self.assertEqual(self.client.get(delete_url).status_code, 403)
+
+
+class SuperuserDashboardTests(TestCase):
+    databases = {"default", "community"}
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            "siteadmin", "admin@example.com", VALID_PASSWORD
+        )
+        self.user = User.objects.create_user(
+            "target",
+            "target@example.com",
+            VALID_PASSWORD,
+            first_name="Taylor",
+            last_name="Example",
+        )
+        self.subject = CommunitySubject.objects.create(
+            kind="restaurant_dohmh", key="camis:1", name="Test Restaurant"
+        )
+        self.comment = UserComment.objects.create(
+            subject=self.subject, user_id=self.user.pk, text="Helpful review"
+        )
+        UserRating.objects.create(subject=self.subject, user_id=self.user.pk, score=4)
+
+    def test_only_superusers_can_access_dashboard_and_account_detail(self):
+        dashboard_url = reverse("accounts:admin_dashboard")
+        detail_url = reverse("accounts:admin_user_detail", args=[self.user.pk])
+
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(dashboard_url).status_code, 403)
+        self.assertEqual(self.client.get(detail_url).status_code, 403)
+
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(dashboard_url).status_code, 200)
+        self.assertEqual(self.client.get(detail_url).status_code, 200)
+
+    def test_accounts_tab_searches_and_shows_basic_activity_counts(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(
+            reverse("accounts:admin_dashboard"), {"tab": "users", "q": "target"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "target@example.com")
+        self.assertContains(response, "Taylor Example")
+        self.assertNotContains(response, "Helpful review")
+        self.assertContains(response, "<td>1</td>", count=2, html=True)
+
+    def test_comment_tab_and_user_detail_show_comments_without_health_profile(self):
+        UserProfile.objects.create(user=self.user, allergies="peanuts")
+        self.client.force_login(self.admin)
+
+        comments_response = self.client.get(
+            reverse("accounts:admin_dashboard"),
+            {"tab": "comments", "q": "target"},
+        )
+        self.assertEqual(comments_response.status_code, 200)
+        self.assertContains(comments_response, "target")
+        self.assertContains(comments_response, "Test Restaurant")
+        self.assertContains(comments_response, "Helpful review")
+
+        detail_response = self.client.get(
+            reverse("accounts:admin_user_detail", args=[self.user.pk])
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "Helpful review")
+        self.assertContains(detail_response, "Comments: 1")
+        self.assertContains(detail_response, "Ratings: 1")
+        self.assertNotContains(detail_response, "peanuts")
 
 
 class SendPromoEmailCommandTests(TestCase):

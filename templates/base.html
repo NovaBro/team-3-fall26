@@ -23,6 +23,9 @@
         <a href="{% url 'search:home' %}"{% if view == 'search:home' %} aria-current="page"{% endif %}>Top picks</a>
         <a href="{% url 'search:index' %}"{% if view == 'search:index' or view == 'search:restaurant_detail' %} aria-current="page"{% endif %}>Search</a>
         {% if user.is_authenticated %}
+          {% if user.is_superuser %}
+            <a href="{% url 'accounts:admin_dashboard' %}"{% if view == 'accounts:admin_dashboard' or view == 'accounts:admin_user_detail' %} aria-current="page"{% endif %}>Admin</a>
+          {% endif %}
           <a href="{% url 'accounts:profile' %}"{% if view == 'accounts:profile' %} aria-current="page"{% endif %}>Profile</a>
           <a href="{% url 'accounts:view_profile' user.username %}"{% if view == 'accounts:view_profile' %} aria-current="page"{% endif %}>{{ user.username }}</a>
           <form class="nav-form" method="post" action="{% url 'accounts:logout' %}">

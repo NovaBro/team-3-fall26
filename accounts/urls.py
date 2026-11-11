@@ -14,6 +14,12 @@ class ProfileLoginView(LoginView):
 
 
 urlpatterns = [
+    path("admin-dashboard/", views.admin_dashboard, name="admin_dashboard"),
+    path(
+        "admin-dashboard/users/<int:user_id>/",
+        views.admin_user_detail,
+        name="admin_user_detail",
+    ),
     path("profile/", views.profile, name="profile"),
     path("profile/<str:username>/", views.view_profile, name="view_profile"),
     path("signup/", views.signup, name="signup"),
