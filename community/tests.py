@@ -205,4 +205,6 @@ class CommunityPanelTests(TestCase):
             {"name": "Healthy Corner"},
         )
         self.assertEqual(grocery.status_code, 200)
-        self.assertEqual(grocery.json()["google"]["reviews"][0]["text"], "Fresh produce.")
+        self.assertEqual(
+            grocery.json()["google"]["reviews"][0]["text"], "Fresh produce."
+        )

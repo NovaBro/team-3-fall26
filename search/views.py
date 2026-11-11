@@ -1,17 +1,39 @@
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator
-from django.db.models import Avg, Count, Max, Q
+from django.db.models import (
+    Avg,
+    BigIntegerField,
+    Case,
+    CharField,
+    Count,
+    IntegerField,
+    Max,
+    Q,
+    When,
+)
+from django.db.models.functions import Cast, Concat, Mod, Right
 from django.http import Http404, QueryDict
 from django.shortcuts import redirect, render
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from community.keys import DOHMH, dohmh_key
-from community.models import CommunitySubject, PlaceEnrichment, PlaceReview
+from community.models import (
+    CommunitySubject,
+    PlaceEnrichment,
+    PlaceReview,
+    RecommendationFeedback,
+    UserRating,
+)
 from restaurants.diet_filters import ALLERGY_CHOICES, risky_cuisines
 from restaurants.inspections import _latest, _match, _restaurants_in_zip, google_zip
 from restaurants.places import PlacesError, find_restaurant_place
@@ -29,8 +51,17 @@ from search.locations import resolve
 from search.models import RestaurantInspection
 from search.menustat import calorie_score_for_name, top_low_calorie_meals
 from search.recommend import (
+    FAST_FOOD_PREFIXES,
+    HEALTHY_CUISINES,
+    NON_MEAL_CUISINES,
+    NON_MEAL_PREFIXES,
+    UNHEALTHY_CUISINES,
     allergy_keys_from_text,
+    build_feedback_prefs,
+    daily_seed,
     home_zip_boro,
+    pick_display_review,
+    pick_top,
     score_restaurant,
     split_foods,
     whole_word_match,
@@ -38,7 +69,8 @@ from search.recommend import (
 from search.services.places import PlacesAPIError, enrich_camis
 
 PAGE_SIZE = 25
-POOL_SIZE = 9
+POOL_SIZE = 9  # candidates scored per day (one Google lookup each)
+PICKS_TIME_ZONE = ZoneInfo("America/New_York")
 MAX_CANDIDATES = 15
 FAVORITE_EXTRA = 3
 NEARBY_EXTRA = 3
@@ -184,23 +216,16 @@ def _photo_url_for(google_place):
     return ""
 
 
-def _grade_a_queryset(exclude_cuisines=None):
-    qs = (
-        RestaurantInspection.objects.filter(grade="A")
-        .exclude(dba="")
-        .values("camis")
-        .annotate(
-            name=Max("dba"),
-            boro=Max("boro"),
-            street=Max("street"),
-            zipcode=Max("zipcode"),
-            cuisine=Max("cuisine"),
-            last_date=Max("inspection_date"),
+def _name_starts_with(prefixes):
+    """Q for an annotated ``name`` that starts with any brand in *prefixes*."""
+    query = Q()
+    for prefix in prefixes:
+        query |= (
+            Q(name__iexact=prefix)
+            | Q(name__istartswith=prefix + " ")
+            | Q(name__istartswith=prefix + "#")
         )
-    )
-    if exclude_cuisines:
-        qs = qs.exclude(cuisine__in=exclude_cuisines)
-    return qs
+    return query
 
 
 def _profile_for(request):
@@ -223,12 +248,65 @@ def _whole_word_q(food):
     return Q(cuisine__icontains=food) | Q(name__icontains=food)
 
 
-def _build_candidate_pool(profile):
-    """Up to 9 recent grade-A, plus favorites/nearby extras (max 15)."""
+def _today():
+    return datetime.now(PICKS_TIME_ZONE).date()
+
+
+def _feedback_prefs(request):
+    """The viewer's Like / Not interested buttons and star ratings, or None."""
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return None
+    explicit = list(
+        RecommendationFeedback.objects.filter(user_id=user.pk).values_list(
+            "camis", "name", "cuisine", "value"
+        )
+    )
+    stars = {
+        key.removeprefix("camis:"): score
+        for key, score in UserRating.objects.filter(
+            user_id=user.pk, subject__kind=DOHMH
+        ).values_list("subject__key", "score")
+    }
+    star_ratings = []
+    if stars:
+        rows = (
+            RestaurantInspection.objects.filter(camis__in=stars)
+            .values("camis")
+            .annotate(name=Max("dba"), cuisine=Max("cuisine"))
+        )
+        star_ratings = [
+            (row["camis"], row["name"], row["cuisine"], stars[row["camis"]])
+            for row in rows
+        ]
+    return build_feedback_prefs(explicit, star_ratings)
+
+
+def _build_candidate_pool(profile, prefs=None, seed="", boro=""):
+    """Top picks candidates: the 9 best places by the DB-only health score
+    (latest grade A, meals only), shuffled daily within each score tier, plus
+    favorites/nearby extras (max 15). Places marked not interested and cuisines
+    risky for the user's allergies are skipped. With *boro*, every candidate
+    comes from that borough."""
     avoid = allergy_keys_from_text(getattr(profile, "allergies", "") if profile else "")
     excluded = risky_cuisines(avoid) if avoid else set()
+    hidden = prefs.hidden if prefs is not None else set()
+    multiplier = _shuffle_multiplier(seed)
 
-    base = list(_grade_a_queryset(excluded).order_by("-last_date")[:POOL_SIZE])
+    def meal_places(in_boro=boro):
+        # Latest grade A, places for a meal only (no coffee, bakeries, desserts).
+        rows = (
+            _scored_restaurants(multiplier)
+            .filter(latest_grade="A")
+            .exclude(cuisine__in=NON_MEAL_CUISINES | set(excluded))
+            .exclude(_name_starts_with(NON_MEAL_PREFIXES))
+            .exclude(camis__in=hidden)
+        )
+        if in_boro:
+            rows = rows.filter(boro__iexact=in_boro)
+        return rows.order_by("-explore_score", "shuffle", "camis")
+
+    base = list(meal_places()[:POOL_SIZE])
     by_camis = {row["camis"]: row for row in base}
 
     if profile is not None and len(by_camis) < MAX_CANDIDATES:
@@ -237,12 +315,8 @@ def _build_candidate_pool(profile):
         for food in favorites:
             if added >= FAVORITE_EXTRA or len(by_camis) >= MAX_CANDIDATES:
                 break
-            for row in (
-                _grade_a_queryset(excluded)
-                .filter(_whole_word_q(food))
-                .order_by("-last_date")[: FAVORITE_EXTRA * 3]
-            ):
-                if row["camis"] in by_camis:
+            for row in meal_places().filter(_whole_word_q(food))[: FAVORITE_EXTRA * 3]:
+                if row["camis"] in by_camis or row["camis"] in hidden:
                     continue
                 if not whole_word_match(food, row.get("cuisine"), row.get("name")):
                     continue
@@ -252,14 +326,12 @@ def _build_candidate_pool(profile):
                     break
 
         _home_zip, home_boro = home_zip_boro(getattr(profile, "home_address", ""))
+        if boro and home_boro.casefold() != boro.casefold():
+            home_boro = ""  # another borough is selected; home extras don't apply
         if home_boro and len(by_camis) < MAX_CANDIDATES:
             nearby_added = 0
-            for row in (
-                _grade_a_queryset(excluded)
-                .filter(boro__iexact=home_boro)
-                .order_by("-last_date")[: NEARBY_EXTRA * 3]
-            ):
-                if row["camis"] in by_camis:
+            for row in meal_places(home_boro)[: NEARBY_EXTRA * 3]:
+                if row["camis"] in by_camis or row["camis"] in hidden:
                     continue
                 by_camis[row["camis"]] = row
                 nearby_added += 1
@@ -299,12 +371,22 @@ def _reviews_for_pick(google, camis_id):
     ]
 
 
-def _top_picks(request, count=3):
+def _top_picks(request, count=3, boro=""):
     """Score a pool of grade-A restaurants and return the top *count* picks."""
     profile = _profile_for(request)
-    picks = _build_candidate_pool(profile)
+    prefs = _feedback_prefs(request)
+    user_id = request.user.pk if request.user.is_authenticated else None
+    seed = f"{daily_seed(_today(), user_id)}:{boro.casefold()}"
+    picks = _build_candidate_pool(profile, prefs, seed, boro)
     if not picks:
         return []
+    feedback_values = {}
+    if user_id is not None:
+        feedback_values = dict(
+            RecommendationFeedback.objects.filter(
+                user_id=user_id, camis__in=[p["camis"] for p in picks]
+            ).values_list("camis", "value")
+        )
 
     workers = min(8, max(1, len(picks)))
     with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -340,17 +422,15 @@ def _top_picks(request, count=3):
 
         camis_id = (pick.get("inspection") or {}).get("camis") or pick.get("camis")
         reviews = _reviews_for_pick(google, camis_id)
-        chosen_review = (google or {}).get("review")
-        if not chosen_review and reviews:
-            chosen_review = reviews[0]
-        pick["review"] = chosen_review
+        # Show the review that best explains a healthy pick (see recommend.py).
+        pick["review"] = pick_display_review(reviews, profile)
 
         app_avg, app_count = _app_rating_stats(camis_id) if camis_id else (None, 0)
         inspection = pick.get("inspection") or {}
         grade = inspection.get("grade") or "A"
         pick_name = pick.get("name") or ""
         calorie = calorie_score_for_name(pick_name)
-        score, tags, _breakdown = score_restaurant(
+        score, tags, breakdown = score_restaurant(
             name=pick_name,
             cuisine=pick.get("cuisine") or "",
             grade=grade,
@@ -364,13 +444,91 @@ def _top_picks(request, count=3):
             boro=pick.get("boro") or "",
             profile=profile,
             calorie_score=calorie,
+            feedback=prefs,
+            camis=pick["camis"],
         )
         pick["score"] = score
         pick["reason_tags"] = tags
         pick["calorie_score"] = calorie
+        pick["like_bonus"] = breakdown["like_bonus"]
+        pick["feedback"] = feedback_values.get(pick["camis"], 0)
 
-    picks.sort(key=lambda p: p.get("score", 0), reverse=True)
-    return picks[:count]
+    return pick_top(picks, count)
+
+
+SHUFFLE_MODULUS = 2_147_483_647  # prime, so each daily multiplier is a new order
+
+
+def _shuffle_multiplier(seed):
+    """A seed-specific multiplier: (camis * multiplier) % prime is a new order."""
+    digest = hashlib.sha256(str(seed).encode("utf-8")).hexdigest()
+    return 1 + int(digest, 16) % (SHUFFLE_MODULUS - 1)
+
+
+def _scored_restaurants(multiplier):
+    """One row per restaurant with a DB-only health score (no Google lookups).
+
+    explore_score: latest grade A +2 / B +1, healthy cuisine +1, unhealthy or
+    non-meal cuisine (coffee, desserts, ...) -1, coffee / dessert chain filed
+    under another cuisine -1, fast-food chain -2. ``shuffle`` orders ties; the
+    same *multiplier* gives the same order.
+    """
+    fast_food = _name_starts_with(FAST_FOOD_PREFIXES)
+    low_cuisines = UNHEALTHY_CUISINES | NON_MEAL_CUISINES
+    non_meal_chain = _name_starts_with(NON_MEAL_PREFIXES) & ~Q(cuisine__in=low_cuisines)
+    # Latest non-blank grade: max of "YYYY-MM-DD" + grade, then its last letter.
+    dated_grade = Max(
+        Case(
+            When(
+                ~Q(grade=""),
+                then=Concat(Cast("inspection_date", CharField()), "grade"),
+            ),
+            output_field=CharField(),
+        )
+    )
+    return (
+        RestaurantInspection.objects.exclude(dba="")
+        .values("camis")
+        .annotate(
+            name=Max("dba"),
+            boro=Max("boro"),
+            street=Max("street"),
+            zipcode=Max("zipcode"),
+            cuisine=Max("cuisine"),
+            last_date=Max("inspection_date"),
+            dated_grade=dated_grade,
+        )
+        .annotate(latest_grade=Right("dated_grade", 1))
+        .annotate(
+            explore_score=Case(
+                When(latest_grade="A", then=2),
+                When(latest_grade="B", then=1),
+                default=0,
+                output_field=IntegerField(),
+            )
+            + Case(
+                When(cuisine__in=HEALTHY_CUISINES, then=1),
+                When(cuisine__in=low_cuisines, then=-1),
+                default=0,
+                output_field=IntegerField(),
+            )
+            + Case(
+                When(non_meal_chain, then=-1), default=0, output_field=IntegerField()
+            )
+            + Case(When(fast_food, then=-2), default=0, output_field=IntegerField()),
+            shuffle=Mod(Cast("camis", BigIntegerField()) * multiplier, SHUFFLE_MODULUS),
+        )
+    )
+
+
+def _explore_rows():
+    """All restaurants for "Explore more", best DB score first. Ties are
+    shuffled with a seed that changes daily, so pages stay consistent within a
+    day."""
+    multiplier = _shuffle_multiplier(_today().isoformat())
+    return _scored_restaurants(multiplier).order_by(
+        "-explore_score", "shuffle", "camis"
+    )
 
 
 def home(request):
@@ -382,24 +540,23 @@ def home(request):
         .distinct()
         .order_by("boro")
     )
-    restaurant_rows = (
-        RestaurantInspection.objects.exclude(dba="")
-        .values("camis")
-        .annotate(
-            name=Max("dba"),
-            boro=Max("boro"),
-            street=Max("street"),
-            zipcode=Max("zipcode"),
-            cuisine=Max("cuisine"),
-        )
-        .order_by("name", "camis")
-    )
+    restaurant_rows = _explore_rows()
     if selected_boro in borough_options:
         restaurant_rows = restaurant_rows.filter(boro__iexact=selected_boro)
     else:
         selected_boro = ""
     page_obj = Paginator(restaurant_rows, 16).get_page(request.GET.get("page"))
     restaurants = list(page_obj.object_list)
+
+    # Top 3 picks – only on the first page so paginated browsing stays fast.
+    # With a borough selected, the picks come from that borough. Places already
+    # shown as Top picks are left out of this page (other pages are unchanged,
+    # so paging is stable).
+    top_picks = []
+    if page_obj.number == 1:
+        top_picks = _top_picks(request, count=3, boro=selected_boro)
+        shown = {pick["camis"] for pick in top_picks}
+        restaurants = [row for row in restaurants if row["camis"] not in shown]
     for row in restaurants:
         row["image"] = "search/images/nyc-restaurant.jpg"
 
@@ -419,12 +576,6 @@ def home(request):
         for row, lookup in zip(restaurants, lookups):
             row["google"] = lookup.result()
             row["photo_url"] = _photo_url_for(row["google"])
-
-    # Top 3 picks – only fetch on the first page (no borough filter) so we
-    # don't slow down paginated browsing.
-    top_picks = []
-    if not selected_boro and page_obj.number == 1:
-        top_picks = _top_picks(request, count=3)
 
     return render(
         request,
@@ -479,6 +630,8 @@ def restaurant_detail(request, camis):
         boro=latest.boro or "",
         profile=_profile_for(request),
         calorie_score=calorie,
+        feedback=_feedback_prefs(request),
+        camis=camis,
     )
 
     return render(
@@ -500,6 +653,47 @@ def restaurant_detail(request, camis):
             "score_breakdown": score_breakdown,
         },
     )
+
+
+@login_required
+@require_POST
+def pick_feedback(request, camis):
+    """Save a Like / Not interested on a Top pick; pressing it again undoes it."""
+    choice = request.POST.get("value")
+    values = {
+        "like": RecommendationFeedback.LIKE,
+        "not_interested": RecommendationFeedback.NOT_INTERESTED,
+    }
+    if choice not in values:
+        return redirect("search:home")
+    latest = (
+        RestaurantInspection.objects.filter(camis=camis)
+        .order_by("-inspection_date")
+        .first()
+    )
+    if latest is None:
+        raise Http404("Restaurant not found")
+    existing = RecommendationFeedback.objects.filter(
+        user_id=request.user.pk, camis=camis
+    ).first()
+    if existing is not None and existing.value == values[choice]:
+        existing.delete()
+    else:
+        RecommendationFeedback.objects.update_or_create(
+            user_id=request.user.pk,
+            camis=camis,
+            defaults={
+                "value": values[choice],
+                "name": latest.dba or "",
+                "cuisine": latest.cuisine or "",
+            },
+        )
+    next_url = request.POST.get("next", "")
+    if not url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}
+    ):
+        next_url = reverse("search:home")
+    return redirect(next_url)
 
 
 @require_POST

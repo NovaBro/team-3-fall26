@@ -179,3 +179,32 @@ class LocationLookup(models.Model):
 
     def __str__(self):
         return f"{self.kind}:{self.key} ({'found' if self.found else 'not found'})"
+
+
+class RecommendationFeedback(models.Model):
+    """A user's Like (+1) or Not interested (-1) on a Top picks restaurant.
+
+    Name and cuisine are copied from the inspection data when the button is
+    pressed, so scoring can use them without a cross-database join.
+    """
+
+    LIKE = 1
+    NOT_INTERESTED = -1
+    VALUE_CHOICES = [(LIKE, "Like"), (NOT_INTERESTED, "Not interested")]
+
+    user_id = models.PositiveIntegerField()
+    camis = models.CharField(max_length=32)
+    name = models.CharField(max_length=255, blank=True)
+    cuisine = models.CharField(max_length=255, blank=True)
+    value = models.SmallIntegerField(choices=VALUE_CHOICES)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user_id", "camis"], name="community_feedback_user_camis"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} {self.get_value_display()} {self.camis}"

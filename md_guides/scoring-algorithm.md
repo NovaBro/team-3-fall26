@@ -1,20 +1,31 @@
 # Top Picks scoring algorithm
 
 HealthyFoodsNYC ranks a small pool of recent grade-A restaurants and shows the
-top three on `/home/` (first page, no borough filter). Scoring is rule-based in
+top three on the home page (first page; with a borough selected, picks come
+from that borough). Scoring is rule-based in
 `search/recommend.py` (`score_restaurant`). MenuStat linking and meal filters
 live in `search/menustat.py`.
 
 ## Setup (candidate flow)
 
-1. Start from distinct grade-A inspection rows (up to 9 by latest inspection date).
-2. Exclude cuisines that are risky for the user’s free-text allergies (via
+1. Take the 9 best places by the DB-only health score used by Explore more
+   (latest grade A +2, healthy cuisine +1, fast food −2, ...; no Google calls),
+   restricted to places whose latest grade is A. Ties are shuffled with a daily
+   seed (see "Daily rotation" below). Places the user marked not interested are
+   skipped. (Before: the most recently inspected grade-A places, which says
+   nothing about how healthy a place is.)
+2. Top picks are places for a meal: coffee/tea, bakery/desserts, donuts, frozen
+   desserts, bagels/pretzels, bottled beverages and nuts/confectionary are left
+   out, plus coffee/dessert chains filed under another cuisine (e.g. some
+   Starbucks are "American"). Juice/smoothie bars stay. Explore more still lists
+   these places, scored −1 so they appear lower.
+3. Exclude cuisines that are risky for the user’s free-text allergies (via
    `diet_filters.risky_cuisines` after keyword → `nuts` / `shellfish` mapping).
-3. For logged-in users with a profile, add up to 3 favorite-food matches and up
+4. For logged-in users with a profile, add up to 3 favorite-food matches and up
    to 3 same-borough-as-home places (15 candidates max).
-4. Enrich with Google Places (rating, price, up to 5 reviews), DOHMH grade, and
+5. Enrich with Google Places (rating, price, up to 5 reviews), DOHMH grade, and
    in-app ratings; optionally resolve MenuStat calories by **fuzzy name match**.
-5. Score each candidate; show the top 3 with up to three reason tags.
+6. Score each candidate; show the top 3 (one per cuisine) with their reason tags.
 
 Price is **not** part of the numeric score (Budget-friendly is a tag only).
 BMI is never shown on the page; it only shifts weights.
@@ -72,7 +83,7 @@ Final numeric score:
 Home ZIP/borough and allergies are parsed heuristically from free-text profile
 fields (no structured ZIP field).
 
-## Reason tags (max 3, fixed order)
+## Reason tags (every tag that applies, fixed order)
 
 1. Your favorite  
 2. Nearby  
@@ -80,7 +91,17 @@ fields (no structured ZIP field).
 4. **Lower-calorie menu** (MenuStat linked and calorie component ≥ 0.6, i.e. median ≤ 440 kcal)  
 5. Budget-friendly (Google price `$`)  
 6. Top rated (50+ votes, blended ≥ 4.5)  
-7. Grade A  
+7. Grade A (Grade B / Grade C are shown too; the card has no other grade badge)  
+
+"Because you liked …" / "You liked this" goes before all of these.
+
+## Review shown on the card
+
+Only 4–5 star reviews are shown on a Top Picks card (the rating score still
+uses every review). Among those, the card shows the one the health check counts
+as healthy with the most healthy words (goal words included); ties keep Google's
+relevance order. With no healthy review it falls back to the first 4–5 star
+review; with no 4–5 star review the card shows no review.
 
 ## MenuStat matching
 
@@ -111,6 +132,32 @@ reviews, price) when present, in-app ratings, MenuStat calorie score when linked
 and the viewer’s profile for personalization. BMI is never displayed; health-focus
 mode is noted only as “personalized weights.”  
 `score_restaurant()` returns `(score, tags, breakdown)` for this UI.
+
+## Daily rotation, diversity, and feedback
+
+- **Daily rotation:** the candidates come from the top DB-score tier (about
+  2,600 grade-A places with a healthy cuisine), shuffled with a seed of today's
+  date (America/New_York) + user id + borough. Same day + same user = same picks;
+  the next day brings a new set. Google calls stay at about 9.
+- **Cuisine diversity:** the final 3 are taken by score, skipping a cuisine that
+  is already chosen; skipped places refill the list if fewer than 3 remain.
+- **Like / Not interested** (logged-in, buttons on each Top pick card; pressing
+  again undoes). Stored in `community.RecommendationFeedback` with the name and
+  cuisine copied at press time. Star ratings count too: 4–5 = like, 1–2 = not
+  interested; a button press wins over a star rating for the same place.
+  - Not interested: that place is never shown to that user again. Two or more
+    of one cuisine → −5 for that cuisine.
+  - Like: +3 per liked place with the same cuisine (max +9) and the tag
+    "Because you liked <name>" (shown first).
+  - Only 1 of the 3 picks may win thanks to a like bonus; other liked places
+    compete with their score minus the bonus.
+  - Weights are unchanged, so health still dominates: +9 is less than the gap
+    between a salad place and a fast-food chain.
+- Users with no feedback get the normal score plus rotation and diversity.
+- **Borough:** when a borough is selected, all candidates (daily sample,
+  favorite extras) come from that borough and the title reads "Today's Top
+  Picks in <Borough>". Home-borough extras apply only if the home borough is the
+  selected one. The seed includes the borough, so each borough has its own set.
 
 ## Choices (why this design)
 
@@ -145,3 +192,4 @@ mode is noted only as “personalized weights.”
 | `search/menustat.py` | Match, qualifying meals, median, top-5 |
 | `search/views.py` | `_top_picks`, `restaurant_detail` wiring |
 | `search/test_recommend.py` / `search/test_menustat.py` | Unit coverage |
+| `search/test_daily_feedback.py` | Rotation, diversity, Like / Not interested |

@@ -320,7 +320,7 @@ class RatingAndTagTests(TestCase):
         high_app = rating_score(4.0, 10, 5.0, 50)
         self.assertGreater(high_app, low_app)
 
-    def test_at_most_three_tags_in_priority_order(self):
+    def test_all_tags_shown_in_priority_order(self):
         reviews = [
             {"text": "fresh healthy salad grilled"},
             {"text": "organic light vegan"},
@@ -347,12 +347,22 @@ class RatingAndTagTests(TestCase):
             boro="Manhattan",
             profile=profile,
         )
-        self.assertLessEqual(len(tags), 3)
-        # Priority: favorite / nearby / healthy reviews beat budget / rated / grade.
+        # Every tag that applies is shown, in priority order (no cap of 3).
         self.assertEqual(
             tags,
-            [TAG_YOUR_FAVORITE, TAG_NEARBY, TAG_HEALTHY_REVIEWS],
+            [
+                TAG_YOUR_FAVORITE,
+                TAG_NEARBY,
+                TAG_HEALTHY_REVIEWS,
+                TAG_BUDGET,
+                TAG_TOP_RATED,
+                TAG_GRADE_A,
+            ],
         )
-        self.assertNotIn(TAG_BUDGET, tags)
-        self.assertNotIn(TAG_TOP_RATED, tags)
-        self.assertNotIn(TAG_GRADE_A, tags)
+
+    def test_grade_b_and_c_get_a_tag_too(self):
+        for grade in ("B", "C"):
+            _score, tags, _ = score_restaurant(name="X", grade=grade)
+            self.assertEqual(tags, [f"Grade {grade}"])
+        _score, tags, _ = score_restaurant(name="X", grade="Z")
+        self.assertEqual(tags, [])

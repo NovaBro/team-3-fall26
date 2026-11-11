@@ -5,7 +5,9 @@ score_restaurant() returns (score 0–100+, reason tags, breakdown). Pure logic 
 
 from __future__ import annotations
 
+import random
 import re
+from dataclasses import dataclass, field
 from typing import Iterable
 
 DEFAULT_WEIGHTS = (0.50, 0.25, 0.25)  # health, grade, rating
@@ -16,11 +18,22 @@ RATING_PRIOR = 4.0
 RATING_PSEUDO_COUNT = 20
 LOWER_CALORIE_TAG_THRESHOLD = 0.6  # calorie component ≥ this → tag
 
+# Like / Not interested feedback (see FeedbackPrefs and feedback_adjustment).
+LIKE_BONUS_PER_PLACE = 3.0
+LIKE_BONUS_CAP = 9.0
+NOT_INTERESTED_CUISINE_MIN = 2  # marks of one cuisine before it is penalized
+NOT_INTERESTED_CUISINE_PENALTY = -5.0
+LIKED_STARS = 4  # star ratings at or above this count as a like
+DISLIKED_STARS = 2  # star ratings at or below this count as not interested
+BECAUSE_YOU_LIKED = "Because you liked {name}"
+TAG_YOU_LIKED = "You liked this"
+
 HEALTHY_CUISINES = {
     "Salads",
     "Vegetarian",
     "Vegan",
-    "Juice/Smoothies",
+    "Juice, Smoothies, Fruit Salads",  # exact DOHMH label
+    "Soups/Salads/Sandwiches",
     "Fruits/Vegetables",
     "Soups",
     "Mediterranean",
@@ -118,6 +131,46 @@ FAST_FOOD_PREFIXES = (
     "culvers",
     "hardee's",
     "hardees",
+)
+
+# Top picks recommend places for a meal. These cuisines are drinks, desserts
+# or snacks, so they are left out of Top picks (Explore more still lists them,
+# lower down). Juice / smoothie bars stay: they fit a healthy-food app.
+NON_MEAL_CUISINES = {
+    "Coffee/Tea",
+    "Bakery Products/Desserts",
+    "Donuts",
+    "Frozen Desserts",
+    "Bagels/Pretzels",
+    "Bottled Beverages",
+    "Nuts/Confectionary",
+}
+
+# Coffee / dessert chains whose inspection rows are sometimes filed under
+# another cuisine (e.g. some Starbucks are "American" or blank).
+NON_MEAL_PREFIXES = (
+    "starbucks",
+    "tim hortons",
+    "blue bottle",
+    "gregorys coffee",
+    "gregory's coffee",
+    "bluestone lane",
+    "joe coffee",
+    "birch coffee",
+    "think coffee",
+    "la colombe",
+    "cafe grumpy",
+    "peet's coffee",
+    "peets coffee",
+    "coffee bean",
+    "krispy kreme",
+    "insomnia cookies",
+    "baskin robbins",
+    "baskin-robbins",
+    "carvel",
+    "16 handles",
+    "pinkberry",
+    "yogurtland",
 )
 
 BOROUGHS = (
@@ -296,6 +349,39 @@ def classify_reviews(reviews, extra_healthy: Iterable[str] = ()):
     return healthy, unhealthy, len(texts)
 
 
+DISPLAY_REVIEW_MIN_STARS = 4  # Top picks cards only show 4-5 star reviews
+
+
+def pick_display_review(reviews, profile=None):
+    """The review to show on a Top picks card.
+
+    Only 4-5 star reviews are shown (a 1-star quote under a recommendation is
+    confusing; the rating score still uses every review). Among those, prefer
+    the review the health check counts as healthy (more healthy words than
+    unhealthy ones) with the most healthy words; ties keep Google's relevance
+    order. With no healthy review, fall back to the first 4-5 star review.
+    Returns the original review dict, or None when nothing qualifies.
+    """
+    reviews = [
+        r
+        for r in reviews or []
+        if (_review_texts([r])[0] or "").strip()
+        and isinstance(r, dict)
+        and (r.get("rating") or 0) >= DISPLAY_REVIEW_MIN_STARS
+    ]
+    if not reviews:
+        return None
+    healthy_vocab = HEALTHY_WORDS | _goal_words(profile)
+    best, best_count = None, 0
+    for review in reviews:
+        tokens = set(_tokenize(_review_texts([review])[0]))
+        good = sum(1 for t in tokens if t in healthy_vocab)
+        bad = sum(1 for t in tokens if t in UNHEALTHY_WORDS)
+        if good > bad and good > best_count:
+            best, best_count = review, good
+    return best if best is not None else reviews[0]
+
+
 def health_score(cuisine, reviews, name, goal_words=()):
     """Health component in [0, 1]."""
     score = 0.5
@@ -380,11 +466,15 @@ def score_restaurant(
     boro="",
     profile=None,
     calorie_score=None,
+    feedback=None,
+    camis="",
 ):
     """Return (final_score, reason_tags, breakdown) for one restaurant.
 
     ``calorie_score`` is a 0–1 MenuStat median-meal component when linked; omit
-    (None) to keep the three-part weights.
+    (None) to keep the three-part weights. ``feedback`` is the viewer's
+    FeedbackPrefs (Like / Not interested history); None leaves the score as is.
+    ``camis`` keeps a place's own Like from boosting itself.
     """
     goal_words = _goal_words(profile)
     h = health_score(cuisine, reviews, name, goal_words)
@@ -427,6 +517,22 @@ def score_restaurant(
             is_nearby = True
             adjustments.append({"label": "Near home", "delta": 5.0})
 
+    like_bonus, liked_tag = 0.0, None
+    if feedback is not None:
+        like_bonus, cuisine_penalty, liked_tag = feedback_adjustment(
+            cuisine, feedback, camis
+        )
+        if like_bonus:
+            score += like_bonus
+            adjustments.append(
+                {"label": "Similar to places you liked", "delta": like_bonus}
+            )
+        if cuisine_penalty:
+            score += cuisine_penalty
+            adjustments.append(
+                {"label": "Cuisine you marked not interested", "delta": cuisine_penalty}
+            )
+
     healthy_n, _unhealthy_n, total = classify_reviews(reviews, goal_words)
     blended, vote_count = blended_rating(
         google_rating, google_count, app_avg, app_count
@@ -448,7 +554,12 @@ def score_restaurant(
     if (grade or "").strip().upper() == "A":
         candidates.append(TAG_GRADE_A)
 
-    tags = [tag for tag in TAG_ORDER if tag in candidates][:3]
+    tags = [tag for tag in TAG_ORDER if tag in candidates]
+    if liked_tag:
+        tags.insert(0, liked_tag)
+    # The card shows the grade only here (no photo badge), so B and C appear too.
+    if (grade or "").strip().upper() in ("B", "C"):
+        tags.append(f"Grade {(grade or '').strip().upper()}")
 
     def _part(key, label, value, weight):
         return {
@@ -476,5 +587,124 @@ def score_restaurant(
         "base_points": base_points,
         "total": score,
         "tags": tags,
+        "like_bonus": like_bonus,
     }
     return score, tags, breakdown
+
+
+# ---------------------------------------------------------------------------
+# Daily rotation, cuisine diversity, and Like / Not interested feedback.
+
+
+@dataclass
+class FeedbackPrefs:
+    """What one user told us: liked places by cuisine, hidden places, and how
+    many places of each cuisine they marked not interested."""
+
+    liked: dict = field(default_factory=dict)  # cuisine -> [(camis, name)]
+    hidden: set = field(default_factory=set)  # camis never to show again
+    not_interested: dict = field(default_factory=dict)  # cuisine -> count
+
+    def is_empty(self):
+        return not (self.liked or self.hidden or self.not_interested)
+
+
+def build_feedback_prefs(explicit=(), star_ratings=()):
+    """Combine button feedback and star ratings into FeedbackPrefs.
+
+    ``explicit``: (camis, name, cuisine, value) with value +1 like / -1 not
+    interested. ``star_ratings``: (camis, name, cuisine, stars 1-5); 4-5 counts
+    as a like and 1-2 as not interested. A button press wins over a star rating
+    for the same restaurant.
+    """
+    by_camis = {}
+    for camis, name, cuisine, stars in star_ratings:
+        if stars >= LIKED_STARS:
+            by_camis[camis] = (name, cuisine, 1)
+        elif stars <= DISLIKED_STARS:
+            by_camis[camis] = (name, cuisine, -1)
+    for camis, name, cuisine, value in explicit:
+        by_camis[camis] = (name, cuisine, 1 if value > 0 else -1)
+
+    prefs = FeedbackPrefs()
+    for camis, (name, cuisine, value) in by_camis.items():
+        cuisine = (cuisine or "").strip()
+        if value > 0:
+            if cuisine:
+                prefs.liked.setdefault(cuisine, []).append((camis, name or ""))
+        else:
+            prefs.hidden.add(camis)
+            if cuisine:
+                prefs.not_interested[cuisine] = prefs.not_interested.get(cuisine, 0) + 1
+    return prefs
+
+
+def feedback_adjustment(cuisine, prefs, camis=""):
+    """(like bonus, cuisine penalty, reason tag or None) for one place.
+
+    The bonus counts *other* liked places with the same cuisine; a place the
+    user liked itself gets the "You liked this" tag instead of a bonus.
+    """
+    cuisine = (cuisine or "").strip()
+    if not cuisine or prefs is None:
+        return 0.0, 0.0, None
+    liked = prefs.liked.get(cuisine, [])
+    others = [name for liked_camis, name in liked if liked_camis != camis]
+    bonus = min(LIKE_BONUS_CAP, LIKE_BONUS_PER_PLACE * len(others))
+    penalty = 0.0
+    if prefs.not_interested.get(cuisine, 0) >= NOT_INTERESTED_CUISINE_MIN:
+        penalty = NOT_INTERESTED_CUISINE_PENALTY
+    tag = None
+    if camis and len(others) < len(liked):
+        tag = TAG_YOU_LIKED
+    elif bonus and others[0]:
+        tag = BECAUSE_YOU_LIKED.format(name=others[0].title())
+    return bonus, penalty, tag
+
+
+def daily_seed(day, user_id=None):
+    """Seed string: same day + same user -> same picks; next day -> new picks."""
+    return f"{day.isoformat()}:{user_id or 0}"
+
+
+def daily_sample(rows, size, seed):
+    """Deterministic sample of *size* rows for this seed (order kept)."""
+    rows = list(rows)
+    if len(rows) <= size:
+        return rows
+    chosen = set(random.Random(seed).sample(range(len(rows)), size))
+    return [row for index, row in enumerate(rows) if index in chosen]
+
+
+def pick_top(items, count=3):
+    """Pick the final *count* items from scored dicts.
+
+    Each item needs ``score``, ``cuisine`` and ``like_bonus``. Rules:
+    1. Highest score first, but skip a cuisine that is already chosen; refill
+       from the skipped items if fewer than *count* remain.
+    2. At most one pick may use its like bonus. Other liked items compete with
+       their score minus the bonus.
+    """
+    pool = sorted(items, key=lambda item: -item["score"])
+    chosen, skipped, cuisines = [], [], set()
+    bonus_used = False
+    while pool and len(chosen) < count:
+        item = pool.pop(0)
+        if item.get("like_bonus") and bonus_used:
+            item = dict(item, score=item["score"] - item["like_bonus"], like_bonus=0)
+            pool.append(item)
+            pool.sort(key=lambda other: -other["score"])
+            continue
+        cuisine = (item.get("cuisine") or "").strip()
+        if cuisine and cuisine in cuisines:
+            skipped.append(item)
+            continue
+        chosen.append(item)
+        if cuisine:
+            cuisines.add(cuisine)
+        bonus_used = bonus_used or bool(item.get("like_bonus"))
+    for item in skipped:
+        if len(chosen) >= count:
+            break
+        chosen.append(item)
+    return chosen
