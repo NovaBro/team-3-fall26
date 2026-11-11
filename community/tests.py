@@ -120,10 +120,12 @@ class CommunityPanelTests(TestCase):
             {"text": "  Crowded but worth it.  "},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json()["comments"][0]["text"], "Crowded but worth it."
-        )
-        self.assertEqual(response.json()["comments"][0]["author"], "foodie")
+        comment = response.json()["comments"][0]
+        self.assertEqual(comment["text"], "Crowded but worth it.")
+        self.assertEqual(comment["author"], "foodie")
+        self.assertEqual(comment["replies"], [])
+        self.assertEqual(comment["photos"], [])
+        self.assertEqual(response.json()["created_comment_id"], comment["id"])
         self.assertEqual(UserComment.objects.count(), 1)
 
         empty = self.client.post(
@@ -132,6 +134,60 @@ class CommunityPanelTests(TestCase):
         )
         self.assertEqual(empty.status_code, 400)
         self.assertEqual(UserComment.objects.count(), 1)
+
+    def test_reply_and_comment_photo(self):
+        self.client.force_login(self.user)
+        comment_url = reverse(
+            "community:comment", kwargs={"kind": self.kind, "key": self.key}
+        )
+        photo_url = reverse(
+            "community:photo", kwargs={"kind": self.kind, "key": self.key}
+        )
+        parent = self.client.post(comment_url, {"text": "Try the slices."})
+        parent_id = parent.json()["created_comment_id"]
+
+        reply = self.client.post(
+            comment_url, {"text": "Agreed!", "parent_id": parent_id}
+        )
+        self.assertEqual(reply.status_code, 200)
+        self.assertEqual(len(reply.json()["comments"]), 1)
+        self.assertEqual(reply.json()["comments"][0]["replies"][0]["text"], "Agreed!")
+        self.assertEqual(UserComment.objects.count(), 2)
+
+        nested = self.client.post(
+            comment_url,
+            {
+                "text": "too deep",
+                "parent_id": reply.json()["created_comment_id"],
+            },
+        )
+        self.assertEqual(nested.status_code, 400)
+        self.assertEqual(UserComment.objects.count(), 2)
+
+        with tempfile.TemporaryDirectory() as media_root, override_settings(
+            MEDIA_ROOT=media_root
+        ):
+            saved = self.client.post(
+                photo_url, {"photo": _png(), "comment_id": parent_id}
+            )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()["photos"], [])
+        self.assertEqual(len(saved.json()["comments"][0]["photos"]), 1)
+        self.assertEqual(UserPhoto.objects.get().comment_id, parent_id)
+
+    def test_comment_under_google_review(self):
+        self.client.force_login(self.user)
+        review = PlaceReview.objects.get(author_name="Sam")
+        response = self.client.post(
+            reverse("community:comment", kwargs={"kind": self.kind, "key": self.key}),
+            {"text": "Same here!", "google_review_id": review.id},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["comments"], [])
+        google_comments = payload["google"]["reviews"][0]["comments"]
+        self.assertEqual(google_comments[0]["text"], "Same here!")
+        self.assertEqual(UserComment.objects.get().google_review_id, review.id)
 
     def test_photo_upload_and_rejection(self):
         self.client.force_login(self.user)
@@ -154,6 +210,7 @@ class CommunityPanelTests(TestCase):
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(len(saved.json()["photos"]), 1)
         self.assertTrue(saved.json()["photos"][0]["url"])
+        self.assertIsNone(UserPhoto.objects.get().comment_id)
         self.assertEqual(UserPhoto.objects.count(), 1)
 
     def test_unknown_kind_is_not_found(self):
