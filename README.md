@@ -32,6 +32,11 @@ Then open http://127.0.0.1:8000/.
 - `/restaurant/<camis>/` — full inspection/violation history for one restaurant; when MenuStat name-matches, a top-5 lower-calorie meal table.
 - The old `/restaurants/`, `/combined-map/`, `/farmers-markets/`, and `/explore/`
   tabs were merged into `/` (issue #109) and now redirect there.
+- `/admin-dashboard/` — superuser-only platform overview, searchable accounts,
+  account activity counts, and community comments. Account details omit private
+  health-profile fields.
+- `/admin/` — Django admin for staff, including the read-only user list. Grant
+  `auth.view_user` only to staff who need to search and view accounts.
 
 ### Missing locations
 

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Account details - HealthyFoodsNYC{% endblock %}
+
+{% block content %}
+<p><a href="{% url 'accounts:admin_dashboard' %}?tab=users">← Back to accounts</a></p>
+<h1>{{ managed_user.get_full_name|default:managed_user.username }}</h1>
+<p class="muted">Administrator-only account overview.</p>
+
+<nav class="admin-tabs" aria-label="Administration">
+  <a href="{% url 'accounts:admin_dashboard' %}">Overview</a>
+  <a href="{% url 'accounts:admin_dashboard' %}?tab=users" aria-current="page">Accounts</a>
+  <a href="{% url 'accounts:admin_dashboard' %}?tab=comments">Comments</a>
+</nav>
+
+<section class="form-section">
+  <h2>Account</h2>
+  <dl>
+    <dt>Username</dt><dd>{{ managed_user.username }}</dd>
+    <dt>Name</dt><dd>{% if profile and profile.name %}{{ profile.name }}{% else %}{{ managed_user.get_full_name|default:"Not provided" }}{% endif %}</dd>
+    <dt>Email</dt><dd>{{ managed_user.email|default:"Not provided" }}</dd>
+    <dt>Status</dt><dd>{% if managed_user.is_active %}Active{% else %}Inactive{% endif %}</dd>
+    <dt>Joined</dt><dd>{{ managed_user.date_joined|date:"N j, Y, P" }}</dd>
+    <dt>Last login</dt><dd>{{ managed_user.last_login|date:"N j, Y, P"|default:"Never" }}</dd>
+  </dl>
+</section>
+
+<section class="form-section">
+  <h2>Community activity</h2>
+  <p>Comments: {{ counts.comments }} · Ratings: {{ counts.ratings }} · Photos: {{ counts.photos }}</p>
+  <h3>Comments made</h3>
+  {% if comment_page.object_list %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Place</th><th>Comment</th><th>Posted</th></tr></thead>
+        <tbody>
+          {% for comment in comment_page %}
+            <tr>
+              <td>{{ comment.subject.name|default:comment.subject.key }}</td>
+              <td>{{ comment.text|linebreaksbr }}</td>
+              <td>{{ comment.created_at|date:"N j, Y, P" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">This account has not made any community comments.</p>
+  {% endif %}
+  {% if comment_page.has_other_pages %}
+    <nav class="pagination" aria-label="Comment pages">
+      {% if comment_page.has_previous %}<a href="?page={{ comment_page.previous_page_number }}">Previous</a>{% endif %}
+      <span>Page {{ comment_page.number }} of {{ comment_page.paginator.num_pages }}</span>
+      {% if comment_page.has_next %}<a href="?page={{ comment_page.next_page_number }}">Next</a>{% endif %}
+    </nav>
+  {% endif %}
+</section>
+{% endblock %}

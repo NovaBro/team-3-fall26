@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Administration - HealthyFoodsNYC{% endblock %}
+
+{% block content %}
+<h1>Platform administration</h1>
+<p class="muted">Review registered accounts and community activity.</p>
+
+<nav class="admin-tabs" aria-label="Administration">
+  <a href="{% url 'accounts:admin_dashboard' %}"{% if active_tab == "overview" %} aria-current="page"{% endif %}>Overview</a>
+  <a href="{% url 'accounts:admin_dashboard' %}?tab=users"{% if active_tab == "users" %} aria-current="page"{% endif %}>Accounts</a>
+  <a href="{% url 'accounts:admin_dashboard' %}?tab=comments"{% if active_tab == "comments" %} aria-current="page"{% endif %}>Comments</a>
+</nav>
+
+{% if active_tab == "overview" %}
+  <section class="admin-stats" aria-label="Platform totals">
+    <article class="form-section"><h2>Registered accounts</h2><p class="admin-stat">{{ user_count }}</p></article>
+    <article class="form-section"><h2>Active accounts</h2><p class="admin-stat">{{ active_user_count }}</p></article>
+    <article class="form-section"><h2>Community comments</h2><p class="admin-stat">{{ comment_count }}</p></article>
+    <article class="form-section"><h2>Community ratings</h2><p class="admin-stat">{{ rating_count }}</p></article>
+  </section>
+  <p class="muted">Account health details and private profile fields are not included in this administration view.</p>
+{% elif active_tab == "users" %}
+  <h2>Registered accounts</h2>
+  <form class="filters" method="get" action="{% url 'accounts:admin_dashboard' %}">
+    <input type="hidden" name="tab" value="users">
+    <label for="account-search">Search name, username, or email</label>
+    <input id="account-search" type="text" name="q" value="{{ query }}" placeholder="Search accounts">
+    <button type="submit">Search</button>
+  </form>
+
+  {% if user_page %}
+    {% if user_page.object_list %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Account</th><th>Name</th><th>Email</th><th>Status</th><th>Joined</th><th>Comments</th><th>Ratings</th></tr></thead>
+          <tbody>
+            {% for row in user_rows %}
+              {% with account=row.account %}
+              <tr>
+                <td><a href="{% url 'accounts:admin_user_detail' account.pk %}">{{ account.username }}</a></td>
+                <td>{{ row.name }}</td>
+                <td>{{ account.email|default:"Not provided" }}</td>
+                <td>{% if account.is_active %}Active{% else %}Inactive{% endif %}</td>
+                <td>{{ account.date_joined|date:"N j, Y" }}</td>
+                <td>{{ row.activity.comments }}</td>
+                <td>{{ row.activity.ratings }}</td>
+              </tr>
+              {% endwith %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="empty">No accounts matched that search.</p>
+    {% endif %}
+    {% if user_page.has_other_pages %}
+      <nav class="pagination" aria-label="Account pages">
+        {% if user_page.has_previous %}<a href="?tab=users&q={{ query|urlencode }}&page={{ user_page.previous_page_number }}">Previous</a>{% endif %}
+        <span>Page {{ user_page.number }} of {{ user_page.paginator.num_pages }}</span>
+        {% if user_page.has_next %}<a href="?tab=users&q={{ query|urlencode }}&page={{ user_page.next_page_number }}">Next</a>{% endif %}
+      </nav>
+    {% endif %}
+  {% endif %}
+{% else %}
+  <h2>Community comments</h2>
+  <form class="filters" method="get" action="{% url 'accounts:admin_dashboard' %}">
+    <input type="hidden" name="tab" value="comments">
+    <label for="comment-search">Search comment, place, or account</label>
+    <input id="comment-search" type="text" name="q" value="{{ query }}" placeholder="Search comments">
+    <button type="submit">Search</button>
+  </form>
+  {% if admin_comments %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Author</th><th>Place</th><th>Comment</th><th>Posted</th></tr></thead>
+        <tbody>
+          {% for item in admin_comments %}
+            <tr>
+              <td>{{ item.author }}</td>
+              <td>{{ item.comment.subject.name|default:item.comment.subject.key }}</td>
+              <td>{{ item.comment.text|linebreaksbr }}</td>
+              <td>{{ item.comment.created_at|date:"N j, Y, P" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">No comments matched that search.</p>
+  {% endif %}
+  {% if comment_page.has_other_pages %}
+    <nav class="pagination" aria-label="Comment pages">
+      {% if comment_page.has_previous %}<a href="?tab=comments&q={{ query|urlencode }}&page={{ comment_page.previous_page_number }}">Previous</a>{% endif %}
+      <span>Page {{ comment_page.number }} of {{ comment_page.paginator.num_pages }}</span>
+      {% if comment_page.has_next %}<a href="?tab=comments&q={{ query|urlencode }}&page={{ comment_page.next_page_number }}">Next</a>{% endif %}
+    </nav>
+  {% endif %}
+{% endif %}
+{% endblock %}
