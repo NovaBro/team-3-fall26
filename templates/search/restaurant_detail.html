@@ -7,6 +7,45 @@
 <h1>{{ dba }}</h1>
 <p class="muted">{% if cuisine %}{{ cuisine }} &middot; {% endif %}{{ street }}, {{ boro }} {{ zipcode }} &middot; <span class="mono">CAMIS {{ camis }}</span></p>
 
+{% if score_breakdown %}
+<section class="healthiness-score" aria-labelledby="healthiness-score-title">
+  <div class="healthiness-score__headline">
+    <h2 id="healthiness-score-title" class="healthiness-score__title">Healthiness score</h2>
+    <p class="healthiness-score__value mono">{{ healthiness_score|floatformat:1 }}</p>
+    <p class="muted healthiness-score__sub">Top Picks formula{% if score_breakdown.mode == "health_focus" %} · personalized weights{% endif %}</p>
+  </div>
+  {% if reason_tags %}
+  <p class="healthiness-score__tags">
+    {% for tag in reason_tags %}
+      <span class="healthiness-score__tag">{{ tag }}</span>
+    {% endfor %}
+  </p>
+  {% endif %}
+  <h3 class="healthiness-score__how">How this score is calculated</h3>
+  <ul class="healthiness-score__parts">
+    {% for part in score_breakdown.parts %}
+      <li>
+        <span class="healthiness-score__part-label">{{ part.label }}</span>
+        <span class="mono muted">{{ part.value_0_1|floatformat:2 }} × {{ part.weight_pct|floatformat:1 }}% = {{ part.points|floatformat:1 }} pts</span>
+      </li>
+    {% endfor %}
+    {% for adj in score_breakdown.adjustments %}
+      <li>
+        <span class="healthiness-score__part-label">{{ adj.label }}</span>
+        <span class="mono muted">{% if adj.delta > 0 %}+{% endif %}{{ adj.delta|floatformat:0 }} pts</span>
+      </li>
+    {% endfor %}
+    <li class="healthiness-score__total">
+      <span class="healthiness-score__part-label">Total</span>
+      <span class="mono">{{ score_breakdown.total|floatformat:1 }}</span>
+    </li>
+  </ul>
+  {% if not score_breakdown.has_calories %}
+  <p class="muted healthiness-score__note">No MenuStat menu match — calorie weight omitted.</p>
+  {% endif %}
+</section>
+{% endif %}
+
 <h2>Google data</h2>
 {% if place %}
   <div class="place-panel">
@@ -55,6 +94,34 @@
     {% if place %}Refresh Google data{% else %}Get Google data{% endif %}
   </button>
 </form>
+
+{% if menu_picks %}
+<h2>Lower-calorie menu items (MenuStat)</h2>
+<p class="muted">
+  Top {{ menu_picks|length }} qualifying meals matched to
+  <strong>{{ menustat_name }}</strong> by restaurant name (not CAMIS).
+  Menus are historical (often 2017–2018) and may not match today's offerings.
+  Only entrees/sandwiches/salads/burgers/pizza/soup with at least 15&nbsp;g protein;
+  kids' meals excluded.
+</p>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Item</th><th>Category</th><th>Calories</th><th>Protein (g)</th></tr>
+  </thead>
+  <tbody>
+    {% for item in menu_picks %}
+      <tr>
+        <td>{{ item.item_name }}</td>
+        <td>{{ item.food_category }}</td>
+        <td class="mono">{{ item.calories|floatformat:0 }}</td>
+        <td class="mono">{{ item.protein|floatformat:0 }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
 
 <h2>Inspection history</h2>
 <div class="table-wrap">

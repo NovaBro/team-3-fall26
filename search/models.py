@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -151,3 +152,29 @@ class ParkEatery(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class Place(models.Model):
+    RESTAURANT = "restaurant"
+    FARMERS_MARKET = "farmers_market"
+    GROCERY_STORE = "grocery_store"
+    KIND_CHOICES = [
+        (RESTAURANT, "Restaurant"),
+        (FARMERS_MARKET, "Farmers market"),
+        (GROCERY_STORE, "Grocery store"),
+    ]
+
+    kind = models.CharField(max_length=32, choices=KIND_CHOICES)
+    name = models.CharField(max_length=255)
+    external_id = models.CharField(max_length=255)
+
+    def __str__(self):
+        return self.name
+
+
+class Review(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    place = models.ForeignKey(Place, on_delete=models.CASCADE)
+    rating = models.PositiveSmallIntegerField()
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)

@@ -149,6 +149,14 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Send unhandled request errors to stdout so they reach web.stdout.log on EB.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "loggers": {"django.request": {"handlers": ["console"], "level": "ERROR"}},
+}
+
 # Google Places API (New)
 # Set the GOOGLE_PLACES_API_KEY environment variable to enable enrichment.
 GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")

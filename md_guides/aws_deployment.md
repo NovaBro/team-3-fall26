@@ -8,13 +8,12 @@ For the day-to-day flow of pulling from GitHub and deploying, see `deploy_workfl
 
 | Setting | Value |
 |---------|-------|
-| AWS account / region | `322134621417` / `us-east-1` |
+| Region | `us-east-1` |
 | EB application | `nycfood` |
 | EB environment | `nycfood-env` (CNAME prefix `nycfood-team3`) |
 | Platform | Python 3.11 on 64-bit Amazon Linux 2023 |
 | Instance | `t3.small`, single instance (no load balancer), Elastic IP |
 | Instance role | `aws-elasticbeanstalk-ec2-role` |
-| CLI user | `software-engineer-eb` |
 
 ## How a deploy works
 
@@ -22,11 +21,11 @@ For the day-to-day flow of pulling from GitHub and deploying, see `deploy_workfl
 GitHub Actions (or eb deploy from a laptop)
    │  zips the source, filtered by .ebignore
    ▼
-S3 bucket elasticbeanstalk-us-east-1-322134621417     (EB always stages bundles here)
+EB application-versions S3 bucket     (EB always stages bundles here)
    │
    ▼
 EC2 instance
-   1. prebuild: download nyc_food.db and community.db from nycfood-databases-322134621417
+   1. prebuild: download nyc_food.db and community.db from the private database bucket
    2. fetch secrets from SSM Parameter Store  ──►  environment variables
    3. pip install -r requirements.txt
    4. container_commands: migrate, collectstatic
@@ -46,7 +45,7 @@ nginx :80
 |---------|-------------------|
 | Elastic Beanstalk | Orchestrates everything below; one environment = one running copy of the site |
 | EC2 | The virtual machine running nginx + gunicorn + Django |
-| S3 | Stores each uploaded app version (zip) in the EB bucket, and the two SQLite files in `nycfood-databases-322134621417` |
+| S3 | Stores each uploaded app version (zip) in the EB bucket, and the two SQLite files in a private database bucket |
 | SSM Parameter Store | Encrypted storage for API keys and `DJANGO_SECRET_KEY` |
 | IAM | Permissions for the CLI user (deploying) and the instance role (reading SSM) |
 | CloudFormation | Created by EB behind the scenes; do not edit the `awseb-*` stacks directly |
@@ -58,11 +57,11 @@ nginx :80
 | `Procfile` | `web: gunicorn nycfood.wsgi:application --bind :8000` |
 | `requirements.txt` | Installed on the instance at every deploy; includes `gunicorn` |
 | `.ebextensions/django.config` | Settings module, WSGI path, nginx `/static` mapping, `migrate` + `collectstatic` on deploy |
-| `.ebextensions/secrets.config` | Maps env var names to SSM parameter ARNs |
+| `.ebextensions/secrets.config` | Maps env var names to SSM parameters |
 | `.ebignore` | What is **left out** of the bundle (venv, `.env`, `database/*.db`, datasets, notebooks, `deploy/`, ...) |
 | `.platform/hooks/prebuild/00_download_databases.sh` | Downloads both SQLite files from S3 before migrate |
 | `.platform/confighooks/predeploy/00_download_databases.sh` | Same download on configuration deploys |
-| `.github/workflows/ci.yml` | Tests on pull requests; tests then `eb deploy nycfood-env` on a push to `develop` in the org repo |
+| `.github/workflows/ci.yml` | Tests on pull requests; tests then `eb deploy Nycfood-env` on a push to `develop` or a same-repo PR into `develop` in the org repo |
 | `.elasticbeanstalk/config.yml` | EB CLI settings from `eb init` |
 | `deploy/push_ssm_params.sh` | Uploads keys from `.env` to SSM (not deployed) |
 | `deploy/ssm-read-policy.json` | IAM policy letting the instance read `/nycfood/*` (not deployed) |
@@ -88,7 +87,7 @@ Production behavior is driven entirely by environment variables; with none set, 
 
 ## Secrets (SSM Parameter Store)
 
-EB reads the ARNs in `.ebextensions/secrets.config` when an instance boots and sets each value as an ordinary environment variable, so Django code just uses `os.environ.get(...)`.
+EB reads the mappings in `.ebextensions/secrets.config` when an instance boots and sets each value as an ordinary environment variable, so Django code just uses `os.environ.get(...)`.
 
 - All four parameters are `SecureString` (encrypted with the default `alias/aws/ssm` key) under `/nycfood/`.
 - **Every parameter listed in `secrets.config` must exist**, or instance bootstrap fails.
@@ -113,36 +112,23 @@ Also set a billing budget alert in Google Cloud.
 
 ## IAM permissions
 
-### CLI user `software-engineer-eb` (deploying)
+### CLI user (deploying)
 
 - AWS managed policy `AdministratorAccess-AWSElasticBeanstalk`.
-- Inline policy `eb-multipart-upload`. The managed policy lacks multipart permissions, and the EB CLI switches to multipart upload for bundles over 7 MB:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    { "Effect": "Allow", "Action": "s3:ListBucketMultipartUploads",
-      "Resource": "arn:aws:s3:::elasticbeanstalk-us-east-1-322134621417" },
-    { "Effect": "Allow", "Action": ["s3:ListMultipartUploadParts", "s3:AbortMultipartUpload"],
-      "Resource": "arn:aws:s3:::elasticbeanstalk-us-east-1-322134621417/*" }
-  ]
-}
-```
-
-This user has **no** SSM or IAM-write permissions; create parameters and attach role policies as root/admin (or in the console).
+- An inline policy for S3 multipart upload on the EB application-versions bucket. The managed policy lacks multipart permissions, and the EB CLI switches to multipart upload for bundles over 7 MB. Ask a teammate with admin access for the exact policy if you need laptop deploys.
+- This user should have **no** SSM or IAM-write permissions; create parameters and attach role policies as root/admin (or in the console).
 
 ### Instance role `aws-elasticbeanstalk-ec2-role` (running)
 
-Inline policy `nycfood-ssm-read` = `deploy/ssm-read-policy.json` (`ssm:GetParameter(s)` on `/nycfood/*`). Inline policy from `deploy/s3-db-read-policy.json` allows `s3:GetObject` on `nycfood-databases-322134621417/nyc_food.db` and `community.db`. This role is shared by every EB environment in the account (including the old `django-tutorial` app's `django-env`).
+Attach the policies in `deploy/ssm-read-policy.json` (`ssm:GetParameter(s)` on `/nycfood/*`) and `deploy/s3-db-read-policy.json` (`s3:GetObject` on the two database objects). This role is shared by every EB environment in the account.
 
-GitHub Actions deploys with a separate role, `github-nycfood-deploy`. Its trust policy allows only `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/develop` through the GitHub OIDC provider. That role can upload an application version and update `nycfood-env`. It does not need access to the database bucket; the instance role downloads the databases.
+GitHub Actions deploys with a separate role, `github-nycfood-deploy`. Its trust policy is limited via GitHub OIDC to pushes on the org repo's `develop` and `main` branches (`sub` values `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/develop` and `repo:gcivil-nyu-org/team-3-fall26:ref:refs/heads/main`) plus same-repo pull requests (`repo:gcivil-nyu-org/team-3-fall26:pull_request`). That role can upload an application version and update `Nycfood-env` (integration) and `Nycfood-env-main` (production). It does not need access to the database bucket; the instance role downloads the databases.
 
 ## First-time setup (already done)
 
 1. Create the four SSM parameters (above).
-2. Attach `nycfood-ssm-read` and `deploy/s3-db-read-policy.json` to `aws-elasticbeanstalk-ec2-role`.
-3. Create the private bucket `nycfood-databases-322134621417` and upload `nyc_food.db` and `community.db`.
+2. Attach `deploy/ssm-read-policy.json` and `deploy/s3-db-read-policy.json` to `aws-elasticbeanstalk-ec2-role`.
+3. Create the private database bucket and upload `nyc_food.db` and `community.db`.
 4. Add the Google key restrictions.
 5. From the repo root:
 
@@ -181,9 +167,9 @@ The four remaining `check --deploy` warnings (HSTS, SSL redirect, secure cookies
 
 | Symptom | Likely cause |
 |---------|--------------|
-| `NotAuthorizedError ... s3:ListBucketMultipartUploads` on deploy | CLI user missing the `eb-multipart-upload` inline policy |
+| `NotAuthorizedError ... s3:ListBucketMultipartUploads` on deploy | CLI user missing the multipart-upload inline policy on the EB versions bucket |
 | Instance fails to start right after creation / deploy | An SSM parameter in `secrets.config` is missing, misspelled, or the instance role cannot read it |
-| Deploy fails in `00_download_databases.sh` | Bucket or object missing, or `aws-elasticbeanstalk-ec2-role` is missing `deploy/s3-db-read-policy.json` |
+| Deploy fails in `00_download_databases.sh` | Database bucket or object missing, or `aws-elasticbeanstalk-ec2-role` is missing `deploy/s3-db-read-policy.json` |
 | `Bad Request (400)` | Host not in `DJANGO_ALLOWED_HOSTS` |
 | Pages load without CSS | `collectstatic` failed or `/static` mapping missing; check `eb-engine.log` |
 | Map says to set `GOOGLE_MAPS_JS_KEY` | Parameter missing / empty, or instance not restarted after changing it |
@@ -198,6 +184,6 @@ Roughly $15/month for a `t3.small` running 24/7, plus the Elastic IP while the e
 
 ## Known limitations
 
-- **Live writes are replaced on every deploy.** The instance downloads `nyc_food.db` and `community.db` from S3, so accounts and other rows created only on the live site are lost on the next deploy, and also if EB replaces the instance. Upload new files to `nycfood-databases-322134621417` to change the canonical databases. `media/` is still replaced because it is not in S3.
+- **Live writes are replaced on every deploy.** The instance downloads `nyc_food.db` and `community.db` from S3, so accounts and other rows created only on the live site are lost on the next deploy, and also if EB replaces the instance. Upload new files to the private database bucket to change the canonical databases. `media/` is still replaced because it is not in S3.
 - Single instance only; SQLite cannot be shared across instances.
 - HTTP only. HTTPS needs a load balancer + ACM certificate (or a certificate on the instance), then the secure-cookie settings above.

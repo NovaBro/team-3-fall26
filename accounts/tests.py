@@ -228,6 +228,9 @@ class LoginTests(TestCase):
 
 
 class ProfileTests(TestCase):
+    # Logging out redirects to Find food, which reads stored map locations.
+    databases = {"default", "community"}
+
     def setUp(self):
         self.user = User.objects.create_user(username="foodie", password=VALID_PASSWORD)
         self.client.force_login(self.user)

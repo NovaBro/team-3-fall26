@@ -1,171 +1,180 @@
-import re
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlencode
 
 from django.contrib import messages
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator
-from django.db.models import Max, Q, Subquery, OuterRef
-from django.http import Http404, JsonResponse
+from django.db.models import Avg, Count, Max, Q
+from django.http import Http404, QueryDict
 from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_POST
 
-from restaurants.diet_filters import (
-    ALLERGIES,
-    ALLERGY_CHOICES,
-    DIETS,
-    HOMEPAGE_DIET_CHOICES,
-    risky_cuisines,
-)
-from restaurants.forms import (
-    AREA_CHOICES,
-    DIET_CHOICES,
-    PRICE_CHOICES,
-    RestaurantFilterForm,
-)
-from community.keys import dohmh_key, farmers_market_key, google_key, grocery_key
-from community.models import PlaceEnrichment, PlaceReview
+from community.keys import DOHMH, dohmh_key
+from community.models import CommunitySubject, PlaceEnrichment, PlaceReview
+from restaurants.diet_filters import ALLERGY_CHOICES, risky_cuisines
 from restaurants.inspections import _latest, _match, _restaurants_in_zip, google_zip
-from restaurants.places import PlacesError, find_restaurant_place, get_restaurants
-from search.models import FarmersMarket, HealthyStore, RestaurantInspection
-from search.registry import DATASETS
+from restaurants.places import PlacesError, find_restaurant_place
+from search import find_food
+from search.forms import (
+    FARMERS_MARKET,
+    GOOGLE,
+    GROCERY,
+    INSPECTIONS,
+    RESTAURANT,
+    STORE_TYPE_CHOICES,
+    FindFoodForm,
+)
+from search.locations import resolve
+from search.models import RestaurantInspection
+from search.menustat import calorie_score_for_name, top_low_calorie_meals
+from search.recommend import (
+    allergy_keys_from_text,
+    home_zip_boro,
+    score_restaurant,
+    split_foods,
+    whole_word_match,
+)
 from search.services.places import PlacesAPIError, enrich_camis
 
 PAGE_SIZE = 25
-NYC_LATITUDE_RANGE = (40.3, 41.1)
-NYC_LONGITUDE_RANGE = (-74.3, -73.6)
-FARMERS_MARKET_LOCATION_OVERRIDES = {
-    "Saratoga Farm Stand": {
-        "street_address": "1965 Fulton St, Brooklyn, NY 11233",
-        "zip_code": "11233",
-        "latitude": 40.6785,
-        "longitude": -73.916194,
-    },
-}
-
-BOROUGHS = ["Bronx", "Brooklyn", "Manhattan", "Queens", "Staten Island"]
-GRADES = ["A", "B", "C", "N", "P", "Z"]
-MARKET_DAYS = [
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-    "Sunday",
-]
-MARKET_DAY_PATTERN = re.compile(
-    r"\b(Mondays?|Mon|Tuesdays?|Tues?|Wednesdays?|Weds?|"
-    r"Thursdays?|Thurs?|Thurs?|Fridays?|Fris?|Saturdays?|Sats?|Sundays?|Suns?)\b",
-    re.IGNORECASE,
-)
-
-
-def _market_operates_on_day(days_of_operation, selected_day):
-    matches = list(MARKET_DAY_PATTERN.finditer(days_of_operation or ""))
-    found_days = set()
-    for index, match in enumerate(matches):
-        day_index = next(
-            (
-                number
-                for number, day in enumerate(MARKET_DAYS)
-                if day.casefold().startswith(match.group().casefold()[:3])
-            ),
-            None,
-        )
-        if day_index is None:
-            continue
-        found_days.add(day_index)
-        if index + 1 < len(matches):
-            between = days_of_operation[
-                match.end() : matches[index + 1].start()  # noqa: E203
-            ]
-            if re.fullmatch(r"\s*[-–]\s*", between):
-                next_day = next(
-                    (
-                        number
-                        for number, day in enumerate(MARKET_DAYS)
-                        if day.casefold().startswith(
-                            matches[index + 1].group().casefold()[:3]
-                        )
-                    ),
-                    None,
-                )
-                if next_day is not None:
-                    current = day_index
-                    while current != next_day:
-                        current = (current + 1) % len(MARKET_DAYS)
-                        found_days.add(current)
-    return selected_day in MARKET_DAYS and MARKET_DAYS.index(selected_day) in found_days
-
-
-def _filter_restaurants(qs, name, boro, zipcode, grade, diet="", avoid=()):
-    if name:
-        qs = qs.filter(dba__icontains=name)
-    if boro:
-        qs = qs.filter(boro=boro)
-    if zipcode:
-        qs = qs.filter(zipcode__startswith=zipcode)
-    if grade:
-        qs = qs.filter(grade=grade)
-    if diet:
-        qs = qs.filter(cuisine__in=DIETS[diet]["cuisines"])
-    if avoid:
-        qs = qs.exclude(cuisine__in=risky_cuisines(avoid))
-    return qs
+POOL_SIZE = 9
+MAX_CANDIDATES = 15
+FAVORITE_EXTRA = 3
+NEARBY_EXTRA = 3
 
 
 def index(request):
-    name = request.GET.get("q", "").strip()
-    boro = request.GET.get("boro", "").strip()
-    zipcode = request.GET.get("zip", "").strip()
-    grade = request.GET.get("grade", "").strip()
-    diet = request.GET.get("diet", "").strip()
-    if diet not in dict(HOMEPAGE_DIET_CHOICES):
-        diet = ""
-    avoid = [a for a in request.GET.getlist("avoid") if a in ALLERGIES]
+    """Find food: farmers markets, grocery stores and restaurants on one map."""
+    data = request.GET.copy()
+    if not data.getlist("types"):
+        data.setlist("types", [value for value, _label in STORE_TYPE_CHOICES])
+    if not data.get("source"):
+        data["source"] = INSPECTIONS
+    form = FindFoodForm(data)
+    context = {
+        "form": form,
+        "page_obj": None,
+        "items": [],
+        "map_points": [],
+        "result_points": [],
+        "counts": {},
+        "login_url": reverse("accounts:login"),
+        "error": "",
+        "notes": [],
+        "location": None,
+        "store_types": STORE_TYPE_CHOICES,
+    }
+    if form.is_valid():
+        context.update(_find_food(form))
+    return render(request, "search/index.html", context)
 
-    page_obj = None
-    if name or boro or zipcode or grade or diet or avoid:
-        base = _filter_restaurants(
-            RestaurantInspection.objects.all(), name, boro, zipcode, grade, diet, avoid
-        )
-        latest = RestaurantInspection.objects.filter(camis=OuterRef("camis")).order_by(
-            "-inspection_date"
-        )
-        restaurants = (
-            base.values("camis")
-            .annotate(
-                name=Max("dba"),
-                boro=Max("boro"),
-                street=Max("street"),
-                zipcode=Max("zipcode"),
-                cuisine=Max("cuisine"),
-                last_date=Max("inspection_date"),
-                grade=Subquery(latest.values("grade")[:1]),
-            )
-            .order_by("name")
-        )
-        page_obj = Paginator(restaurants, PAGE_SIZE).get_page(request.GET.get("page"))
 
-    return render(
-        request,
-        "search/index.html",
-        {
-            "name": name,
-            "boro": boro,
-            "zip": zipcode,
-            "grade": grade,
-            "diet": diet,
-            "avoid": avoid,
-            "page_obj": page_obj,
-            "boro_options": BOROUGHS,
-            "grade_options": GRADES,
-            "diet_options": HOMEPAGE_DIET_CHOICES,
-            "allergy_options": ALLERGY_CHOICES,
-            "searched": bool(page_obj),
-        },
+def _find_food(form):
+    data = form.cleaned_data
+    lat, lng, radius_m = data["lat"], data["lng"], form.radius_m
+    types = data["types"]
+    google = data["source"] == GOOGLE
+    notes, error = [], ""
+
+    markets = find_food.farmers_market_items(data) if FARMERS_MARKET in types else []
+    stores = find_food.grocery_items(data) if GROCERY in types else []
+    # Stored coordinates only here; Google is asked for the visible page below.
+    resolve(markets + stores, fetch=False)
+    markets = find_food.near(markets, lat, lng, radius_m)
+    stores = find_food.near(stores, lat, lng, radius_m)
+
+    restaurants, rows = [], None
+    if RESTAURANT in types:
+        if google:
+            try:
+                restaurants = find_food.google_restaurant_items(data, radius_m)
+            except PlacesError as exc:
+                error = str(exc)
+        else:
+            rows = find_food.restaurant_rows(data)
+            if radius_m:
+                notes.append(
+                    "Distance only narrows farmers markets and grocery stores. "
+                    "Choose Google Places to find restaurants near you."
+                )
+    if form.google_only_filters_ignored:
+        notes.append(
+            "Price, rating and open-now filters only apply to Google Places results."
+        )
+
+    if rows is not None:
+        chain = find_food.Chain(
+            (rows, find_food.restaurant_item),
+            (markets, _same),
+            (stores, _same),
+        )
+    else:
+        chain = find_food.Chain((restaurants, _same), (markets, _same), (stores, _same))
+    page_obj = Paginator(chain, PAGE_SIZE).get_page(form.data.get("page"))
+    items = list(page_obj.object_list)
+    find_food.fill_latest_grades(items)
+    resolve(items, fetch=True)
+    find_food.set_distances(items, lat, lng)
+
+    on_map = {}
+    restaurants_on_map = (
+        find_food.located_restaurant_items(rows) if rows is not None else restaurants
     )
+    for item in [*items, *restaurants_on_map, *markets, *stores]:
+        if item["lat"] is not None:
+            on_map.setdefault(item["key"], find_food.map_point(item))
+
+    restaurant_count = chain.lengths()[0]
+    return {
+        "page_obj": page_obj,
+        "items": items,
+        "map_points": list(on_map.values()),
+        "result_points": [find_food.map_point(item) for item in items],
+        "counts": {
+            RESTAURANT: restaurant_count if RESTAURANT in types else None,
+            FARMERS_MARKET: len(markets) if FARMERS_MARKET in types else None,
+            GROCERY: len(stores) if GROCERY in types else None,
+        },
+        "total": page_obj.paginator.count,
+        "error": error,
+        "notes": notes,
+        "location": {"lat": lat, "lng": lng} if lat is not None else None,
+        "avoiding_allergens": bool(data["avoid"]) and RESTAURANT in types,
+        "allergy_options": ALLERGY_CHOICES,
+    }
+
+
+def _same(item):
+    return item
+
+
+def _redirect_to_index(request, **defaults):
+    """Old tabs now live on the Find food page; keep their links working."""
+    query = request.GET.copy() if request.GET else QueryDict(mutable=True)
+    for name, value in defaults.items():
+        if name not in query:
+            query.setlist(name, value if isinstance(value, list) else [value])
+    url = reverse("search:index")
+    return redirect(f"{url}?{query.urlencode()}" if query else url, permanent=False)
+
+
+def find_restaurants_redirect(request):
+    # A submitted Find restaurants search was a live Google search.
+    defaults = {"types": [RESTAURANT], "source": GOOGLE} if request.GET else {}
+    return _redirect_to_index(request, **defaults)
+
+
+def farmers_markets_redirect(request):
+    return _redirect_to_index(request, types=[FARMERS_MARKET])
+
+
+def combined_map_redirect(request):
+    return _redirect_to_index(request)
+
+
+def explore_redirect(request, slug=""):
+    return _redirect_to_index(request)
 
 
 def _photo_url_for(google_place):
@@ -175,14 +184,8 @@ def _photo_url_for(google_place):
     return ""
 
 
-def _top_picks(count=3):
-    """Return *count* grade-A restaurants enriched with Google Places data and
-    DOHMH inspection details.  Each entry is a dict with keys: name, cuisine,
-    street, boro, zipcode, google (Places dict or None), and inspection (dict
-    with camis/grade/date or None)."""
-
-    # 1. Pick distinct grade-A restaurants ordered by most-recent inspection.
-    candidates = (
+def _grade_a_queryset(exclude_cuisines=None):
+    qs = (
         RestaurantInspection.objects.filter(grade="A")
         .exclude(dba="")
         .values("camis")
@@ -194,12 +197,117 @@ def _top_picks(count=3):
             cuisine=Max("cuisine"),
             last_date=Max("inspection_date"),
         )
-        .order_by("-last_date")[:count]
     )
-    picks = list(candidates)
+    if exclude_cuisines:
+        qs = qs.exclude(cuisine__in=exclude_cuisines)
+    return qs
 
-    # 2. Enrich each pick with Google Places data (concurrent).
-    with ThreadPoolExecutor(max_workers=count) as executor:
+
+def _profile_for(request):
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return None
+    try:
+        return user.profile
+    except ObjectDoesNotExist:
+        return None
+
+
+def _whole_word_q(food):
+    """Case-insensitive whole-word match on cuisine or name (dba)."""
+    food = (food or "").strip()
+    if not food:
+        return Q()
+    # SQLite/Postgres: use icontains then filter precisely in Python if needed;
+    # for candidate expansion, icontains is enough and then we re-check.
+    return Q(cuisine__icontains=food) | Q(name__icontains=food)
+
+
+def _build_candidate_pool(profile):
+    """Up to 9 recent grade-A, plus favorites/nearby extras (max 15)."""
+    avoid = allergy_keys_from_text(getattr(profile, "allergies", "") if profile else "")
+    excluded = risky_cuisines(avoid) if avoid else set()
+
+    base = list(_grade_a_queryset(excluded).order_by("-last_date")[:POOL_SIZE])
+    by_camis = {row["camis"]: row for row in base}
+
+    if profile is not None and len(by_camis) < MAX_CANDIDATES:
+        favorites = split_foods(getattr(profile, "favorite_foods", ""))
+        added = 0
+        for food in favorites:
+            if added >= FAVORITE_EXTRA or len(by_camis) >= MAX_CANDIDATES:
+                break
+            for row in (
+                _grade_a_queryset(excluded)
+                .filter(_whole_word_q(food))
+                .order_by("-last_date")[: FAVORITE_EXTRA * 3]
+            ):
+                if row["camis"] in by_camis:
+                    continue
+                if not whole_word_match(food, row.get("cuisine"), row.get("name")):
+                    continue
+                by_camis[row["camis"]] = row
+                added += 1
+                if added >= FAVORITE_EXTRA or len(by_camis) >= MAX_CANDIDATES:
+                    break
+
+        _home_zip, home_boro = home_zip_boro(getattr(profile, "home_address", ""))
+        if home_boro and len(by_camis) < MAX_CANDIDATES:
+            nearby_added = 0
+            for row in (
+                _grade_a_queryset(excluded)
+                .filter(boro__iexact=home_boro)
+                .order_by("-last_date")[: NEARBY_EXTRA * 3]
+            ):
+                if row["camis"] in by_camis:
+                    continue
+                by_camis[row["camis"]] = row
+                nearby_added += 1
+                if nearby_added >= NEARBY_EXTRA or len(by_camis) >= MAX_CANDIDATES:
+                    break
+
+    return list(by_camis.values())[:MAX_CANDIDATES]
+
+
+def _app_rating_stats(camis):
+    subject = CommunitySubject.objects.filter(kind=DOHMH, key=dohmh_key(camis)).first()
+    if subject is None:
+        return None, 0
+    stats = subject.ratings.aggregate(average=Avg("score"), count=Count("id"))
+    return stats["average"], stats["count"] or 0
+
+
+def _reviews_for_pick(google, camis_id):
+    reviews = list((google or {}).get("reviews") or [])[:5]
+    if reviews:
+        return reviews
+    if not camis_id:
+        return []
+    db_reviews = (
+        PlaceReview.objects.filter(place__camis=camis_id)
+        .exclude(text="")
+        .order_by("-id")[:5]
+    )
+    return [
+        {
+            "text": r.text,
+            "author_name": r.author_name,
+            "rating": r.rating,
+            "relative_time": r.relative_time,
+        }
+        for r in db_reviews
+    ]
+
+
+def _top_picks(request, count=3):
+    """Score a pool of grade-A restaurants and return the top *count* picks."""
+    profile = _profile_for(request)
+    picks = _build_candidate_pool(profile)
+    if not picks:
+        return []
+
+    workers = min(8, max(1, len(picks)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         lookups = [
             executor.submit(
                 find_restaurant_place,
@@ -213,7 +321,6 @@ def _top_picks(count=3):
             pick["google"] = lookup.result()
             pick["photo_url"] = _photo_url_for(pick["google"])
 
-    # 3. Match each pick to its DOHMH inspection via _match() / _latest().
     for pick in picks:
         google = pick["google"]
         if google and google.get("address"):
@@ -228,32 +335,42 @@ def _top_picks(count=3):
             else:
                 pick["inspection"] = _latest(pick["camis"])
         else:
-            # Fallback: use the camis we already know from the DB row.
             pick["inspection"] = _latest(pick["camis"])
         pick["image"] = "search/images/nyc-restaurant.jpg"
 
-        # Choose one comment from Google API
-        # (fallback to saved PlaceReview if available).
+        camis_id = (pick.get("inspection") or {}).get("camis") or pick.get("camis")
+        reviews = _reviews_for_pick(google, camis_id)
         chosen_review = (google or {}).get("review")
-        if not chosen_review:
-            camis_id = (pick.get("inspection") or {}).get("camis") or pick.get("camis")
-            if camis_id:
-                db_review = (
-                    PlaceReview.objects.filter(place__camis=camis_id)
-                    .exclude(text="")
-                    .order_by("-id")
-                    .first()
-                )
-                if db_review:
-                    chosen_review = {
-                        "text": db_review.text,
-                        "author_name": db_review.author_name,
-                        "rating": db_review.rating,
-                        "relative_time": db_review.relative_time,
-                    }
+        if not chosen_review and reviews:
+            chosen_review = reviews[0]
         pick["review"] = chosen_review
 
-    return picks
+        app_avg, app_count = _app_rating_stats(camis_id) if camis_id else (None, 0)
+        inspection = pick.get("inspection") or {}
+        grade = inspection.get("grade") or "A"
+        pick_name = pick.get("name") or ""
+        calorie = calorie_score_for_name(pick_name)
+        score, tags, _breakdown = score_restaurant(
+            name=pick_name,
+            cuisine=pick.get("cuisine") or "",
+            grade=grade,
+            google_rating=(google or {}).get("rating"),
+            google_count=(google or {}).get("rating_count") or 0,
+            app_avg=app_avg,
+            app_count=app_count,
+            reviews=reviews,
+            price=(google or {}).get("price"),
+            zipcode=pick.get("zipcode") or "",
+            boro=pick.get("boro") or "",
+            profile=profile,
+            calorie_score=calorie,
+        )
+        pick["score"] = score
+        pick["reason_tags"] = tags
+        pick["calorie_score"] = calorie
+
+    picks.sort(key=lambda p: p.get("score", 0), reverse=True)
+    return picks[:count]
 
 
 def home(request):
@@ -307,7 +424,7 @@ def home(request):
     # don't slow down paginated browsing.
     top_picks = []
     if not selected_boro and page_obj.number == 1:
-        top_picks = _top_picks(count=3)
+        top_picks = _top_picks(request, count=3)
 
     return render(
         request,
@@ -332,6 +449,38 @@ def restaurant_detail(request, camis):
     place = (
         PlaceEnrichment.objects.filter(camis=camis).prefetch_related("reviews").first()
     )
+    menu_picks, menustat_name = top_low_calorie_meals(latest.dba, limit=5)
+
+    reviews = []
+    google_rating = None
+    google_count = 0
+    price = ""
+    if place is not None:
+        google_rating = place.rating
+        google_count = place.user_rating_count or 0
+        price = place.price_level_display or ""
+        reviews = [
+            {"text": r.text} for r in place.reviews.all() if (r.text or "").strip()
+        ][:5]
+    app_avg, app_count = _app_rating_stats(camis)
+    calorie = calorie_score_for_name(latest.dba)
+    grade = (latest.grade or "").strip() or "A"
+    healthiness_score, reason_tags, score_breakdown = score_restaurant(
+        name=latest.dba or "",
+        cuisine=latest.cuisine or "",
+        grade=grade,
+        google_rating=google_rating,
+        google_count=google_count,
+        app_avg=app_avg,
+        app_count=app_count,
+        reviews=reviews,
+        price=price,
+        zipcode=latest.zipcode or "",
+        boro=latest.boro or "",
+        profile=_profile_for(request),
+        calorie_score=calorie,
+    )
+
     return render(
         request,
         "search/restaurant_detail.html",
@@ -344,6 +493,11 @@ def restaurant_detail(request, camis):
             "cuisine": latest.cuisine,
             "inspections": inspections,
             "place": place,
+            "menu_picks": menu_picks,
+            "menustat_name": menustat_name,
+            "healthiness_score": healthiness_score,
+            "reason_tags": reason_tags,
+            "score_breakdown": score_breakdown,
         },
     )
 
@@ -357,291 +511,3 @@ def refresh_place(request, camis):
     else:
         messages.success(request, "Google data updated.")
     return redirect("search:restaurant_detail", camis=camis)
-
-
-def explore_index(request):
-    return render(request, "search/explore_index.html", {"datasets": DATASETS})
-
-
-def farmers_markets_map(request):
-    latest_year = FarmersMarket.objects.aggregate(latest_year=Max("year"))[
-        "latest_year"
-    ]
-    markets = []
-    name = request.GET.get("q", "").strip()
-    zipcode = request.GET.get("zip", "").strip()
-    day = request.GET.get("day", "").strip()
-    if latest_year is not None:
-        latest_markets = FarmersMarket.objects.filter(year=latest_year).order_by(
-            "market_name", "borough", "street_address"
-        )
-        for market in latest_markets.values(
-            "market_name",
-            "borough",
-            "street_address",
-            "latitude",
-            "longitude",
-            "days_of_operation",
-            "hours_of_operations",
-            "season_dates",
-        ):
-            override = FARMERS_MARKET_LOCATION_OVERRIDES.get(market["market_name"])
-            if override:
-                market.update(override)
-            else:
-                market["zip_code"] = ""
-
-            latitude = market["latitude"]
-            longitude = market["longitude"]
-            if (
-                latitude is not None
-                and longitude is not None
-                and NYC_LATITUDE_RANGE[0] <= latitude <= NYC_LATITUDE_RANGE[1]
-                and NYC_LONGITUDE_RANGE[0] <= longitude <= NYC_LONGITUDE_RANGE[1]
-                and (not name or name.casefold() in market["market_name"].casefold())
-                and (
-                    not zipcode
-                    or market["zip_code"].startswith(zipcode)
-                    or zipcode in market["street_address"]
-                )
-                and (
-                    not day or _market_operates_on_day(market["days_of_operation"], day)
-                )
-            ):
-                markets.append(market)
-    return render(
-        request,
-        "search/farmers_markets_map.html",
-        {
-            "markets": markets,
-            "market_year": latest_year,
-            "name": name,
-            "zip": zipcode,
-            "day": day,
-            "day_options": MARKET_DAYS,
-        },
-    )
-
-
-def explore(request, slug):
-    config = DATASETS.get(slug)
-    if config is None:
-        raise Http404("Unknown dataset")
-
-    query = request.GET.get("q", "").strip()
-    qs = config["model"].objects.order_by("pk")
-    if query:
-        condition = Q()
-        for field in config["search_fields"]:
-            condition |= Q(**{field: query})
-        qs = qs.filter(condition)
-
-    page_obj = Paginator(qs, PAGE_SIZE).get_page(request.GET.get("page"))
-    rows = [
-        [
-            "—" if getattr(obj, field) in (None, "") else getattr(obj, field)
-            for field, _label in config["columns"]
-        ]
-        for obj in page_obj
-    ]
-
-    return render(
-        request,
-        "search/explore.html",
-        {
-            "config": config,
-            "slug": slug,
-            "query": query,
-            "page_obj": page_obj,
-            "columns": config["columns"],
-            "rows": rows,
-        },
-    )
-
-
-def _in_nyc(lat, lng):
-    return (
-        lat is not None
-        and lng is not None
-        and NYC_LATITUDE_RANGE[0] <= lat <= NYC_LATITUDE_RANGE[1]
-        and NYC_LONGITUDE_RANGE[0] <= lng <= NYC_LONGITUDE_RANGE[1]
-    )
-
-
-def _matches_text(value, query):
-    return not query or query.casefold() in (value or "").casefold()
-
-
-def _matches_zip(value, zipcode):
-    return not zipcode or (value or "").startswith(zipcode)
-
-
-def _combined_static_points(name="", boro="", zipcode=""):
-    points = []
-
-    latest_year = FarmersMarket.objects.aggregate(latest_year=Max("year"))[
-        "latest_year"
-    ]
-    if latest_year is not None:
-        for market in FarmersMarket.objects.filter(year=latest_year).order_by(
-            "market_name"
-        ):
-            data = {
-                "market_name": market.market_name,
-                "borough": market.borough,
-                "street_address": market.street_address,
-                "latitude": market.latitude,
-                "longitude": market.longitude,
-                "zip_code": "",
-            }
-            override = FARMERS_MARKET_LOCATION_OVERRIDES.get(market.market_name)
-            if override:
-                data.update(override)
-            if not _in_nyc(data["latitude"], data["longitude"]):
-                continue
-            if boro and data["borough"] != boro:
-                continue
-            if not _matches_text(data["market_name"], name):
-                continue
-            if zipcode and not (
-                _matches_zip(data["zip_code"], zipcode)
-                or zipcode in (data["street_address"] or "")
-            ):
-                continue
-            points.append(
-                {
-                    "name": data["market_name"],
-                    "lat": data["latitude"],
-                    "lng": data["longitude"],
-                    "category": "farmers_market",
-                    "kind": "farmers_market",
-                    "key": farmers_market_key(
-                        market.year, market.market_name, market.street_address
-                    ),
-                    "address": data["street_address"] or "",
-                    "url": None,
-                }
-            )
-
-    stores = HealthyStore.objects.exclude(latitude__isnull=True).exclude(
-        longitude__isnull=True
-    )
-    if boro:
-        stores = stores.filter(borough=boro)
-    if name:
-        stores = stores.filter(store_name__icontains=name)
-    if zipcode:
-        stores = stores.filter(zip_code__startswith=zipcode)
-    for store in stores.order_by("store_name"):
-        if not _in_nyc(store.latitude, store.longitude):
-            continue
-        points.append(
-            {
-                "name": store.store_name,
-                "lat": store.latitude,
-                "lng": store.longitude,
-                "category": "grocery",
-                "kind": "grocery",
-                "key": grocery_key(
-                    store.store_name, store.street_address, store.zip_code
-                ),
-                "address": store.street_address or "",
-                "url": None,
-            }
-        )
-
-    enrichments = PlaceEnrichment.objects.exclude(latitude__isnull=True).exclude(
-        longitude__isnull=True
-    )
-    if name:
-        enrichments = enrichments.filter(
-            Q(display_name__icontains=name) | Q(camis__icontains=name)
-        )
-    if zipcode:
-        enrichments = enrichments.filter(formatted_address__icontains=zipcode)
-    for place in enrichments.order_by("display_name"):
-        if not _in_nyc(place.latitude, place.longitude):
-            continue
-        if boro:
-            inspection = (
-                RestaurantInspection.objects.filter(camis=place.camis)
-                .order_by("-inspection_date")
-                .first()
-            )
-            if inspection is None or inspection.boro != boro:
-                continue
-        points.append(
-            {
-                "name": place.display_name or place.camis,
-                "lat": place.latitude,
-                "lng": place.longitude,
-                "category": "restaurant_dohmh",
-                "kind": "restaurant_dohmh",
-                "key": dohmh_key(place.camis),
-                "address": place.formatted_address or "",
-                "url": reverse("search:restaurant_detail", args=[place.camis]),
-            }
-        )
-
-    return points
-
-
-def combined_map(request):
-    name = request.GET.get("q", "").strip()
-    boro = request.GET.get("boro", "").strip()
-    zipcode = request.GET.get("zip", "").strip()
-    static_points = _combined_static_points(name=name, boro=boro, zipcode=zipcode)
-    return render(
-        request,
-        "search/combined_map.html",
-        {
-            "name": name,
-            "boro": boro,
-            "zip": zipcode,
-            "boro_options": BOROUGHS,
-            "static_points": static_points,
-            "google_url": reverse("search:combined_map_google"),
-            "login_url": reverse("accounts:login"),
-            "area_choices": AREA_CHOICES,
-            "price_choices": PRICE_CHOICES,
-            "diet_choices": DIET_CHOICES,
-        },
-    )
-
-
-@require_GET
-def combined_map_google(request):
-    form = RestaurantFilterForm(request.GET)
-    if not form.is_valid():
-        return JsonResponse(
-            {"error": "Invalid filters.", "points": []},
-            status=400,
-        )
-    data = form.cleaned_data
-    try:
-        restaurants = get_restaurants(
-            area=data["area"],
-            prices=data["price"],
-            diet=data["diet"],
-            lat=data["lat"],
-            lng=data["lng"],
-            radius_m=form.radius_m,
-        )
-    except PlacesError as exc:
-        return JsonResponse({"error": str(exc), "points": []}, status=502)
-
-    points = [
-        {
-            "name": restaurant["name"],
-            "lat": restaurant["lat"],
-            "lng": restaurant["lng"],
-            "category": "restaurant_google",
-            "kind": "restaurant_google",
-            "key": google_key(restaurant.get("id") or ""),
-            "address": restaurant.get("address") or "",
-            "url": restaurant.get("maps_url") or None,
-        }
-        for restaurant in restaurants
-        if restaurant.get("lat") is not None and restaurant.get("lng") is not None
-    ]
-    return JsonResponse({"error": "", "points": points})

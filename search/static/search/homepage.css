@@ -304,6 +304,22 @@
   font-weight: 600;
 }
 
+.top-pick-card__reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.top-pick-card__reason {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--raised));
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
 .top-pick-card h3 { margin: 0; font-size: 1.22rem; font-weight: 700; letter-spacing: -0.02em; }
 .top-pick-card h3 a { color: var(--ink); text-decoration: none; }
 .top-pick-card h3 a:hover { color: var(--accent); }
