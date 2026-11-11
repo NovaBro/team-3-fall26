@@ -488,3 +488,85 @@
 @media (max-width: 440px) {
   .restaurant-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+.top-pick-card__feedback {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.top-pick-card__feedback-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--raised);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.top-pick-card__feedback-btn:hover {
+  border-color: var(--ink);
+}
+.top-pick-card__feedback-btn.is-active {
+  background: var(--ink);
+  color: var(--raised);
+}
+
+/* Card layout: every section (cuisine, name, address, reason tags, rating,
+   review, buttons) starts at the same height in all three cards. The cards
+   share the grid's rows through subgrid; older browsers fall back to a flex
+   column that at least keeps the buttons at the bottom. */
+.top-pick-card {
+  display: flex;
+  flex-direction: column;
+}
+.top-pick-card__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.top-pick-card__slot--bottom {
+  margin-top: auto;
+}
+@supports (grid-template-rows: subgrid) {
+  .top-pick-card {
+    display: grid;
+    grid-row: span 8;
+    grid-template-rows: subgrid;
+    row-gap: 0;
+  }
+  .top-pick-card__body {
+    display: grid;
+    grid-row: span 7;
+    grid-template-rows: subgrid;
+    row-gap: 0;
+  }
+  .top-pick-card__slot--bottom {
+    margin-top: 0;
+    align-self: end;
+  }
+}
+.top-pick-card__tags {
+  min-width: 0;
+}
+.top-pick-card__category {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.top-pick-card__boro-tag {
+  flex-shrink: 0;
+}
+.top-pick-card__reasons {
+  margin: 0 0 12px;
+}
+.top-pick-card__feedback {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.top-pick-card__feedback-btn {
+  white-space: nowrap;
+}

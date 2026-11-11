@@ -906,7 +906,10 @@ class HomePersonalizationTests(TestCase):
         with patch("search.views.personalized_picks", return_value=[]):
             page = self.client.get(reverse("search:home"))
         self.assertContains(page, "Today's Top Picks")
-        self.assertEqual(page.context["top_picks"][0]["camis"], "2")
+        # Fallback = the normal daily picks (ranked by score, not inspection date).
+        camis = {pick["camis"] for pick in page.context["top_picks"]}
+        self.assertEqual(camis, {"1", "2"})
+        self.assertFalse(page.context["personalized_picks"])
 
     def test_visitors_get_default_picks(self):
         page = self.client.get(reverse("search:home"))

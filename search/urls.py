@@ -9,6 +9,11 @@ urlpatterns = [
     path("search/", views.index, name="index"),
     path("restaurant/<str:camis>/", views.restaurant_detail, name="restaurant_detail"),
     path(
+        "restaurant/<str:camis>/feedback/",
+        views.pick_feedback,
+        name="pick_feedback",
+    ),
+    path(
         "restaurant/<str:camis>/refresh-google/",
         views.refresh_place,
         name="refresh_place",

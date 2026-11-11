@@ -45,6 +45,7 @@ def _author_labels(user_ids):
     )
     return {user.pk: user.get_full_name() or user.username for user in users}
 
+
 def _google_payload(
     kind,
     key,
@@ -53,7 +54,7 @@ def _google_payload(
     photos_by_comment=None,
     replies_by_parent=None,
 ):
-    if kind != DOHMH or not key.startswith("camis:"):
+    if kind not in GOOGLE_ENRICHMENT_KINDS or not key:
         return None
     place = (
         PlaceEnrichment.objects.filter(kind=kind, key=key)
@@ -77,9 +78,7 @@ def _google_payload(
                 "text": review.text,
                 "relative_time": review.relative_time,
                 "comments": [
-                    _comment_dict(
-                        comment, labels, photos_by_comment, replies_by_parent
-                    )
+                    _comment_dict(comment, labels, photos_by_comment, replies_by_parent)
                     for comment in comments_by_review.get(review.id, [])
                 ],
             }
