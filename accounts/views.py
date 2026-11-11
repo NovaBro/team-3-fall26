@@ -185,7 +185,8 @@ def admin_dashboard(request):
                 | Q(email__icontains=query)
                 | Q(first_name__icontains=query)
                 | Q(last_name__icontains=query)
-            )
+                | Q(profile__name__icontains=query)
+            ).distinct()
         page = Paginator(users, ADMIN_PAGE_SIZE).get_page(request.GET.get("page"))
         user_ids = [user.pk for user in page.object_list]
         profiles = {
