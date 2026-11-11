@@ -26,6 +26,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from assistant.recommend import personalized_picks
 from community.keys import DOHMH, dohmh_key
 from community.models import (
     CommunitySubject,
@@ -371,13 +372,42 @@ def _reviews_for_pick(google, camis_id):
     ]
 
 
+def _claude_picks(request, count):
+    """Rows for Claude's personalized picks (#129), in Claude's order, each with
+    an ``ai_reason``. Empty when Claude isn't configured or the call failed."""
+    user = getattr(request, "user", None)
+    ai_picks = personalized_picks(user, count) if user is not None else []
+    if not ai_picks:
+        return []
+    reasons = {pick["camis"]: pick["reason"] for pick in ai_picks}
+    rows = {
+        row["camis"]: row
+        for row in _scored_restaurants(1).filter(camis__in=list(reasons))
+    }
+    picks = [rows[camis] for camis in reasons if camis in rows]
+    for pick in picks:
+        pick["ai_reason"] = reasons[pick["camis"]]
+    return picks
+
+
 def _top_picks(request, count=3, boro=""):
-    """Score a pool of grade-A restaurants and return the top *count* picks."""
+    """Return the top *count* picks.
+
+    Logged-in users with a profile get Claude's ranking when it's available and
+    no borough is selected (places they marked "Not interested" are dropped).
+    Otherwise the daily healthy candidate pool is scored and the best picks
+    with different cuisines are kept. Either way each pick gets the score and
+    reason tags."""
     profile = _profile_for(request)
     prefs = _feedback_prefs(request)
     user_id = request.user.pk if request.user.is_authenticated else None
-    seed = f"{daily_seed(_today(), user_id)}:{boro.casefold()}"
-    picks = _build_candidate_pool(profile, prefs, seed, boro)
+    hidden = prefs.hidden if prefs is not None else set()
+    picks = [] if boro else _claude_picks(request, count)
+    picks = [pick for pick in picks if pick["camis"] not in hidden]
+    ranked_by_claude = bool(picks)
+    if not ranked_by_claude:
+        seed = f"{daily_seed(_today(), user_id)}:{boro.casefold()}"
+        picks = _build_candidate_pool(profile, prefs, seed, boro)
     if not picks:
         return []
     feedback_values = {}
@@ -453,6 +483,8 @@ def _top_picks(request, count=3, boro=""):
         pick["like_bonus"] = breakdown["like_bonus"]
         pick["feedback"] = feedback_values.get(pick["camis"], 0)
 
+    if ranked_by_claude:
+        return picks[:count]  # keep Claude's order
     return pick_top(picks, count)
 
 
@@ -586,6 +618,7 @@ def home(request):
             "borough_options": borough_options,
             "selected_boro": selected_boro,
             "top_picks": top_picks,
+            "personalized_picks": any(pick.get("ai_reason") for pick in top_picks),
         },
     )
 

@@ -16,8 +16,8 @@
   <section class="top-picks" aria-labelledby="top-picks-title">
     <div class="top-picks__header">
       <div class="top-picks__titles">
-      <h2 id="top-picks-title"><span class="top-picks__icon" aria-hidden="true">🏆</span> Today's Top Picks{% if selected_boro %} in {{ selected_boro|title }}{% endif %}</h2>
-      <p class="top-picks__subtitle muted">Your next unforgettable food experience starts here!</p></div>
+      <h2 id="top-picks-title"><span class="top-picks__icon" aria-hidden="true">🏆</span> {% if personalized_picks %}Picked for you{% else %}Today's Top Picks{% if selected_boro %} in {{ selected_boro|title }}{% endif %}{% endif %}</h2>
+      <p class="top-picks__subtitle muted">{% if personalized_picks %}Ranked by AI using your profile. Always confirm allergies with the restaurant.{% else %}Your next unforgettable food experience starts here!{% endif %}</p></div>
       <div class="top-picks__loc"><form class="restaurant-borough-filter" method="get">
       <label for="restaurant-boro">Select your location</label>
       <select id="restaurant-boro" name="boro" onchange="this.form.submit()">
@@ -69,6 +69,7 @@
               {% endfor %}
             </div>
             {% endif %}
+            {% if pick.ai_reason %}<p class="top-pick-card__ai-reason">{{ pick.ai_reason }}</p>{% endif %}
             </div>
 
             <!-- Google Star Rating in Card Details -->

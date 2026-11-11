@@ -191,3 +191,7 @@ Before the first Actions deploy, upload both files and attach `deploy/s3-db-read
 If the deploy fails, run `eb logs Nycfood-env` and read `eb-engine.log` and `web.stdout.log`.
 
 More detail: [md_guides/deploy_workflow.md](md_guides/deploy_workflow.md) (checklist and team rules) and [md_guides/aws_deployment.md](md_guides/aws_deployment.md) (IAM, SSM, and troubleshooting).
+
+## AI assistant
+
+The "Ask AI" chat and personalized Top Picks need `ANTHROPIC_API_KEY` in `.env` and stay off without it. See [md_guides/assistant.md](md_guides/assistant.md).

@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("community", "0003_placeenrichment_kind_key"),
+        ("community", "0005_merge_20261111_1619"),
     ]
 
     operations = [

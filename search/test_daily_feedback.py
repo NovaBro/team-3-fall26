@@ -570,3 +570,43 @@ class HealthyCandidateTests(TestCase):
             home_address="Fordham, Bronx",
         )
         self.assertEqual(self.pool(profile), ["TAQUERIA"])
+
+
+class ClaudePicksTests(TestCase):
+    databases = {"default", "community"}
+
+    def setUp(self):
+        inspection("50", "LUIGI", "Italian", "A")
+        inspection("51", "SOFIA", "Italian", "A")
+        inspection("52", "GREEN LEAF", "Salads", "A")
+        self.user = User.objects.create_user("ai", "ai@example.com", "pw-12345!")
+        self.client.force_login(self.user)
+        self.ai = [
+            {"camis": "50", "reason": "Your favorite cuisine."},
+            {"camis": "51", "reason": "Also Italian."},
+        ]
+
+    def get(self, **params):
+        with patch("search.views.find_restaurant_place", return_value=None), patch(
+            "search.views.personalized_picks", return_value=self.ai
+        ):
+            return self.client.get(reverse("search:home"), params)
+
+    def test_claude_order_is_kept(self):
+        page = self.get()
+        self.assertEqual([p["camis"] for p in page.context["top_picks"]], ["50", "51"])
+        self.assertContains(page, "Picked for you")
+
+    def test_not_interested_drops_a_claude_pick(self):
+        RecommendationFeedback.objects.create(
+            user_id=self.user.pk,
+            camis="50",
+            value=RecommendationFeedback.NOT_INTERESTED,
+        )
+        page = self.get()
+        self.assertEqual([p["camis"] for p in page.context["top_picks"]], ["51"])
+
+    def test_selected_borough_uses_daily_picks(self):
+        page = self.get(boro="Queens")
+        self.assertFalse(page.context["personalized_picks"])
+        self.assertContains(page, "Top Picks in Queens")

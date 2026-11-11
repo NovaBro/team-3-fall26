@@ -1,4 +1,5 @@
 Django==5.2.18
+anthropic==2.6.0
 gunicorn==26.2.0
 pandas>=2.0
 requests==2.34.2

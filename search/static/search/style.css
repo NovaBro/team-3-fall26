@@ -691,21 +691,58 @@ tbody tr:hover { background: var(--raised); }
 
 .combined-map-layout {
   /* Default open width for the reviews panel (also set in combined_map.js). */
-  --community-panel-width: 700px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0;
-  align-items: stretch;
+  --community-panel-width: 300px;
+  height: min(68vh, 720px);
+  min-height: 420px;
+  margin-bottom: 16px;
+  z-index: 0;
 }
 
-.combined-map-layout.is-panel-open {
-  grid-template-columns: minmax(0, 1fr) 10px var(--community-panel-width);
-  gap: 0 8px;
+.combined-map-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.combined-map-layout .combined-map {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.community-panel-slot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: none;
+  width: var(--community-panel-width);
+  max-width: min(48%, 420px);
+  min-width: 0;
+  box-sizing: border-box;
+  flex-direction: row;
+  align-items: stretch;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(20, 35, 32, 0.12);
+  overflow: hidden;
+}
+
+.combined-map-layout.is-panel-open .community-panel-slot {
+  display: flex;
 }
 
 .combined-map-splitter {
   position: relative;
-  display: none;
+  flex: 0 0 10px;
   width: 10px;
   margin: 0;
   padding: 0;
@@ -715,11 +752,6 @@ tbody tr:hover { background: var(--raised); }
   cursor: col-resize;
   touch-action: none;
   align-self: stretch;
-  min-height: 120px;
-}
-
-.combined-map-layout.is-panel-open .combined-map-splitter {
-  display: block;
 }
 
 .combined-map-splitter::before {
@@ -756,18 +788,73 @@ tbody tr:hover { background: var(--raised); }
 }
 
 .community-panel {
-  display: none;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 16px;
-  max-height: min(68vh, 720px);
-  overflow: auto;
+  display: block;
+  flex: 1 1 auto;
   min-width: 0;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
-.combined-map-layout.is-panel-open .community-panel {
-  display: block;
+.panel-edge-tab,
+button.panel-edge-tab {
+  position: absolute;
+  top: 50%;
+  z-index: 6;
+  width: 22px;
+  height: 52px;
+  margin: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  background: #d7e8ee;
+  color: #4a5560;
+  box-shadow: 0 2px 10px rgba(20, 35, 32, 0.16);
+  cursor: pointer;
+  line-height: 1;
+  font-size: 1.35rem;
+  font-weight: 600;
+  transform: translateY(-50%);
+}
+
+.panel-edge-tab:hover,
+.panel-edge-tab:focus-visible,
+button.panel-edge-tab:hover,
+button.panel-edge-tab:focus-visible {
+  background: #c7dde6;
+  color: var(--ink);
+}
+
+.panel-edge-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.panel-edge-tab--expand {
+  top: 50%;
+  right: -21px;
+  left: auto;
+  border-radius: 0 12px 12px 0;
+  border-left: 0;
+}
+
+.panel-edge-tab--collapse {
+  position: relative;
+  top: auto;
+  left: auto;
+  transform: none;
+  flex: 0 0 22px;
+  align-self: center;
+  border-radius: 0 12px 12px 0;
+  border-left: 0;
+  box-shadow: 2px 0 8px rgba(20, 35, 32, 0.12);
 }
 
 .community-panel h2 { margin-top: 0; }
@@ -778,6 +865,11 @@ tbody tr:hover { background: var(--raised); }
   flex-wrap: wrap;
   gap: 8px;
   margin: 0 0 12px;
+}
+
+/* Author CSS display:flex otherwise overrides the HTML hidden attribute. */
+.community-form[hidden] {
+  display: none !important;
 }
 
 .community-form select,
@@ -792,20 +884,92 @@ tbody tr:hover { background: var(--raised); }
   font: inherit;
 }
 
+.community-review-composer {
+  margin: 0 0 12px;
+}
+
+.community-write-review {
+  height: 36px;
+  padding: 0 14px;
+  font-size: 0.85rem;
+}
+
 .community-form--visitor {
   flex-direction: column;
   flex-wrap: nowrap;
   align-items: stretch;
+  margin-top: 8px;
 }
 
 .community-form--visitor .review-stars {
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 
-.community-form--visitor textarea,
-.community-form--visitor input[type="file"] {
+.community-form--visitor .review-stars--composer {
+  justify-content: center;
+}
+
+.community-form--visitor textarea {
   flex: 0 0 auto;
   width: 100%;
+  min-height: 96px;
+}
+
+.community-add-photos-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 0;
+}
+
+.community-add-photos-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  font: 500 0.8rem var(--font-ui);
+  cursor: pointer;
+}
+
+.community-add-photos-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.community-add-photos-btn__status {
+  font-size: 0.75rem;
+}
+
+.community-review-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.community-review-cancel {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--accent);
+  font: 600 0.85rem var(--font-ui);
+  cursor: pointer;
+}
+
+.community-form--visitor .btn {
+  align-self: auto;
+  height: 36px;
+  padding: 0 14px;
+  font-size: 0.85rem;
 }
 
 .community-form--visitor .btn:disabled {
@@ -818,6 +982,61 @@ tbody tr:hover { background: var(--raised); }
   border-top: 1px solid var(--border);
 }
 
+.community-entry--reply {
+  margin-left: 16px;
+  padding-left: 12px;
+  border-top: none;
+  border-left: 2px solid var(--border);
+}
+
+.community-comment-label {
+  margin: 12px 0 4px;
+  font-weight: 600;
+}
+
+.community-comment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.community-reply-toggle {
+  background: none;
+  border: none;
+  color: var(--accent, #0b57d0);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  margin: 4px 0;
+}
+
+.community-comment-actions .community-form--reply {
+  flex: 1 1 100%;
+  margin-top: 4px;
+}
+
+.community-form--reply {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  margin: 0 0 12px;
+}
+
+.community-form--reply textarea,
+.community-form--reply input[type="file"] {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.community-form--reply .btn {
+  align-self: flex-start;
+  height: 36px;
+  padding: 0 14px;
+  font-size: 0.85rem;
+}
+
 .community-photo { margin: 8px 0; }
 .community-photo img {
   display: block;
@@ -828,12 +1047,10 @@ tbody tr:hover { background: var(--raised); }
 .community-error { color: var(--danger); }
 
 @media (max-width: 900px) {
-  .combined-map-layout.is-panel-open {
-    grid-template-columns: 1fr;
-    gap: 16px;
+  .community-panel-slot {
+    max-width: min(58%, 320px);
   }
   .combined-map-layout.is-panel-open .combined-map-splitter { display: none; }
-  .combined-map-layout.is-panel-open .community-panel { max-height: none; }
 }
 
 @media (max-width: 640px) {
@@ -841,6 +1058,7 @@ tbody tr:hover { background: var(--raised); }
   .wrap { padding: 0 16px; }
   h1 { font-size: 1.7rem; }
   .farmers-market-map,
+  .combined-map-layout,
   .combined-map { min-height: 360px; }
 }
 
