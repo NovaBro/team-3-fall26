@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "restaurants",
     "accounts",
     "community",
+    "assistant",
 ]
 
 MIDDLEWARE = [
@@ -79,6 +80,7 @@ TEMPLATES = [
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
+                "assistant.context_processors.assistant",
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
@@ -162,6 +164,11 @@ LOGGING = {
 GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 
 # Auth redirects for the profile tab.
+# The AI assistant stays hidden until ANTHROPIC_API_KEY is set.
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ASSISTANT_MODEL = os.environ.get("ASSISTANT_MODEL", "claude-haiku-5-5")
+ASSISTANT_DAILY_MESSAGES = int(os.environ.get("ASSISTANT_DAILY_MESSAGES", "50"))
+
 LOGIN_URL = "accounts:login"
 LOGIN_REDIRECT_URL = "accounts:profile"
 LOGOUT_REDIRECT_URL = "search:index"

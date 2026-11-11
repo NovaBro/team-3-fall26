@@ -1,0 +1,32 @@
+{% load static %}
+{% if assistant_enabled %}
+  {% if user.is_authenticated %}
+    <button type="button" class="assistant-toggle" id="assistant-toggle" aria-expanded="false" aria-controls="assistant-panel">Ask AI</button>
+    <section class="assistant-panel" id="assistant-panel" role="dialog" aria-label="Food assistant" hidden
+             data-chat-url="{% url 'assistant:chat' %}"
+             data-history-url="{% url 'assistant:history' %}"
+             data-reset-url="{% url 'assistant:reset' %}">
+      <header class="assistant-panel__header">
+        <h2>Food assistant</h2>
+        <button type="button" class="assistant-panel__action" id="assistant-reset">New chat</button>
+        <button type="button" class="assistant-panel__action" id="assistant-close" aria-label="Close assistant">Close</button>
+      </header>
+      <p class="assistant-panel__notice">Your food preferences, allergies, health goals, home ZIP and borough, and messages are sent to Anthropic's AI to answer you. AI can make mistakes and can't confirm ingredients, so always check allergies with the restaurant.</p>
+      <div class="assistant-panel__location">
+        <button type="button" class="assistant-panel__action" id="assistant-location" aria-pressed="false">Use my location</button>
+        <span id="assistant-location-status" role="status">Shared with Google Places to search nearby, not with Anthropic.</span>
+      </div>
+      <div class="assistant-panel__messages" id="assistant-messages" aria-live="polite">
+        <p class="assistant-panel__hint" id="assistant-hint">Try "Somewhere for high-protein lunch in Brooklyn" or "Which farmers markets are open on Saturday?"</p>
+      </div>
+      <form class="assistant-panel__form" id="assistant-form">
+        {% csrf_token %}
+        <textarea id="assistant-input" rows="2" maxlength="1000" placeholder="Ask about food in NYC" aria-label="Your message" required></textarea>
+        <button type="submit" id="assistant-send">Send</button>
+      </form>
+    </section>
+    <script src="{% static 'assistant/chat.js' %}" defer></script>
+  {% else %}
+    <a class="assistant-toggle" href="{% url 'accounts:login' %}?next={{ request.path|urlencode }}">Log in to ask AI</a>
+  {% endif %}
+{% endif %}

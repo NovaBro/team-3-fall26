@@ -125,6 +125,20 @@ class UserComment(models.Model):
     subject = models.ForeignKey(
         CommunitySubject, related_name="comments", on_delete=models.CASCADE
     )
+    parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        related_name="replies",
+        on_delete=models.CASCADE,
+    )
+    google_review = models.ForeignKey(
+        PlaceReview,
+        null=True,
+        blank=True,
+        related_name="user_comments",
+        on_delete=models.SET_NULL,
+    )
     user_id = models.PositiveIntegerField()
     text = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
@@ -139,6 +153,13 @@ class UserComment(models.Model):
 class UserPhoto(models.Model):
     subject = models.ForeignKey(
         CommunitySubject, related_name="photos", on_delete=models.CASCADE
+    )
+    comment = models.ForeignKey(
+        UserComment,
+        null=True,
+        blank=True,
+        related_name="photos",
+        on_delete=models.CASCADE,
     )
     user_id = models.PositiveIntegerField()
     image = models.ImageField(upload_to="community/")
