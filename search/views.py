@@ -10,6 +10,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from assistant.recommend import personalized_picks
 from community.keys import DOHMH, dohmh_key
 from community.models import CommunitySubject, PlaceEnrichment, PlaceReview
 from restaurants.diet_filters import ALLERGY_CHOICES, risky_cuisines
@@ -299,10 +300,34 @@ def _reviews_for_pick(google, camis_id):
     ]
 
 
+def _claude_picks(request, count):
+    """Rows for Claude's personalized picks (#129), in Claude's order, each with
+    an ``ai_reason``. Empty when Claude isn't configured or the call failed."""
+    user = getattr(request, "user", None)
+    ai_picks = personalized_picks(user, count) if user is not None else []
+    if not ai_picks:
+        return []
+    reasons = {pick["camis"]: pick["reason"] for pick in ai_picks}
+    rows = {
+        row["camis"]: row for row in _grade_a_queryset().filter(camis__in=list(reasons))
+    }
+    picks = [rows[camis] for camis in reasons if camis in rows]
+    for pick in picks:
+        pick["ai_reason"] = reasons[pick["camis"]]
+    return picks
+
+
 def _top_picks(request, count=3):
-    """Score a pool of grade-A restaurants and return the top *count* picks."""
+    """Return the top *count* picks.
+
+    Logged-in users with a profile get Claude's ranking when it's available.
+    Otherwise a pool of grade-A restaurants is scored. Either way each pick gets
+    the score and reason tags."""
     profile = _profile_for(request)
-    picks = _build_candidate_pool(profile)
+    picks = _claude_picks(request, count)
+    ranked_by_claude = bool(picks)
+    if not ranked_by_claude:
+        picks = _build_candidate_pool(profile)
     if not picks:
         return []
 
@@ -369,7 +394,8 @@ def _top_picks(request, count=3):
         pick["reason_tags"] = tags
         pick["calorie_score"] = calorie
 
-    picks.sort(key=lambda p: p.get("score", 0), reverse=True)
+    if not ranked_by_claude:
+        picks.sort(key=lambda p: p.get("score", 0), reverse=True)
     return picks[:count]
 
 
@@ -435,6 +461,7 @@ def home(request):
             "borough_options": borough_options,
             "selected_boro": selected_boro,
             "top_picks": top_picks,
+            "personalized_picks": any(pick.get("ai_reason") for pick in top_picks),
         },
     )
 
