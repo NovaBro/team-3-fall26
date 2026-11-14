@@ -229,3 +229,21 @@ class RecommendationFeedback(models.Model):
 
     def __str__(self):
         return f"{self.user_id} {self.get_value_display()} {self.camis}"
+
+
+class HealthScore(models.Model):
+    """AI health score (0–1) for a DOHMH restaurant, computed offline.
+
+    Filled by ``python manage.py score_health`` on a developer machine from
+    Google reviews and MenuStat menu text (see search/health_ai.py). The web
+    server only reads it; restaurants without a row use the keyword method.
+    """
+
+    camis = models.CharField(max_length=32, unique=True)
+    score = models.FloatField()
+    sentences_used = models.PositiveIntegerField(default=0)
+    model_name = models.CharField(max_length=128, blank=True)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.camis} {self.score:.2f}"

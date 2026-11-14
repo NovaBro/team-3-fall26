@@ -30,6 +30,7 @@ from assistant.recommend import personalized_picks
 from community.keys import DOHMH, dohmh_key
 from community.models import (
     CommunitySubject,
+    HealthScore,
     PlaceEnrichment,
     PlaceReview,
     RecommendationFeedback,
@@ -251,6 +252,19 @@ def _whole_word_q(food):
 
 def _today():
     return datetime.now(PICKS_TIME_ZONE).date()
+
+
+def _ai_health_score(camis):
+    """Stored AI health score (0–1) for a restaurant, or None if not computed.
+
+    Scores are computed offline by ``python manage.py score_health``."""
+    if not camis:
+        return None
+    return (
+        HealthScore.objects.filter(camis=str(camis))
+        .values_list("score", flat=True)
+        .first()
+    )
 
 
 def _feedback_prefs(request):
@@ -476,6 +490,7 @@ def _top_picks(request, count=3, boro=""):
             calorie_score=calorie,
             feedback=prefs,
             camis=pick["camis"],
+            ai_health=_ai_health_score(camis_id or pick["camis"]),
         )
         pick["score"] = score
         pick["reason_tags"] = tags
@@ -663,6 +678,7 @@ def restaurant_detail(request, camis):
         boro=latest.boro or "",
         profile=_profile_for(request),
         calorie_score=calorie,
+        ai_health=_ai_health_score(camis),
         feedback=_feedback_prefs(request),
         camis=camis,
     )

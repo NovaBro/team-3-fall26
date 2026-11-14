@@ -95,6 +95,23 @@ fields (no structured ZIP field).
 
 "Because you liked …" / "You liked this" goes before all of these.
 
+## AI health score (reviews + menus)
+
+`python manage.py score_health` (run locally; `pip install -r requirements-ml.txt`)
+reads each restaurant's saved Google reviews and, for MenuStat chains, its meal
+names. A pre-trained sentence-embedding model (`all-MiniLM-L6-v2`, no training)
+compares every sentence with short healthy / unhealthy example sentences:
+
+- closer to a healthy example → sentence score near 1, closer to an unhealthy
+  one → near 0; sentences about other things (service, parking) are skipped
+- restaurant score = average sentence score, pulled toward 0.5 with 3 neutral
+  "prior" sentences so one review can't decide everything
+
+Scores are stored in `community.HealthScore`. In the health component they
+replace the review keyword count: `+ 0.6 × (ai − 0.5)` (same ±0.3 range).
+Restaurants without a stored score keep the keyword method. The server never
+loads the model. The score breakdown shows "Health (AI)" when it was used.
+
 ## Review shown on the card
 
 Only 4–5 star reviews are shown on a Top Picks card (the rating score still

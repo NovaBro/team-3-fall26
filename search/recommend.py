@@ -382,8 +382,16 @@ def pick_display_review(reviews, profile=None):
     return best if best is not None else reviews[0]
 
 
-def health_score(cuisine, reviews, name, goal_words=()):
-    """Health component in [0, 1]."""
+AI_HEALTH_EFFECT = 0.6  # ai score 0..1 -> -0.3..+0.3, same range as keywords
+
+
+def health_score(cuisine, reviews, name, goal_words=(), ai_score=None):
+    """Health component in [0, 1].
+
+    ``ai_score`` is the stored AI health score (0–1) from reviews/menu text.
+    When present it replaces the keyword count of the reviews; otherwise the
+    keyword method is used.
+    """
     score = 0.5
     cuisine = (cuisine or "").strip()
     if cuisine in HEALTHY_CUISINES:
@@ -391,9 +399,12 @@ def health_score(cuisine, reviews, name, goal_words=()):
     elif cuisine in UNHEALTHY_CUISINES:
         score -= 0.2
 
-    healthy, unhealthy, total = classify_reviews(reviews, goal_words)
-    if total:
-        score += 0.3 * ((healthy / total) - (unhealthy / total))
+    if ai_score is not None:
+        score += AI_HEALTH_EFFECT * (float(ai_score) - 0.5)
+    else:
+        healthy, unhealthy, total = classify_reviews(reviews, goal_words)
+        if total:
+            score += 0.3 * ((healthy / total) - (unhealthy / total))
 
     if is_fast_food(name):
         score -= 0.2
@@ -468,16 +479,18 @@ def score_restaurant(
     calorie_score=None,
     feedback=None,
     camis="",
+    ai_health=None,
 ):
     """Return (final_score, reason_tags, breakdown) for one restaurant.
 
     ``calorie_score`` is a 0–1 MenuStat median-meal component when linked; omit
     (None) to keep the three-part weights. ``feedback`` is the viewer's
     FeedbackPrefs (Like / Not interested history); None leaves the score as is.
-    ``camis`` keeps a place's own Like from boosting itself.
+    ``camis`` keeps a place's own Like from boosting itself. ``ai_health`` is
+    the stored AI health score (0–1); None falls back to review keywords.
     """
     goal_words = _goal_words(profile)
-    h = health_score(cuisine, reviews, name, goal_words)
+    h = health_score(cuisine, reviews, name, goal_words, ai_score=ai_health)
     g = grade_score(grade)
     r = rating_score(google_rating, google_count, app_avg, app_count)
     has_calories = calorie_score is not None
@@ -572,7 +585,12 @@ def score_restaurant(
         }
 
     parts = [
-        _part("health", "Health", h, w_h),
+        _part(
+            "health",
+            "Health (AI)" if ai_health is not None else "Health",
+            h,
+            w_h,
+        ),
         _part("grade", "Inspection grade", g, w_g),
         _part("rating", "Rating", r, w_r),
     ]
@@ -582,6 +600,7 @@ def score_restaurant(
     breakdown = {
         "mode": "health_focus" if focus else "default",
         "has_calories": has_calories,
+        "ai_health": ai_health,
         "parts": parts,
         "adjustments": adjustments,
         "base_points": base_points,

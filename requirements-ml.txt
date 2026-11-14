@@ -1,0 +1,4 @@
+# Local only: used by `python manage.py score_health` to compute AI health
+# scores. Not installed on the server or in CI (the server reads stored scores).
+-r requirements.txt
+sentence-transformers>=3.0
