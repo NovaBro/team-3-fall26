@@ -22,10 +22,7 @@ from search.models import (
     MenuItem,
     ParkEatery,
     RestaurantInspection,
-    RestaurantSummary,
 )
-from search import signals as summary_signals
-from search.summary import rebuild_all
 
 DATASETS_DIR = Path(settings.BASE_DIR) / "database" / "datasets"
 
@@ -91,13 +88,10 @@ class Command(BaseCommand):
             ("park eateries", ParkEatery, self._import_eateries),
         ]
 
-        with summary_signals.paused():
-            for label, model, importer in importers:
-                model.objects.all().delete()
-                count = importer()
-                self.stdout.write(self.style.SUCCESS(f"Imported {count:,} {label}"))
-        count = rebuild_all(RestaurantInspection, RestaurantSummary)
-        self.stdout.write(self.style.SUCCESS(f"Summarised {count:,} restaurants"))
+        for label, model, importer in importers:
+            model.objects.all().delete()
+            count = importer()
+            self.stdout.write(self.style.SUCCESS(f"Imported {count:,} {label}"))
 
     def _find(self, pattern):
         matches = sorted(DATASETS_DIR.glob(pattern))

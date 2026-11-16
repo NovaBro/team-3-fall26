@@ -185,18 +185,6 @@ AI_LIVE_SCORING = not RUNNING_TESTS
 # Home page Google lookups (Top picks + Explore more cards) are remembered this
 # long, so a reload does not search Google again. Off in tests.
 PLACES_CACHE_SECONDS = 0 if RUNNING_TESTS else 60 * 60
-
-# Cache in files (not process memory) so Google lookups and other cached
-# results survive a server restart and are shared by all server workers.
-# Tests keep the default in-memory cache.
-if not RUNNING_TESTS:
-    CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
-            "LOCATION": os.environ.get("DJANGO_CACHE_DIR", str(BASE_DIR / ".cache")),
-            "OPTIONS": {"MAX_ENTRIES": 5000},
-        }
-    }
 ASSISTANT_MODEL = os.environ.get("ASSISTANT_MODEL", "claude-haiku-5-5")
 ASSISTANT_DAILY_MESSAGES = int(os.environ.get("ASSISTANT_DAILY_MESSAGES", "50"))
 
