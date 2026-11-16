@@ -112,8 +112,7 @@ class NoZipTests(TestCase):
     def test_places_without_zip_are_not_candidates(self):
         inspection("8100", "HAS ZIP")
         place = inspection("8101", "NO ZIP")
-        place.zipcode = ""
-        place.save()  # save() (not update()) keeps RestaurantSummary in step
+        RestaurantInspection.objects.filter(pk=place.pk).update(zipcode="")
         with patch("search.views._today", return_value=TODAY):
             rows = views._build_candidate_pool(None, None, "seed")
         self.assertEqual([row["name"] for row in rows], ["HAS ZIP"])
