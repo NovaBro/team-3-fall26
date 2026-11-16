@@ -1196,6 +1196,33 @@ button.panel-edge-tab:focus-visible {
   font-size: 0.95rem;
   font-weight: 600;
 }
+.healthiness-score__blurb {
+  margin: 0 0 10px;
+  line-height: 1.5;
+  max-width: 62ch;
+}
+
+.healthiness-score__why {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.healthiness-score__why li {
+  position: relative;
+  padding-left: 22px;
+  font-size: 0.92rem;
+  color: var(--ink);
+}
+.healthiness-score__why li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--accent);
+  font-weight: 700;
+}
 .healthiness-score__parts {
   list-style: none;
   margin: 0;
@@ -1216,3 +1243,28 @@ button.panel-edge-tab:focus-visible {
 }
 .healthiness-score__total .healthiness-score__part-label { color: var(--ink); }
 .healthiness-score__note { margin: 10px 0 8px; font-size: 0.85rem; }
+
+/* Google's AI review summary on the detail page (heading, disclosure and
+   links are required by Google's Places policies). */
+.review-summary {
+  margin: 14px 0 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.review-summary__title {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+.review-summary__text {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.review-summary__meta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}

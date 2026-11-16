@@ -1,8 +1,10 @@
 """Client for the Google Places API (New).
 
-The web UI only calls into this module when the user clicks "Get Google data"
-on a restaurant page; the ``enrich_places`` management command reuses it for
-bulk seeding. Results are persisted so repeat views never hit the API.
+The detail page calls into this module the first time a restaurant is opened
+(and when the user clicks "Refresh Google data"); the ``enrich_places``
+management command reuses it for bulk seeding. One Text Search request returns
+the place and all its details. Results are persisted so repeat views never hit
+the API.
 
 Docs: https://developers.google.com/maps/documentation/places/web-service/op-overview
 """
@@ -22,7 +24,13 @@ SEARCH_FIELD_MASK = (
 )
 DETAILS_FIELD_MASK = (
     "id,displayName,formattedAddress,location,rating,userRatingCount,"
-    "priceLevel,priceRange,websiteUri,googleMapsUri,businessStatus,reviews"
+    "priceLevel,priceRange,websiteUri,googleMapsUri,businessStatus,reviews,"
+    "reviewSummary"
+)
+# Text Search can return the same fields as Place Details, so one request does
+# both the lookup and the details (they are prefixed with "places.").
+SEARCH_DETAILS_FIELD_MASK = ",".join(
+    f"places.{field}" for field in DETAILS_FIELD_MASK.split(",")
 )
 REQUEST_TIMEOUT = 15
 
@@ -80,6 +88,26 @@ def find_place(query):
     }
     data = _request(
         "POST", f"{PLACES_BASE_URL}/places:searchText", SEARCH_FIELD_MASK, json=payload
+    )
+    places = data.get("places") or []
+    return places[0] if places else None
+
+
+def find_place_with_details(query):
+    """Top Text Search match for ``query`` with every detail field, or None.
+
+    One request instead of ``find_place`` + ``get_place_details``.
+    """
+    payload = {
+        "textQuery": query,
+        "maxResultCount": 1,
+        "locationBias": NYC_LOCATION_BIAS,
+    }
+    data = _request(
+        "POST",
+        f"{PLACES_BASE_URL}/places:searchText",
+        SEARCH_DETAILS_FIELD_MASK,
+        json=payload,
     )
     places = data.get("places") or []
     return places[0] if places else None
@@ -163,11 +191,9 @@ def enrich_subject(kind, key, query, camis=""):
     if not query:
         raise PlacesAPIError("No name or address to search with.")
 
-    match = find_place(query)
-    if not match or not match.get("id"):
+    details = find_place_with_details(query)
+    if not details or not details.get("id"):
         raise PlacesAPIError(f"No Google place matched {query!r}.")
-
-    details = get_place_details(match["id"])
     return _save(kind, key, details, camis=camis)
 
 
