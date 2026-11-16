@@ -140,7 +140,9 @@ class FeedbackPrefsTests(SimpleTestCase):
             name="X", cuisine="Mexican", grade="A", feedback=prefs
         )
         self.assertEqual(score - base, 3.0)
-        self.assertEqual(tags[0], "Because you liked Taqueria")
+        self.assertEqual(tags[0], "Similar pick")
+        self.assertEqual(breakdown["similar_to"], "Taqueria")
+        self.assertIn("Similar to Taqueria, which you liked", breakdown["reasons"])
         self.assertEqual(breakdown["like_bonus"], 3.0)
         self.assertIn(
             {"label": "Similar to places you liked", "delta": 3.0},
@@ -239,7 +241,9 @@ class FeedbackViewTests(TestCase):
         taqueria = next(
             p for p in response.context["top_picks"] if p["name"] == "TAQUERIA"
         )
-        self.assertEqual(taqueria["reason_tags"][0], "Because you liked Old Taqueria")
+        self.assertEqual(taqueria["reason_tags"][0], "Similar pick")
+        self.assertEqual(taqueria["similar_to"], "Old Taqueria")
+        self.assertContains(response, 'title="Because you liked Old Taqueria"')
 
     def test_one_star_rating_hides_the_place(self, _find):
         subject = CommunitySubject.objects.create(kind=DOHMH, key=dohmh_key("1"))
@@ -312,6 +316,12 @@ def inspection(camis, dba, cuisine, grade, day="2024-07-01"):
 
 class ExploreOrderTests(TestCase):
     databases = {"default", "community"}
+
+    def setUp(self):
+        # A fixed "today" so the test dates (2023-2025) are not seen as closed.
+        today = patch("search.views._today", return_value=date(2025, 3, 1))
+        today.start()
+        self.addCleanup(today.stop)
 
     def order(self):
         return [row["name"] for row in views._explore_rows()]
@@ -539,9 +549,10 @@ class HealthyCandidateTests(TestCase):
     def test_best_db_score_beats_recent_inspection(self):
         for n in range(12):  # inspected recently, plain cuisine
             inspection(str(9000 + n), f"RECENT {n}", "American", "A", day="2026-10-01")
-        for n in range(9):  # inspected long ago, healthy cuisine
-            inspection(str(9100 + n), f"HEALTHY {n}", "Salads", "A", day="2021-01-01")
-        names = self.pool()
+        for n in range(9):  # inspected a year earlier, healthy cuisine
+            inspection(str(9100 + n), f"HEALTHY {n}", "Salads", "A", day="2025-06-01")
+        with patch("search.views._today", return_value=date(2026, 11, 9)):
+            names = self.pool()
         self.assertEqual(len(names), 9)
         self.assertTrue(all(name.startswith("HEALTHY") for name in names))
 

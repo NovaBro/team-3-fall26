@@ -6,10 +6,19 @@ from that borough). Scoring is rule-based in
 `search/recommend.py` (`score_restaurant`). MenuStat linking and meal filters
 live in `search/menustat.py`.
 
+## Explore more order
+
+Explore more uses the same DB-only score (no Google calls), best first, ties
+shuffled daily. A place with no inspection in the last two years gets −2 (most
+likely closed; new places dated 1900-01-01 are not penalized). For a logged-in
+user, places they marked Not interested are left out, and a place gets +1 for
+a cuisine they liked (Like, heart, or 4–5 stars) and +1 for a favorite food.
+
 ## Setup (candidate flow)
 
 1. Take the 9 best places by the DB-only health score used by Explore more
-   (latest grade A +2, healthy cuisine +1, fast food −2, ...; no Google calls),
+   (latest grade A +2, healthy cuisine +1, fast food −2, no inspection in two
+   years −2 since the place has likely closed, ...; no Google calls),
    restricted to places whose latest grade is A. Ties are shuffled with a daily
    seed (see "Daily rotation" below). Places the user marked not interested are
    skipped. (Before: the most recently inspected grade-A places, which says
@@ -18,7 +27,9 @@ live in `search/menustat.py`.
    desserts, bagels/pretzels, bottled beverages and nuts/confectionary are left
    out, plus coffee/dessert chains filed under another cuisine (e.g. some
    Starbucks are "American"). Juice/smoothie bars stay. Explore more still lists
-   these places, scored −1 so they appear lower.
+   these places, scored −1 so they appear lower. Gyms and studios with a juice
+   bar (names with the whole word FITNESS, GYM, YOGA or PILATES) are left out
+   too.
 3. Exclude cuisines that are risky for the user’s free-text allergies (via
    `diet_filters.risky_cuisines` after keyword → `nuts` / `shellfish` mapping).
 4. For logged-in users with a profile, add up to 3 favorite-food matches and up
@@ -35,7 +46,7 @@ BMI is never shown on the page; it only shifts weights.
 | Part | How it is computed |
 |---|---|
 | **Health** | Base 0.5 ± 0.2 cuisine ± 0.3 × (healthy − unhealthy review share) − 0.2 if fast-food chain; clipped to [0, 1]. |
-| **Inspection grade** | A = 1.0, B = 0.5, C = 0, pending/missing = 0.3. |
+| **Inspection grade** | A = 1.0, B = 0.5, C = 0, pending/missing = 0.3. The grade is the latest *graded* inspection's; a place never graded is unknown (0.3, no "Grade A" tag or reason), not A. |
 | **Rating** | Bayesian blend of Google + in-app ratings toward prior 4.0 (pseudo-count 20), then map 3.0 → 0 … 5.0 → 1. |
 | **Calories** (MenuStat only) | Median calories of *qualifying* meals → `(800 − median) / 600`, clipped to [0, 1] (200 kcal → 1.0, 800 → 0.0). |
 
@@ -93,7 +104,89 @@ fields (no structured ZIP field).
 6. Top rated (50+ votes, blended ≥ 4.5)  
 7. Grade A (Grade B / Grade C are shown too; the card has no other grade badge)  
 
-"Because you liked …" / "You liked this" goes before all of these.
+"Similar pick" (hover: "Because you liked …") / "You liked this" goes before
+all of these.
+
+## AI health score (reviews + menus)
+
+`python manage.py score_health` (run locally; `pip install -r requirements-ml.txt`)
+reads each restaurant's saved Google reviews and, for MenuStat chains, its meal
+names. A pre-trained sentence-embedding model (`all-MiniLM-L6-v2`, no training)
+compares every sentence with short healthy / unhealthy example sentences:
+
+- closer to a healthy example → sentence score near 1, closer to an unhealthy
+  one → near 0; sentences about other things (service, parking) are skipped
+- restaurant score = average sentence score, pulled toward 0.5 with 3 neutral
+  "prior" sentences so one review can't decide everything
+
+Scores are stored in `community.HealthScore`. In the health component they
+replace the review keyword count: `+ 0.6 × (ai − 0.5)` (same ±0.3 range).
+Restaurants without a stored score keep the keyword method. The server never
+loads the model. The score breakdown shows "Health (AI)" when it was used.
+
+## Why this pick (reason sentences)
+
+`score_restaurant()` also returns `breakdown["reasons"]` (and `reason_text`,
+joined with " · "): up to 3 short sentences for the parts that raised the score
+the most compared with an average place (a 0.5 component, no bonuses).
+
+| Part | Sentence | Points counted |
+|---|---|---|
+| AI review score | Reviews describe fresh, healthy food | health weight × AI effect |
+| Keyword reviews | Reviews mention healthy dishes | health weight × keyword effect |
+| Healthy cuisine | Healthy cuisine (Salads) | health weight × 0.2 |
+| Rating | Highly rated (4.8★, 500 reviews) | rating weight × (rating − 0.5) |
+| MenuStat calories | Lighter menu choices | calorie weight × (calories − 0.5) |
+| Favorite food | Matches your favorite food (tacos) | +10 |
+| Home | Near your home | +5 |
+| Like | Similar to X, which you liked | like bonus |
+| Grade A | NYC health grade A | only if fewer than 2 other reasons |
+
+"Reviews describe fresh, healthy food" needs an AI score of 0.6+ and
+"Highly rated" needs 4.5+ stars with 50+ votes (the Top rated bar), so a score
+just above average never becomes a claim. Pushes under 1 point are skipped. Grade A is a fallback because every Top pick
+shares it. Top picks carry the list as `pick["reasons"]`; showing it on the
+card is a separate UI change.
+
+## Reason paragraph (Gemini, optional)
+
+The detail page shows one or two plain sentences written by Gemini above the
+reason list. On a restaurant's first visit, if `GEMINI_API_KEY` is set, the
+page sends Gemini the restaurant's name, cuisine and general reasons (only
+facts we computed), stores the answer in `community.ReasonBlurb`, and shows
+it; later visits read the stored text. The score itself does not change.
+
+- No Google review text is sent: Google's Places terms bar building content
+  from it. Reviews are covered by Google's own summary (below).
+- Personal reasons (favorite food, home, likes) are never sent, because the
+  paragraph is shared by every viewer. The prompt allows only the given facts.
+- Each paragraph stores `model|PROMPT_VERSION`; one from an older prompt is
+  rewritten on the next visit (or not shown when there is no key).
+- No key, a timeout (12 s), or any error → the page shows the plain list.
+  A quota error pauses calls for 10 minutes; a failed place is retried after
+  10 minutes. Tests never call Gemini (`GEMINI_API_KEY` is blank under
+  `manage.py test`).
+- `python manage.py write_reasons` can fill many places ahead of time
+  (`--limit`, `--refresh`, `--dry-run`, `--sleep`).
+- Needs `GEMINI_API_KEY` in `.env` and `pip install -r requirements-ml.txt`.
+  The server needs both too to write new ones; without them it only reads
+  stored paragraphs. Free-tier keys have per-minute and per-day limits.
+
+## Google review summary
+
+Google data requests also ask for `reviewSummary`, Google's own AI summary
+of a place's reviews (no extra Gemini call from us). It is kept in
+`PlaceEnrichment.raw_json`; `PlaceEnrichment.review_summary` returns its text,
+the required "Summarized with Gemini" disclosure, the reviews link, and the
+report link. Places fetched before this change have no summary until their
+Google data is refreshed, and Google does not have one for every place.
+
+The detail page fetches and stores a restaurant's Google data on its first
+visit when none is stored (`GOOGLE_AUTO_FETCH`, on except under
+`manage.py test`, plus `GOOGLE_PLACES_API_KEY`): one Text Search request
+that returns the place and all its details (also used by Refresh and
+`enrich_places`), once per restaurant. A failed fetch is retried after
+10 minutes; until then the page shows "No Google data" and the Refresh button.
 
 ## Review shown on the card
 
@@ -148,7 +241,7 @@ mode is noted only as “personalized weights.”
   - Not interested: that place is never shown to that user again. Two or more
     of one cuisine → −5 for that cuisine.
   - Like: +3 per liked place with the same cuisine (max +9) and the tag
-    "Because you liked <name>" (shown first).
+    "Similar pick" (shown first; the tooltip says "Because you liked <name>").
   - Only 1 of the 3 picks may win thanks to a like bonus; other liked places
     compete with their score minus the bonus.
   - Weights are unchanged, so health still dominates: +9 is less than the gap
@@ -193,3 +286,5 @@ mode is noted only as “personalized weights.”
 | `search/views.py` | `_top_picks`, `restaurant_detail` wiring |
 | `search/test_recommend.py` / `search/test_menustat.py` | Unit coverage |
 | `search/test_daily_feedback.py` | Rotation, diversity, Like / Not interested |
+| `search/reason_writer.py` / `write_reasons` command | Gemini reason paragraph (local) |
+| `search/test_reason_writer.py` | Prompt, cleanup, command (fake Gemini) |

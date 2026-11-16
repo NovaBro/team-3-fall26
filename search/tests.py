@@ -187,17 +187,6 @@ class _FakeResponse:
         return self._payload
 
 
-SEARCH_RESULT = {
-    "places": [
-        {
-            "id": "ChIJtest",
-            "displayName": {"text": "Joe's Pizza"},
-            "formattedAddress": "1 Main St, Brooklyn, NY 11201",
-            "location": {"latitude": 40.7, "longitude": -73.9},
-        }
-    ]
-}
-
 DETAILS_RESULT = {
     "id": "ChIJtest",
     "displayName": {"text": "Joe's Pizza"},
@@ -223,6 +212,9 @@ DETAILS_RESULT = {
     ],
 }
 
+# One Text Search answer that carries every detail field (see places.py).
+SEARCH_RESULT = {"places": [DETAILS_RESULT]}
+
 
 @override_settings(GOOGLE_PLACES_API_KEY="test-key")
 class EnrichRestaurantTests(TestCase):
@@ -242,10 +234,7 @@ class EnrichRestaurantTests(TestCase):
 
     @patch("search.services.places.requests.request")
     def test_enrich_saves_place_and_reviews(self, request):
-        request.side_effect = [
-            _FakeResponse(SEARCH_RESULT),
-            _FakeResponse(DETAILS_RESULT),
-        ]
+        request.return_value = _FakeResponse(SEARCH_RESULT)
         enrichment = enrich_camis("1")
         self.assertEqual(enrichment.kind, DOHMH)
         self.assertEqual(enrichment.key, dohmh_key("1"))
@@ -259,15 +248,9 @@ class EnrichRestaurantTests(TestCase):
 
     @patch("search.services.places.requests.request")
     def test_refetch_replaces_reviews(self, request):
-        request.side_effect = [
-            _FakeResponse(SEARCH_RESULT),
-            _FakeResponse(DETAILS_RESULT),
-        ]
+        request.return_value = _FakeResponse(SEARCH_RESULT)
         enrich_camis("1")
-        request.side_effect = [
-            _FakeResponse(SEARCH_RESULT),
-            _FakeResponse(DETAILS_RESULT),
-        ]
+        request.return_value = _FakeResponse(SEARCH_RESULT)
         enrich_camis("1")
         self.assertEqual(PlaceEnrichment.objects.count(), 1)
         self.assertEqual(PlaceReview.objects.count(), 1)
@@ -494,10 +477,7 @@ class EnrichSubjectTests(TestCase):
 
     @patch("search.services.places.requests.request")
     def test_enrich_grocery_saves_kind_key_and_reviews(self, request):
-        request.side_effect = [
-            _FakeResponse(SEARCH_RESULT),
-            _FakeResponse(DETAILS_RESULT),
-        ]
+        request.return_value = _FakeResponse(SEARCH_RESULT)
         key = "Healthy Corner|100 Main St|11201"
         enrichment = enrich_subject(
             GROCERY, key, "Healthy Corner 100 Main St Brooklyn NY 11201"
@@ -508,17 +488,29 @@ class EnrichSubjectTests(TestCase):
         self.assertEqual(enrichment.reviews.count(), 1)
 
     @patch("search.services.places.requests.request")
+    def test_one_request_asks_for_every_detail_field(self, request):
+        request.return_value = _FakeResponse(SEARCH_RESULT)
+        enrich_subject(GROCERY, "k", "Healthy Corner NY")
+        self.assertEqual(request.call_count, 1)
+        method, url = request.call_args.args
+        mask = request.call_args.kwargs["headers"]["X-Goog-FieldMask"].split(",")
+        self.assertEqual(
+            (method, url.rsplit("/", 1)[-1]), ("POST", "places:searchText")
+        )
+        for field in ("places.id", "places.reviews", "places.reviewSummary"):
+            self.assertIn(field, mask)
+
+    @patch("search.services.places.requests.request")
+    def test_no_match_is_an_error(self, request):
+        request.return_value = _FakeResponse({"places": []})
+        with self.assertRaises(PlacesAPIError):
+            enrich_subject(GROCERY, "k", "Nowhere NY")
+
+    @patch("search.services.places.requests.request")
     def test_enrich_market_refresh_replaces_reviews(self, request):
-        request.side_effect = [
-            _FakeResponse(SEARCH_RESULT),
-            _FakeResponse(DETAILS_RESULT),
-        ]
+        request.return_value = _FakeResponse(SEARCH_RESULT)
         key = "2026|Union Square|E 17th St"
         enrich_subject(FARMERS_MARKET, key, "Union Square Greenmarket NY")
-        request.side_effect = [
-            _FakeResponse(SEARCH_RESULT),
-            _FakeResponse(DETAILS_RESULT),
-        ]
         enrich_subject(FARMERS_MARKET, key, "Union Square Greenmarket NY")
         self.assertEqual(
             PlaceEnrichment.objects.filter(kind=FARMERS_MARKET, key=key).count(), 1
