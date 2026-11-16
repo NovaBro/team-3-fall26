@@ -17,7 +17,9 @@
     <article class="form-section"><h2>Registered accounts</h2><p class="admin-stat">{{ user_count }}</p></article>
     <article class="form-section"><h2>Active accounts</h2><p class="admin-stat">{{ active_user_count }}</p></article>
     <article class="form-section"><h2>Community comments</h2><p class="admin-stat">{{ comment_count }}</p></article>
+    {% comment %}
     <article class="form-section"><h2>Community ratings</h2><p class="admin-stat">{{ rating_count }}</p></article>
+    {% endcomment %}
   </section>
   <p class="muted">Account health details and private profile fields are not included in this administration view.</p>
 {% elif active_tab == "users" %}
@@ -73,7 +75,7 @@
   {% if admin_comments %}
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Author</th><th>Place</th><th>Comment</th><th>Posted</th></tr></thead>
+        <thead><tr><th>Author</th><th>Place</th><th>Comment</th><th>Posted</th><th></th></tr></thead>
         <tbody>
           {% for item in admin_comments %}
             <tr>
@@ -81,6 +83,13 @@
               <td>{{ item.comment.subject.name|default:item.comment.subject.key }}</td>
               <td>{{ item.comment.text|linebreaksbr }}</td>
               <td>{{ item.comment.created_at|date:"N j, Y, P" }}</td>
+              <td>
+                <form method="post" action="{% url 'accounts:admin_delete_comment' item.comment.pk %}" onsubmit="return confirm('Delete this comment?');">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button type="submit" class="nav-link-button">Delete</button>
+                </form>
+              </td>
             </tr>
           {% endfor %}
         </tbody>

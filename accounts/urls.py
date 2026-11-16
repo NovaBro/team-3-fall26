@@ -20,7 +20,27 @@ urlpatterns = [
         views.admin_user_detail,
         name="admin_user_detail",
     ),
+    path(
+        "admin-dashboard/users/<int:user_id>/delete/",
+        views.admin_delete_user,
+        name="admin_delete_user",
+    ),
+    path(
+        "admin-dashboard/comments/<int:comment_id>/delete/",
+        views.admin_delete_comment,
+        name="admin_delete_comment",
+    ),
     path("profile/", views.profile, name="profile"),
+    path(
+        "profile/liked/delete/",
+        views.delete_liked_places,
+        name="delete_liked_places",
+    ),
+    path(
+        "profile/hidden/restore/",
+        views.restore_hidden_places,
+        name="restore_hidden_places",
+    ),
     path("profile/<str:username>/", views.view_profile, name="view_profile"),
     path("signup/", views.signup, name="signup"),
     path("login/", ProfileLoginView.as_view(), name="login"),

@@ -10,17 +10,28 @@ from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.encoding import force_bytes, force_str
-from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from django.utils.http import (
+    url_has_allowed_host_and_scheme,
+    urlsafe_base64_decode,
+    urlsafe_base64_encode,
+)
 from django.views.decorators.http import require_POST
 
 from accounts.forms import MoodLogForm, SignupForm, UserProfileForm
 from accounts.models import MoodLog, UserProfile
 from accounts.mood import today_ny, upsert_today_mood
 from accounts.tokens import email_verification_token
-from community.models import UserComment, UserPhoto, UserRating
+from community.models import (
+    RecommendationFeedback,
+    UserComment,
+    UserPhoto,
+    UserRating,
+)
 
 MOOD_HISTORY_LIMIT = 10
 ADMIN_PAGE_SIZE = 25
+# Shown under "Food preferences" on the profile page (they shape Top picks).
+FOOD_FIELDS = ("favorite_foods", "disliked_foods", "health_goals", "allergies")
 WIDE_FIELDS = {
     "home_address",
     "favorite_foods",
@@ -152,19 +163,83 @@ def profile(request):
             "mood_history": mood_history,
             "today_mood": today_mood,
             "wide_fields": WIDE_FIELDS,
+            "food_fields": FOOD_FIELDS,
             "profile": instance,
         },
     )
 
 
+LIKED_PLACES_SHOWN = 50
+
+
 def view_profile(request, username):
     user = get_object_or_404(User, username=username)
     profile, _created = UserProfile.objects.get_or_create(user=user)
+    # Places the user liked (Like button or heart), newest first. Only the
+    # user sees their own list; it is not shown to other people.
+    is_own = request.user.is_authenticated and request.user.pk == user.pk
+    liked_places = hidden_places = []
+    if is_own:
+        mine = RecommendationFeedback.objects.filter(user_id=user.pk).order_by(
+            "-updated_at"
+        )
+        liked_places = mine.filter(value=RecommendationFeedback.LIKE)[
+            :LIKED_PLACES_SHOWN
+        ]
+        hidden_places = mine.filter(value=RecommendationFeedback.NOT_INTERESTED)[
+            :LIKED_PLACES_SHOWN
+        ]
     return render(
         request,
         "accounts/view_profile.html",
-        {"profile_user": user, "profile": profile},
+        {
+            "profile_user": user,
+            "profile": profile,
+            "is_own_profile": is_own,
+            "liked_places": liked_places,
+            "hidden_places": hidden_places,
+        },
     )
+
+
+@login_required
+@require_POST
+def delete_liked_places(request):
+    """Remove the user's Likes: the ticked places, or all of them."""
+    likes = RecommendationFeedback.objects.filter(
+        user_id=request.user.pk, value=RecommendationFeedback.LIKE
+    )
+    if request.POST.get("action") != "delete_all":
+        likes = likes.filter(camis__in=request.POST.getlist("camis"))
+    removed, _ = likes.delete()
+    if removed:
+        messages.success(
+            request, f"Removed {removed} liked place{'s' if removed != 1 else ''}."
+        )
+    else:
+        messages.info(request, "No places were selected.")
+    return redirect("accounts:view_profile", username=request.user.username)
+
+
+@login_required
+@require_POST
+def restore_hidden_places(request):
+    """Undo Not interested for the ticked places, or all of them, so they can
+    show up in Top picks and Explore more again."""
+    hidden = RecommendationFeedback.objects.filter(
+        user_id=request.user.pk, value=RecommendationFeedback.NOT_INTERESTED
+    )
+    if request.POST.get("action") != "show_all":
+        hidden = hidden.filter(camis__in=request.POST.getlist("camis"))
+    restored, _ = hidden.delete()
+    if restored:
+        messages.success(
+            request,
+            f"{restored} place{'s' if restored != 1 else ''} can show up again.",
+        )
+    else:
+        messages.info(request, "No places were selected.")
+    return redirect("accounts:view_profile", username=request.user.username)
 
 
 @login_required
@@ -284,6 +359,46 @@ def admin_user_detail(request, user_id):
             "counts": counts,
         },
     )
+
+
+@require_POST
+@login_required
+def admin_delete_user(request, user_id):
+    if not request.user.is_superuser:
+        raise PermissionDenied
+
+    managed_user = get_object_or_404(User, pk=user_id)
+
+    if managed_user.pk == request.user.pk:
+        messages.error(request, "You cannot delete your own account.")
+        return redirect("accounts:admin_user_detail", user_id=managed_user.pk)
+
+    if managed_user.is_superuser:
+        messages.error(request, "Cannot delete another administrator account.")
+        return redirect("accounts:admin_user_detail", user_id=managed_user.pk)
+
+    username = managed_user.username
+    managed_user.delete()
+    messages.success(request, f'Account "{username}" was deleted.')
+    return redirect("accounts:admin_dashboard")
+
+
+@require_POST
+@login_required
+def admin_delete_comment(request, comment_id):
+    if not request.user.is_superuser:
+        raise PermissionDenied
+
+    comment = get_object_or_404(UserComment, pk=comment_id)
+    comment.delete()
+    messages.success(request, "Comment was deleted.")
+
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return redirect(next_url)
+    return redirect("accounts:admin_dashboard")
 
 
 def _admin_activity_counts(user_ids):

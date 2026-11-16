@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="{% static 'search/style.css' %}">
+  <link rel="stylesheet" href="{% static 'search/style.css' %}?v=16">
   {% block extra_head %}{% endblock %}
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Krona+One&family=Lexend:wght@300;400;500;600&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap">
   <link rel="stylesheet" href="{% static 'search/theme.css' %}?v=4">
@@ -21,14 +21,18 @@
     <div class="wrap">
       <a class="brand" href="{% url 'search:home' %}">Healthy Eats<span class="brand-nyc">NYC</span></a>
       <nav aria-label="Main">
-        <a href="{% url 'search:home' %}"{% if view == 'search:home' %} aria-current="page"{% endif %}>Top picks</a>
-        <a href="{% url 'search:index' %}"{% if view == 'search:index' or view == 'search:restaurant_detail' %} aria-current="page"{% endif %}>Search</a>
+        
+        <a href="{% url 'search:home' %}"{% if view == 'search:home' or from_top_picks %} aria-current="page"{% endif %}>Top picks</a>
+        <a href="{% url 'search:index' %}"{% if view == 'search:index' or view == 'search:restaurant_detail' and not from_top_picks %} aria-current="page"{% endif %}>Search</a>
         {% if user.is_authenticated %}
           {% if user.is_superuser %}
             <a href="{% url 'accounts:admin_dashboard' %}"{% if view == 'accounts:admin_dashboard' or view == 'accounts:admin_user_detail' %} aria-current="page"{% endif %}>Admin</a>
+          {% else %}
+            <a href="{% url 'accounts:profile' %}"{% if view == 'accounts:profile' %} aria-current="page"{% endif %}>Profile</a>
+            {% comment %}
+            <a href="{% url 'accounts:view_profile' user.username %}"{% if view == 'accounts:view_profile' %} aria-current="page"{% endif %}>{{ user.username }}</a>
+            {% endcomment %}
           {% endif %}
-          <a href="{% url 'accounts:profile' %}"{% if view == 'accounts:profile' %} aria-current="page"{% endif %}>Profile</a>
-          <a href="{% url 'accounts:view_profile' user.username %}"{% if view == 'accounts:view_profile' %} aria-current="page"{% endif %}>{{ user.username }}</a>
           <form class="nav-form" method="post" action="{% url 'accounts:logout' %}">
             {% csrf_token %}
             <button type="submit" class="nav-link-button">Log out</button>
@@ -56,11 +60,23 @@
   {% endwith %}
   <main class="wrap {% block main_class %}{% endblock %}">
     {% if messages %}
-      <ul class="messages">
+      <ul class="messages" id="flash-messages">
         {% for message in messages %}
           <li class="message {{ message.tags }}">{{ message }}</li>
         {% endfor %}
       </ul>
+      <script>
+        (function () {
+          var list = document.getElementById('flash-messages');
+          if (!list) return;
+          Array.prototype.forEach.call(list.children, function (item) {
+            setTimeout(function () {
+              item.classList.add('is-dismissing');
+              item.addEventListener('transitionend', function () { item.remove(); }, { once: true });
+            }, 5000);
+          });
+        })();
+      </script>
     {% endif %}
     {% block content %}{% endblock %}
   </main>

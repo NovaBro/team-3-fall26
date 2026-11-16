@@ -5,7 +5,8 @@
 {% block main_class %}restaurant-main{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=15">
+<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=26">
+<script src="{% static 'search/explore_like.js' %}?v=4" defer></script>
 {% endblock %}
 
 {% block content %}
@@ -46,23 +47,22 @@
       {% endif %}
     </div>
     <div class="top-picks__header">
-      <div class="top-picks__titles">
-      <h2 id="top-picks-title"><span class="top-picks__icon" aria-hidden="true">🏆</span> {% if personalized_picks %}Picked for you{% else %}Today's Top Picks{% if selected_boro %} in {{ selected_boro|title }}{% endif %}{% endif %}</h2>
-      <p class="top-picks__subtitle muted">{% if personalized_picks %}Ranked by AI using your profile. Always confirm allergies with the restaurant.{% elif today_mood %}Ranked with today's mood and energy check-in.{% else %}Your next unforgettable food experience starts here!{% endif %}</p></div>
-      <div class="top-picks__loc"><form class="restaurant-borough-filter" method="get">
-      <label for="restaurant-boro">Select your location</label>
-      <select id="restaurant-boro" name="boro" onchange="this.form.submit()">
-        <option value="">All boroughs</option>
-        {% for boro in borough_options %}
-          <option value="{{ boro }}" {% if selected_boro == boro %}selected{% endif %}>{{ boro|title }}</option>
-        {% endfor %}
-      </select>
-      <noscript><button type="submit">Apply</button></noscript>
-    </form></div>
+      <p class="top-picks__date"><span class="top-picks__dot" aria-hidden="true"></span>{{ picks_date|date:"l, M j" }} · refreshed daily</p>
+      <form class="top-picks__title-form" method="get">
+        <h2 id="top-picks-title">{% if personalized_picks %}Picked for you{% else %}Today's Top Picks{% endif %} in
+          <label class="sr-only" for="restaurant-boro">Select your location</label><select id="restaurant-boro" name="boro" class="top-picks__boro" onchange="this.form.submit()">
+            <option value="">New York</option>
+            {% for boro in borough_options %}
+              <option value="{{ boro }}" {% if selected_boro == boro %}selected{% endif %}>{{ boro|title }}</option>
+            {% endfor %}
+          </select></h2>
+        <noscript><button type="submit" class="btn">Apply</button></noscript>
+      </form>
+      <p class="top-picks__subtitle muted">{% if personalized_picks %}Ranked by AI using your profile. Always confirm allergies with the restaurant.{% elif today_mood %}Ranked with today's mood and energy check-in.{% else %}Your next unforgettable food experience starts here!{% endif %}</p>
     </div>
     <div class="top-picks__grid">
       {% for pick in top_picks %}
-        <article class="top-pick-card">
+        <article class="top-pick-card" id="pick-{{ pick.camis }}">
           <div class="top-pick-card__art">
             {% static 'search/images/nyc-restaurant.jpg' as fallback_img %}
             <img
@@ -82,7 +82,7 @@
             </div>
             <h3>
               {% if pick.inspection.camis %}
-                <a href="{% url 'search:restaurant_detail' pick.inspection.camis %}">{{ pick.name }}</a>
+                <a href="{% url 'search:restaurant_detail' pick.inspection.camis %}?from=home{% if selected_boro %}&amp;boro={{ selected_boro|urlencode }}{% endif %}{% if page_obj.number > 1 %}&amp;page={{ page_obj.number }}{% endif %}">{{ pick.name }}</a>
               {% else %}
                 {{ pick.name }}
               {% endif %}
@@ -96,7 +96,7 @@
             {% if pick.reason_tags %}
             <div class="top-pick-card__reasons" aria-label="Why this pick">
               {% for tag in pick.reason_tags %}
-                <span class="top-pick-card__reason">{{ tag }}</span>
+                <span class="top-pick-card__reason{% if tag == "Allergy check" %} top-pick-card__reason--warn{% endif %}"{% if tag == "Similar pick" and pick.similar_to %} title="Because you liked {{ pick.similar_to }}"{% elif tag == "Allergy check" %} title="{{ pick.allergy_warnings|join:", " }} common in {{ pick.cuisine }} food. Always confirm with the restaurant."{% endif %}>{{ tag }}</span>
               {% endfor %}
             </div>
             {% endif %}
@@ -208,7 +208,7 @@
 
     <div class="restaurant-grid">
       {% for restaurant in restaurants %}
-        <article class="restaurant-card">
+        <article class="restaurant-card" id="r-{{ restaurant.camis }}">
           <div class="restaurant-card__art">
             {% static 'search/images/nyc-restaurant.jpg' as fallback_img %}
           <img
@@ -219,10 +219,25 @@
             {% if restaurant.google.price %}<span class="restaurant-card__price">{{ restaurant.google.price }}</span>{% endif %}
           </div>
           <div class="restaurant-card__body">
-            <p class="restaurant-card__category">{{ restaurant.cuisine|default:"Restaurant" }}</p>
+            <div class="restaurant-card__topline">
+              <p class="restaurant-card__category">{{ restaurant.cuisine|default:"Restaurant" }}</p>
+              {% if user.is_authenticated and restaurant.camis %}
+                <form class="restaurant-card__like" method="post"
+                      action="{% url 'search:pick_feedback' restaurant.camis %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="value" value="like">
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}#r-{{ restaurant.camis }}">
+                  <button type="submit"
+                          class="restaurant-card__like-btn{% if restaurant.liked %} is-active{% endif %}"
+                          aria-pressed="{% if restaurant.liked %}true{% else %}false{% endif %}"
+                          aria-label="{% if restaurant.liked %}Liked{% else %}Like{% endif %}"
+                          title="{% if restaurant.liked %}Liked. Press again to undo{% else %}More like this in your Top picks{% endif %}"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.8 4.5c2.1 0 3.6 1.1 4.4 2.5h1.6c.8-1.4 2.3-2.5 4.4-2.5 3.8 0 5.9 3.9 4.4 7.3C19.5 16.4 12 21 12 21z"/></svg></button>
+                </form>
+              {% endif %}
+            </div>
             <h2>
               {% if restaurant.camis %}
-                <a href="{% url 'search:restaurant_detail' restaurant.camis %}">{{ restaurant.name }}</a>
+                <a href="{% url 'search:restaurant_detail' restaurant.camis %}?from=home{% if selected_boro %}&amp;boro={{ selected_boro|urlencode }}{% endif %}{% if page_obj.number > 1 %}&amp;page={{ page_obj.number }}{% endif %}">{{ restaurant.name }}</a>
               {% else %}
                 {{ restaurant.name }}
               {% endif %}
@@ -240,4 +255,8 @@
     <p class="restaurant-home__empty">No restaurant records are available. Import the CSV dataset to populate this page.</p>
   {% endif %}
 </section>
+{% endblock %}
+
+{% block scripts %}{{ block.super }}
+<script src="{% static 'search/boro_reel.js' %}?v=3"></script>
 {% endblock %}

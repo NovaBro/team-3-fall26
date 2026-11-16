@@ -252,9 +252,13 @@ class ProfileTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Account details")
         self.assertContains(response, "foodie")
-        self.assertContains(response, "Not provided yet")
-        self.assertContains(response, "Fixed user inputs")
-        self.assertContains(response, "Variable user inputs")
+        self.assertContains(response, "name not set")
+        self.assertContains(response, "No email yet")
+        self.assertContains(response, "Personal details")
+        self.assertContains(response, "Food preferences")
+        # The photo control sits in Account details but saves with the form.
+        self.assertContains(response, 'form="profile-form"')
+        self.assertContains(response, "Daily check-in")
 
     def test_profile_page_shows_saved_name_and_contact_email(self):
         self.user.email = "sam@example.com"
@@ -283,10 +287,10 @@ class ProfileTests(TestCase):
                 "gender": "non-binary",
                 "weight_lbs": "150.5",
                 "height_in": "68",
-                "favorite_foods": "pizza, dumplings",
-                "disliked_foods": "mushrooms",
+                "favorite_foods": "Pizza, Dumplings",
+                "disliked_foods": "Seafood",
                 "health_goals": ["heart-health", "balanced-diet"],
-                "allergies": "peanuts",
+                "allergies": ["nuts"],
             },
         )
         self.assertRedirects(response, reverse("accounts:profile"))
@@ -302,7 +306,8 @@ class ProfileTests(TestCase):
         self.assertEqual(profile.weight_lbs, 150.5)
         self.assertEqual(profile.height_in, 68)
         self.assertEqual(profile.health_goals, ["heart-health", "balanced-diet"])
-        self.assertEqual(profile.allergies, "peanuts")
+        self.assertEqual(profile.allergies, "Nuts")
+        self.assertEqual(profile.favorite_foods, "Pizza, Dumplings")
         self.assertEqual(profile.phone_number, "(212) 555-0100")
         self.assertTrue(profile.promo_opt_in)
 
@@ -435,6 +440,12 @@ class ProfileTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Pick a mood from the list.")
         self.assertFalse(MoodLog.objects.exists())
+
+    def test_check_in_has_icon_scales_and_no_blank_choice(self):
+        response = self.client.get(reverse("accounts:profile"))
+        self.assertNotContains(response, 'name="mood" value=""')
+        self.assertContains(response, 'class="checkin-scale"', count=2)
+        self.assertContains(response, 'class="checkin-option__icon"', count=10)
 
     def test_mood_history_lists_recent_days_first(self):
         today = today_ny()
@@ -637,6 +648,109 @@ class SuperuserDashboardTests(TestCase):
         self.assertContains(detail_response, "Comments: 1")
         self.assertContains(detail_response, "Ratings: 1")
         self.assertNotContains(detail_response, "peanuts")
+
+
+class AdminDeleteUserTests(TestCase):
+    databases = {"default", "community"}
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            "siteadmin", "admin@example.com", VALID_PASSWORD
+        )
+        self.other_admin = User.objects.create_superuser(
+            "otheradmin", "otheradmin@example.com", VALID_PASSWORD
+        )
+        self.user = User.objects.create_user(
+            "target", "target@example.com", VALID_PASSWORD
+        )
+
+    def test_non_superuser_cannot_delete(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("accounts:admin_delete_user", args=[self.user.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_cannot_delete_own_account(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("accounts:admin_delete_user", args=[self.admin.pk]),
+            follow=True,
+        )
+        self.assertTrue(User.objects.filter(pk=self.admin.pk).exists())
+        self.assertContains(response, "You cannot delete your own account.")
+
+    def test_admin_cannot_delete_another_admin(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("accounts:admin_delete_user", args=[self.other_admin.pk]),
+            follow=True,
+        )
+        self.assertTrue(User.objects.filter(pk=self.other_admin.pk).exists())
+        self.assertContains(response, "Cannot delete another administrator account.")
+
+    def test_admin_can_delete_regular_user(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("accounts:admin_delete_user", args=[self.user.pk]),
+            follow=True,
+        )
+        self.assertFalse(User.objects.filter(pk=self.user.pk).exists())
+        self.assertContains(response, "target", html=False)
+        self.assertContains(response, "was deleted.")
+
+
+class AdminDeleteCommentTests(TestCase):
+    databases = {"default", "community"}
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            "siteadmin", "admin@example.com", VALID_PASSWORD
+        )
+        self.user = User.objects.create_user(
+            "target", "target@example.com", VALID_PASSWORD
+        )
+        self.subject = CommunitySubject.objects.create(
+            kind="restaurant_dohmh", key="camis:1", name="Test Restaurant"
+        )
+        self.comment = UserComment.objects.create(
+            subject=self.subject, user_id=self.user.pk, text="Helpful review"
+        )
+
+    def test_non_superuser_cannot_delete_comment(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("accounts:admin_delete_comment", args=[self.comment.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(UserComment.objects.filter(pk=self.comment.pk).exists())
+
+    def test_admin_can_delete_comment_and_is_redirected_to_dashboard_by_default(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("accounts:admin_delete_comment", args=[self.comment.pk]),
+            follow=True,
+        )
+        self.assertFalse(UserComment.objects.filter(pk=self.comment.pk).exists())
+        self.assertContains(response, "Comment was deleted.")
+        self.assertRedirects(response, reverse("accounts:admin_dashboard"))
+
+    def test_admin_delete_comment_honors_safe_next_url(self):
+        self.client.force_login(self.admin)
+        next_url = reverse("accounts:admin_user_detail", args=[self.user.pk])
+        response = self.client.post(
+            reverse("accounts:admin_delete_comment", args=[self.comment.pk]),
+            {"next": next_url},
+        )
+        self.assertRedirects(response, next_url)
+
+    def test_admin_delete_comment_ignores_unsafe_next_url(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("accounts:admin_delete_comment", args=[self.comment.pk]),
+            {"next": "https://evil.example.com/"},
+        )
+        self.assertRedirects(response, reverse("accounts:admin_dashboard"))
 
 
 class SendPromoEmailCommandTests(TestCase):
