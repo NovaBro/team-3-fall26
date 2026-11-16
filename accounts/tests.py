@@ -588,6 +588,56 @@ class SuperuserDashboardTests(TestCase):
         self.assertNotContains(detail_response, "peanuts")
 
 
+class AdminDeleteUserTests(TestCase):
+    databases = {"default", "community"}
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            "siteadmin", "admin@example.com", VALID_PASSWORD
+        )
+        self.other_admin = User.objects.create_superuser(
+            "otheradmin", "otheradmin@example.com", VALID_PASSWORD
+        )
+        self.user = User.objects.create_user(
+            "target", "target@example.com", VALID_PASSWORD
+        )
+
+    def test_non_superuser_cannot_delete(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("accounts:admin_delete_user", args=[self.user.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_cannot_delete_own_account(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("accounts:admin_delete_user", args=[self.admin.pk]),
+            follow=True,
+        )
+        self.assertTrue(User.objects.filter(pk=self.admin.pk).exists())
+        self.assertContains(response, "You cannot delete your own account.")
+
+    def test_admin_cannot_delete_another_admin(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("accounts:admin_delete_user", args=[self.other_admin.pk]),
+            follow=True,
+        )
+        self.assertTrue(User.objects.filter(pk=self.other_admin.pk).exists())
+        self.assertContains(response, "Cannot delete another administrator account.")
+
+    def test_admin_can_delete_regular_user(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("accounts:admin_delete_user", args=[self.user.pk]),
+            follow=True,
+        )
+        self.assertFalse(User.objects.filter(pk=self.user.pk).exists())
+        self.assertContains(response, "target", html=False)
+        self.assertContains(response, "was deleted.")
+
+
 class SendPromoEmailCommandTests(TestCase):
     def test_sends_only_to_opted_in_users(self):
         opted_in = User.objects.create_user("ann", "ann@example.com", VALID_PASSWORD)
