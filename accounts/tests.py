@@ -638,6 +638,59 @@ class AdminDeleteUserTests(TestCase):
         self.assertContains(response, "was deleted.")
 
 
+class AdminDeleteCommentTests(TestCase):
+    databases = {"default", "community"}
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            "siteadmin", "admin@example.com", VALID_PASSWORD
+        )
+        self.user = User.objects.create_user(
+            "target", "target@example.com", VALID_PASSWORD
+        )
+        self.subject = CommunitySubject.objects.create(
+            kind="restaurant_dohmh", key="camis:1", name="Test Restaurant"
+        )
+        self.comment = UserComment.objects.create(
+            subject=self.subject, user_id=self.user.pk, text="Helpful review"
+        )
+
+    def test_non_superuser_cannot_delete_comment(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("accounts:admin_delete_comment", args=[self.comment.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(UserComment.objects.filter(pk=self.comment.pk).exists())
+
+    def test_admin_can_delete_comment_and_is_redirected_to_dashboard_by_default(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("accounts:admin_delete_comment", args=[self.comment.pk]),
+            follow=True,
+        )
+        self.assertFalse(UserComment.objects.filter(pk=self.comment.pk).exists())
+        self.assertContains(response, "Comment was deleted.")
+        self.assertRedirects(response, reverse("accounts:admin_dashboard"))
+
+    def test_admin_delete_comment_honors_safe_next_url(self):
+        self.client.force_login(self.admin)
+        next_url = reverse("accounts:admin_user_detail", args=[self.user.pk])
+        response = self.client.post(
+            reverse("accounts:admin_delete_comment", args=[self.comment.pk]),
+            {"next": next_url},
+        )
+        self.assertRedirects(response, next_url)
+
+    def test_admin_delete_comment_ignores_unsafe_next_url(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("accounts:admin_delete_comment", args=[self.comment.pk]),
+            {"next": "https://evil.example.com/"},
+        )
+        self.assertRedirects(response, reverse("accounts:admin_dashboard"))
+
+
 class SendPromoEmailCommandTests(TestCase):
     def test_sends_only_to_opted_in_users(self):
         opted_in = User.objects.create_user("ann", "ann@example.com", VALID_PASSWORD)

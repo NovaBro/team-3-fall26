@@ -10,7 +10,11 @@ from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.encoding import force_bytes, force_str
-from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from django.utils.http import (
+    url_has_allowed_host_and_scheme,
+    urlsafe_base64_decode,
+    urlsafe_base64_encode,
+)
 from django.views.decorators.http import require_POST
 
 from accounts.forms import MoodLogForm, SignupForm, UserProfileForm
@@ -298,6 +302,24 @@ def admin_delete_user(request, user_id):
     username = managed_user.username
     managed_user.delete()
     messages.success(request, f'Account "{username}" was deleted.')
+    return redirect("accounts:admin_dashboard")
+
+
+@require_POST
+@login_required
+def admin_delete_comment(request, comment_id):
+    if not request.user.is_superuser:
+        raise PermissionDenied
+
+    comment = get_object_or_404(UserComment, pk=comment_id)
+    comment.delete()
+    messages.success(request, "Comment was deleted.")
+
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return redirect(next_url)
     return redirect("accounts:admin_dashboard")
 
 

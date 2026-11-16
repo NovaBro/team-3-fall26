@@ -25,6 +25,11 @@ urlpatterns = [
         views.admin_delete_user,
         name="admin_delete_user",
     ),
+    path(
+        "admin-dashboard/comments/<int:comment_id>/delete/",
+        views.admin_delete_comment,
+        name="admin_delete_comment",
+    ),
     path("profile/", views.profile, name="profile"),
     path("profile/<str:username>/", views.view_profile, name="view_profile"),
     path("signup/", views.signup, name="signup"),

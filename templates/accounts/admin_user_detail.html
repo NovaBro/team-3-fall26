@@ -42,13 +42,20 @@
   {% if comment_page.object_list %}
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Place</th><th>Comment</th><th>Posted</th></tr></thead>
+        <thead><tr><th>Place</th><th>Comment</th><th>Posted</th><th></th></tr></thead>
         <tbody>
           {% for comment in comment_page %}
             <tr>
               <td>{{ comment.subject.name|default:comment.subject.key }}</td>
               <td>{{ comment.text|linebreaksbr }}</td>
               <td>{{ comment.created_at|date:"N j, Y, P" }}</td>
+              <td>
+                <form method="post" action="{% url 'accounts:admin_delete_comment' comment.pk %}" onsubmit="return confirm('Delete this comment?');">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button type="submit" class="nav-link-button">Delete</button>
+                </form>
+              </td>
             </tr>
           {% endfor %}
         </tbody>
