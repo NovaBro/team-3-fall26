@@ -8,13 +8,10 @@
 
 <section class="form-section">
   <h2>Account details</h2>
-  <dl>
-    <dt>Username</dt>
-    <dd>{{ request.user.username }}</dd>
-    <dt>Name</dt>
-    <dd>{{ fixed_form.instance.name|default:"Not provided yet" }}</dd>
-    <dt>Email</dt>
-    <dd>{{ request.user.email|default:"Not provided yet" }}</dd>
+  <dl class="account-grid">
+    <div class="account-grid__item"><dt>Username</dt><dd>{{ request.user.username }}</dd></div>
+    <div class="account-grid__item"><dt>Name</dt><dd>{{ fixed_form.instance.name|default:"Not provided yet" }}</dd></div>
+    <div class="account-grid__item"><dt>Email</dt><dd>{{ request.user.email|default:"Not provided yet" }}</dd></div>
   </dl>
 </section>
 

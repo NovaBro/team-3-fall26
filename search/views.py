@@ -568,6 +568,7 @@ def home(request):
     borough_options = list(
         RestaurantInspection.objects.exclude(boro="")
         .exclude(boro__isnull=True)
+        .exclude(boro="0")
         .values_list("boro", flat=True)
         .distinct()
         .order_by("boro")

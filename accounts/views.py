@@ -279,6 +279,28 @@ def admin_user_detail(request, user_id):
     )
 
 
+@require_POST
+@login_required
+def admin_delete_user(request, user_id):
+    if not request.user.is_superuser:
+        raise PermissionDenied
+
+    managed_user = get_object_or_404(User, pk=user_id)
+
+    if managed_user.pk == request.user.pk:
+        messages.error(request, "You cannot delete your own account.")
+        return redirect("accounts:admin_user_detail", user_id=managed_user.pk)
+
+    if managed_user.is_superuser:
+        messages.error(request, "Cannot delete another administrator account.")
+        return redirect("accounts:admin_user_detail", user_id=managed_user.pk)
+
+    username = managed_user.username
+    managed_user.delete()
+    messages.success(request, f'Account "{username}" was deleted.')
+    return redirect("accounts:admin_dashboard")
+
+
 def _admin_activity_counts(user_ids):
     if not user_ids:
         return {}

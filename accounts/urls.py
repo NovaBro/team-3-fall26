@@ -20,6 +20,11 @@ urlpatterns = [
         views.admin_user_detail,
         name="admin_user_detail",
     ),
+    path(
+        "admin-dashboard/users/<int:user_id>/delete/",
+        views.admin_delete_user,
+        name="admin_delete_user",
+    ),
     path("profile/", views.profile, name="profile"),
     path("profile/<str:username>/", views.view_profile, name="view_profile"),
     path("signup/", views.signup, name="signup"),

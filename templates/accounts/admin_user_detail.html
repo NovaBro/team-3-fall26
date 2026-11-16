@@ -4,7 +4,7 @@
 
 {% block content %}
 <p><a href="{% url 'accounts:admin_dashboard' %}?tab=users">← Back to accounts</a></p>
-<h1>{{ managed_user.get_full_name|default:managed_user.username }}</h1>
+<h1>{{ managed_user.username }}</h1>
 <p class="muted">Administrator-only account overview.</p>
 
 <nav class="admin-tabs" aria-label="Administration">
@@ -14,15 +14,25 @@
 </nav>
 
 <section class="form-section">
-  <h2>Account</h2>
-  <dl>
-    <dt>Username</dt><dd>{{ managed_user.username }}</dd>
-    <dt>Name</dt><dd>{% if profile and profile.name %}{{ profile.name }}{% else %}{{ managed_user.get_full_name|default:"Not provided" }}{% endif %}</dd>
-    <dt>Email</dt><dd>{{ managed_user.email|default:"Not provided" }}</dd>
-    <dt>Status</dt><dd>{% if managed_user.is_active %}Active{% else %}Inactive{% endif %}</dd>
-    <dt>Joined</dt><dd>{{ managed_user.date_joined|date:"N j, Y, P" }}</dd>
-    <dt>Last login</dt><dd>{{ managed_user.last_login|date:"N j, Y, P"|default:"Never" }}</dd>
+  <div class="account-summary__header">
+    <h2>Account</h2>
+    <span class="status-pill {% if managed_user.is_active %}status-pill--active{% else %}status-pill--inactive{% endif %}">
+      {% if managed_user.is_active %}Active{% else %}Inactive{% endif %}
+    </span>
+  </div>
+  <dl class="account-grid">
+    <div class="account-grid__item"><dt>Username</dt><dd>{{ managed_user.username }}</dd></div>
+    <div class="account-grid__item"><dt>Name</dt><dd>{% if profile and profile.name %}{{ profile.name }}{% else %}{{ managed_user.get_full_name|default:"Not provided" }}{% endif %}</dd></div>
+    <div class="account-grid__item"><dt>Email</dt><dd>{{ managed_user.email|default:"Not provided" }}</dd></div>
+    <div class="account-grid__item"><dt>Joined</dt><dd>{{ managed_user.date_joined|date:"N j, Y, P" }}</dd></div>
+    <div class="account-grid__item"><dt>Last login</dt><dd>{{ managed_user.last_login|date:"N j, Y, P"|default:"Never" }}</dd></div>
   </dl>
+  {% if managed_user.pk != request.user.pk and not managed_user.is_superuser %}
+    <form method="post" action="{% url 'accounts:admin_delete_user' managed_user.pk %}" class="account-summary__delete" onsubmit="return confirm('Delete {{ managed_user.username }}? This cannot be undone.');">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-danger">Delete account</button>
+    </form>
+  {% endif %}
 </section>
 
 <section class="form-section">
