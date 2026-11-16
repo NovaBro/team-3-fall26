@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -193,7 +194,13 @@ if not RUNNING_TESTS:
     CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
-            "LOCATION": os.environ.get("DJANGO_CACHE_DIR", str(BASE_DIR / ".cache")),
+            # /tmp: writable by whichever user runs the app (on Elastic
+            # Beanstalk that is "webapp", which can't create folders in the
+            # app directory).
+            "LOCATION": os.environ.get(
+                "DJANGO_CACHE_DIR",
+                os.path.join(tempfile.gettempdir(), "nycfood-cache"),
+            ),
             "OPTIONS": {"MAX_ENTRIES": 5000},
         }
     }
