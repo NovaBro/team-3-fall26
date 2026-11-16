@@ -54,6 +54,26 @@ class PlaceEnrichment(models.Model):
     def price_level_display(self):
         return self.PRICE_LEVEL_LABELS.get(self.price_level, "")
 
+    @property
+    def review_summary(self):
+        """Google's AI review summary from the last fetch, or None.
+
+        Returns ``{"text", "disclosure", "reviews_uri", "flag_uri"}``. Google
+        requires the disclosure text and the reviews link next to it. Places
+        fetched before the field was requested have none until refreshed.
+        """
+        summary = (self.raw_json or {}).get("reviewSummary") or {}
+        text = (summary.get("text") or {}).get("text", "")
+        if not text:
+            return None
+        return {
+            "text": text,
+            "disclosure": (summary.get("disclosureText") or {}).get("text")
+            or "Summarized with Gemini",
+            "reviews_uri": summary.get("reviewsUri") or self.google_maps_uri,
+            "flag_uri": summary.get("flagContentUri", ""),
+        }
+
 
 class PlaceReview(models.Model):
     """A single Google review captured for a PlaceEnrichment.
@@ -229,3 +249,40 @@ class RecommendationFeedback(models.Model):
 
     def __str__(self):
         return f"{self.user_id} {self.get_value_display()} {self.camis}"
+
+
+class HealthScore(models.Model):
+    """AI health score (0–1) for a DOHMH restaurant, computed offline.
+
+    Filled by ``python manage.py score_health`` on a developer machine from
+    Google reviews and MenuStat menu text (see search/health_ai.py). The web
+    server only reads it; restaurants without a row use the keyword method.
+    """
+
+    camis = models.CharField(max_length=32, unique=True)
+    score = models.FloatField()
+    sentences_used = models.PositiveIntegerField(default=0)
+    model_name = models.CharField(max_length=128, blank=True)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.camis} {self.score:.2f}"
+
+
+class ReasonBlurb(models.Model):
+    """Gemini-written "why we recommend it" paragraph for a restaurant.
+
+    Filled by ``python manage.py write_reasons`` on a developer machine from
+    the restaurant's general (non-personal) reasons and a few review lines.
+    The web server only reads it; restaurants without a row show the plain
+    reason list.
+    """
+
+    camis = models.CharField(max_length=32, unique=True)
+    text = models.TextField()
+    facts = models.TextField(blank=True)
+    model_name = models.CharField(max_length=128, blank=True)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.camis} {self.text[:40]}"

@@ -114,6 +114,56 @@
 }
 
 .restaurant-card__body { padding: 12px 14px 14px; }
+
+/* Heart at the end of the cuisine line on Explore more cards (logged-in
+   users). It saves a Like, the same as the Top picks button, which shapes
+   later Top picks. */
+.restaurant-card__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.restaurant-card__topline .restaurant-card__category { margin-bottom: 0; }
+.restaurant-card__like { margin: 0; flex: none; }
+.restaurant-card__like-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--raised);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+}
+.restaurant-card__like-btn svg { fill: currentColor; }
+.restaurant-card__like-btn:hover { color: #e8436a; border-color: #e8436a; }
+.restaurant-card__like-btn.is-active {
+  border-color: transparent;
+  background: linear-gradient(135deg, #f0577b, #e2365e);
+  color: #fff;
+}
+.restaurant-card__like-btn:active { transform: scale(0.92); }
+.restaurant-card__like-btn:disabled { opacity: 0.6; cursor: progress; }
+/* Night mode paints every button blue (theme.css); keep the heart's look. */
+:root[data-theme="dark"] .restaurant-card__like-btn {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--muted);
+}
+:root[data-theme="dark"] .restaurant-card__like-btn:hover {
+  border-color: #f0577b;
+  color: #f0577b;
+}
+:root[data-theme="dark"] .restaurant-card__like-btn.is-active {
+  border-color: transparent;
+  background: linear-gradient(135deg, #f0577b, #e2365e);
+  color: #fff;
+}
 .restaurant-card__category {
   margin: 0 0 4px;
   color: var(--warn);
@@ -512,6 +562,24 @@
 .top-pick-card__feedback-btn.is-active {
   background: var(--ink);
   color: var(--raised);
+}
+
+/* "Not interested" (no reload): the Top pick's photo turns grey, Like is
+   switched off, and the button becomes Undo. The next visit fills the slot
+   with another place. */
+.top-pick-card.is-hidden-pick .top-pick-card__art img,
+.top-pick-card.is-hidden-pick .top-pick-card__rank {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+.top-pick-card.is-hidden-pick,
+.top-pick-card.is-hidden-pick:hover {
+  transform: none;
+  box-shadow: none;
+}
+.top-pick-card.is-hidden-pick .top-pick-card__feedback-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* Card layout: every section (cuisine, name, address, reason tags, rating,
