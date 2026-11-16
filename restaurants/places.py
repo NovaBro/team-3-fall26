@@ -8,12 +8,15 @@ are fetched at request time and not stored. locate_place() is the exception:
 callers may keep its place ID and, for up to 30 days, its coordinates.
 """
 
+import hashlib
 import math
 import os
 import re
 import unicodedata
 
 import requests
+from django.conf import settings
+from django.core.cache import cache
 
 from restaurants.diet_filters import DIETS, risky_google_types
 
@@ -154,8 +157,16 @@ def _match_value(value):
     return " ".join(re.findall(r"[a-z0-9]+", value.casefold()))
 
 
-def _match_street(value):
-    value = re.sub(r"^\s*\d+[A-Za-z]?(?:-\d+[A-Za-z]?)?\s+", "", value or "")
+def _match_street(value, has_number=True):
+    """Street words for comparing a DOHMH street with a Google one.
+
+    Google streets start with a house number ("1385 3rd Avenue"), which is
+    dropped. DOHMH streets have no house number ("3 AVENUE"), so pass
+    ``has_number=False`` to keep their leading number. Ordinals lose their
+    suffix ("35th" -> "35") so "WEST 35 STREET" matches "West 35th Street".
+    """
+    if has_number:
+        value = re.sub(r"^\s*\d+[A-Za-z]?(?:-\d+[A-Za-z]?)?\s+", "", value or "")
     aliases = {
         "avenue": "ave",
         "boulevard": "blvd",
@@ -170,15 +181,40 @@ def _match_street(value):
         "east": "e",
         "west": "w",
     }
-    return " ".join(aliases.get(word, word) for word in _match_value(value).split())
+    words = []
+    for word in _match_value(value).split():
+        word = re.sub(r"^(\d+)(?:st|nd|rd|th)$", r"\1", word)
+        words.append(aliases.get(word, word))
+    return " ".join(words)
+
+
+_NO_MATCH = "no-match"  # cached when Google answered but nothing matched
 
 
 def find_restaurant_place(name, zipcode, street, api_key=None):
-    """Find one confident Google Places match for an NYC inspection record."""
+    """Find one confident Google Places match for an NYC inspection record.
+
+    Answers are cached for PLACES_CACHE_SECONDS (a match or "no match"), so
+    reloading the home page does not search Google again. Failed requests are
+    not cached and are tried again next time.
+    """
     api_key = api_key or os.environ.get("GOOGLE_API_KEY", "")
     if not api_key or not name or not zipcode:
         return None
+    seconds = getattr(settings, "PLACES_CACHE_SECONDS", 0)
+    key = "place:" + hashlib.sha1(f"{name}|{zipcode}|{street}".encode()).hexdigest()
+    if seconds:
+        hit = cache.get(key)
+        if hit is not None:
+            return None if hit == _NO_MATCH else hit
+    place, answered = _search_restaurant_place(name, zipcode, street, api_key)
+    if seconds and answered:
+        cache.set(key, place if place is not None else _NO_MATCH, seconds)
+    return place
 
+
+def _search_restaurant_place(name, zipcode, street, api_key):
+    """(place or None, whether Google answered) for one Text Search."""
     try:
         response = requests.post(
             SEARCH_URL,
@@ -196,28 +232,28 @@ def find_restaurant_place(name, zipcode, street, api_key=None):
             timeout=8,
         )
     except requests.RequestException:
-        return None
+        return None, False
     if response.status_code != 200:
-        return None
+        return None, False
 
     target_name = _match_value(name)
-    target_street = _match_street(street)
+    target_street = _match_street(street, has_number=False)
     try:
         candidates = [_normalize(place) for place in response.json().get("places", [])]
     except (TypeError, ValueError):
-        return None
+        return None, False
     candidates = [place for place in candidates if place.get("zipcode") == zipcode]
     exact = [
         place for place in candidates if _match_value(place["name"]) == target_name
     ]
     if len(exact) == 1:
-        return exact[0]
+        return exact[0], True
     if target_street:
         exact_street = [
             place for place in exact if _match_street(place["street"]) == target_street
         ]
         if len(exact_street) == 1:
-            return exact_street[0]
+            return exact_street[0], True
 
         partial_street = [
             place
@@ -230,8 +266,8 @@ def find_restaurant_place(name, zipcode, street, api_key=None):
             and _match_street(place["street"]) == target_street
         ]
         if len(partial_street) == 1:
-            return partial_street[0]
-    return None
+            return partial_street[0], True
+    return None, True
 
 
 LOCATE_FIELD_MASK = "places.id,places.formattedAddress,places.location"

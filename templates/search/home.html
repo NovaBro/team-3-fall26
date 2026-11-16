@@ -5,7 +5,8 @@
 {% block main_class %}restaurant-main{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=14">
+<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=19">
+<script src="{% static 'search/explore_like.js' %}?v=4" defer></script>
 {% endblock %}
 
 {% block content %}
@@ -31,7 +32,7 @@
     </div>
     <div class="top-picks__grid">
       {% for pick in top_picks %}
-        <article class="top-pick-card">
+        <article class="top-pick-card" id="pick-{{ pick.camis }}">
           <div class="top-pick-card__art">
             {% static 'search/images/nyc-restaurant.jpg' as fallback_img %}
             <img
@@ -51,7 +52,7 @@
             </div>
             <h3>
               {% if pick.inspection.camis %}
-                <a href="{% url 'search:restaurant_detail' pick.inspection.camis %}">{{ pick.name }}</a>
+                <a href="{% url 'search:restaurant_detail' pick.inspection.camis %}?from=home{% if selected_boro %}&amp;boro={{ selected_boro|urlencode }}{% endif %}{% if page_obj.number > 1 %}&amp;page={{ page_obj.number }}{% endif %}">{{ pick.name }}</a>
               {% else %}
                 {{ pick.name }}
               {% endif %}
@@ -65,7 +66,7 @@
             {% if pick.reason_tags %}
             <div class="top-pick-card__reasons" aria-label="Why this pick">
               {% for tag in pick.reason_tags %}
-                <span class="top-pick-card__reason">{{ tag }}</span>
+                <span class="top-pick-card__reason"{% if tag == "Similar pick" and pick.similar_to %} title="Because you liked {{ pick.similar_to }}"{% endif %}>{{ tag }}</span>
               {% endfor %}
             </div>
             {% endif %}
@@ -177,7 +178,7 @@
 
     <div class="restaurant-grid">
       {% for restaurant in restaurants %}
-        <article class="restaurant-card">
+        <article class="restaurant-card" id="r-{{ restaurant.camis }}">
           <div class="restaurant-card__art">
             {% static 'search/images/nyc-restaurant.jpg' as fallback_img %}
           <img
@@ -188,10 +189,25 @@
             {% if restaurant.google.price %}<span class="restaurant-card__price">{{ restaurant.google.price }}</span>{% endif %}
           </div>
           <div class="restaurant-card__body">
-            <p class="restaurant-card__category">{{ restaurant.cuisine|default:"Restaurant" }}</p>
+            <div class="restaurant-card__topline">
+              <p class="restaurant-card__category">{{ restaurant.cuisine|default:"Restaurant" }}</p>
+              {% if user.is_authenticated and restaurant.camis %}
+                <form class="restaurant-card__like" method="post"
+                      action="{% url 'search:pick_feedback' restaurant.camis %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="value" value="like">
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}#r-{{ restaurant.camis }}">
+                  <button type="submit"
+                          class="restaurant-card__like-btn{% if restaurant.liked %} is-active{% endif %}"
+                          aria-pressed="{% if restaurant.liked %}true{% else %}false{% endif %}"
+                          aria-label="{% if restaurant.liked %}Liked{% else %}Like{% endif %}"
+                          title="{% if restaurant.liked %}Liked. Press again to undo{% else %}More like this in your Top picks{% endif %}"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.8 4.5c2.1 0 3.6 1.1 4.4 2.5h1.6c.8-1.4 2.3-2.5 4.4-2.5 3.8 0 5.9 3.9 4.4 7.3C19.5 16.4 12 21 12 21z"/></svg></button>
+                </form>
+              {% endif %}
+            </div>
             <h2>
               {% if restaurant.camis %}
-                <a href="{% url 'search:restaurant_detail' restaurant.camis %}">{{ restaurant.name }}</a>
+                <a href="{% url 'search:restaurant_detail' restaurant.camis %}?from=home{% if selected_boro %}&amp;boro={{ selected_boro|urlencode }}{% endif %}{% if page_obj.number > 1 %}&amp;page={{ page_obj.number }}{% endif %}">{{ restaurant.name }}</a>
               {% else %}
                 {{ restaurant.name }}
               {% endif %}

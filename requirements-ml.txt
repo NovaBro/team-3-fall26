@@ -1,4 +1,6 @@
-# Local only: used by `python manage.py score_health` to compute AI health
-# scores. Not installed on the server or in CI (the server reads stored scores).
+# Local only: used by `python manage.py score_health` (AI health scores) and
+# `write_reasons` (Gemini reason text). Not installed on the server or in CI:
+# the server only reads the stored results.
 -r requirements.txt
 sentence-transformers>=3.0
+google-genai>=1.0

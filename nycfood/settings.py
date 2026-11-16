@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -162,10 +163,24 @@ LOGGING = {
 # Google Places API (New)
 # Set the GOOGLE_PLACES_API_KEY environment variable to enable enrichment.
 GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+# Fetch and store a restaurant's Google data the first time its detail page is
+# opened (needs the key above). Always off under `manage.py test`.
+GOOGLE_AUTO_FETCH = sys.argv[1:2] != ["test"]
 
 # Auth redirects for the profile tab.
 # The AI assistant stays hidden until ANTHROPIC_API_KEY is set.
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+# Gemini writes a restaurant's "why we recommend it" paragraph on its first
+# detail-page visit (search/reason_writer.py); without a key the page shows the
+# plain reason list. Always off under `manage.py test` so tests never call it.
+RUNNING_TESTS = sys.argv[1:2] == ["test"]
+GEMINI_API_KEY = "" if RUNNING_TESTS else os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
+
+# Home page Google lookups (Top picks + Explore more cards) are remembered this
+# long, so a reload does not search Google again. Off in tests.
+PLACES_CACHE_SECONDS = 0 if RUNNING_TESTS else 60 * 60
 ASSISTANT_MODEL = os.environ.get("ASSISTANT_MODEL", "claude-haiku-5-5")
 ASSISTANT_DAILY_MESSAGES = int(os.environ.get("ASSISTANT_DAILY_MESSAGES", "50"))
 

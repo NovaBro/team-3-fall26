@@ -27,6 +27,9 @@ LIKED_STARS = 4  # star ratings at or above this count as a like
 DISLIKED_STARS = 2  # star ratings at or below this count as not interested
 BECAUSE_YOU_LIKED = "Because you liked {name}"
 TAG_YOU_LIKED = "You liked this"
+# Short card tag for a place like one the user liked; the liked place's name
+# goes in breakdown["similar_to"] (tooltip, reason sentence).
+TAG_SIMILAR_PICK = "Similar pick"
 
 HEALTHY_CUISINES = {
     "Salads",
@@ -385,6 +388,32 @@ def pick_display_review(reviews, profile=None):
 AI_HEALTH_EFFECT = 0.6  # ai score 0..1 -> -0.3..+0.3, same range as keywords
 
 
+def health_parts(cuisine, reviews, name, goal_words=(), ai_score=None):
+    """The pieces that make up the health component (each added to 0.5).
+
+    cuisine: +0.2 healthy / -0.2 unhealthy cuisine
+    reviews: AI score effect, or the keyword share effect when no AI score
+    fast_food: -0.2 for fast-food chains
+    """
+    parts = {"cuisine": 0.0, "reviews": 0.0, "fast_food": 0.0}
+    cuisine = (cuisine or "").strip()
+    if cuisine in HEALTHY_CUISINES:
+        parts["cuisine"] = 0.2
+    elif cuisine in UNHEALTHY_CUISINES:
+        parts["cuisine"] = -0.2
+
+    if ai_score is not None:
+        parts["reviews"] = AI_HEALTH_EFFECT * (float(ai_score) - 0.5)
+    else:
+        healthy, unhealthy, total = classify_reviews(reviews, goal_words)
+        if total:
+            parts["reviews"] = 0.3 * ((healthy / total) - (unhealthy / total))
+
+    if is_fast_food(name):
+        parts["fast_food"] = -0.2
+    return parts
+
+
 def health_score(cuisine, reviews, name, goal_words=(), ai_score=None):
     """Health component in [0, 1].
 
@@ -392,24 +421,37 @@ def health_score(cuisine, reviews, name, goal_words=(), ai_score=None):
     When present it replaces the keyword count of the reviews; otherwise the
     keyword method is used.
     """
-    score = 0.5
-    cuisine = (cuisine or "").strip()
-    if cuisine in HEALTHY_CUISINES:
-        score += 0.2
-    elif cuisine in UNHEALTHY_CUISINES:
-        score -= 0.2
+    parts = health_parts(cuisine, reviews, name, goal_words, ai_score)
+    return max(0.0, min(1.0, 0.5 + sum(parts.values())))
 
-    if ai_score is not None:
-        score += AI_HEALTH_EFFECT * (float(ai_score) - 0.5)
-    else:
-        healthy, unhealthy, total = classify_reviews(reviews, goal_words)
-        if total:
-            score += 0.3 * ((healthy / total) - (unhealthy / total))
 
-    if is_fast_food(name):
-        score -= 0.2
+# ---------------------------------------------------------------------------
+# "Why this pick" sentences: the parts that pushed the score up the most.
 
-    return max(0.0, min(1.0, score))
+REASON_MIN_POINTS = 1.0  # smaller pushes are not worth a sentence
+AI_REASON_MIN = 0.6  # AI review score needed to say "healthy food" in a reason
+HIGHLY_RATED_MIN = 4.5  # same bar as the Top rated tag
+HIGHLY_RATED_MIN_VOTES = 50
+MAX_REASONS = 3
+
+
+def explain_reasons(contributions, max_reasons=MAX_REASONS):
+    """Pick the strongest positive reasons and return them as short sentences.
+
+    ``contributions`` is a list of (points, sentence, fallback) where *points*
+    is how much that part raised the score compared with an average place.
+    Fallback reasons (inspection grade, which every Top pick shares) are only
+    used when fewer than two other reasons are strong enough.
+    """
+    strong = sorted(
+        (c for c in contributions if c[0] >= REASON_MIN_POINTS),
+        key=lambda c: -c[0],
+    )
+    main = [sentence for _p, sentence, fallback in strong if not fallback]
+    extra = [sentence for _p, sentence, fallback in strong if fallback]
+    if len(main) < 2:
+        main += extra
+    return main[:max_reasons]
 
 
 def grade_score(grade):
@@ -490,7 +532,8 @@ def score_restaurant(
     the stored AI health score (0–1); None falls back to review keywords.
     """
     goal_words = _goal_words(profile)
-    h = health_score(cuisine, reviews, name, goal_words, ai_score=ai_health)
+    h_parts = health_parts(cuisine, reviews, name, goal_words, ai_score=ai_health)
+    h = max(0.0, min(1.0, 0.5 + sum(h_parts.values())))
     g = grade_score(grade)
     r = rating_score(google_rating, google_count, app_avg, app_count)
     has_calories = calorie_score is not None
@@ -510,11 +553,13 @@ def score_restaurant(
     adjustments = []
     is_favorite = False
     is_nearby = False
+    favorite_food = ""
     if profile is not None:
         for food in split_foods(getattr(profile, "favorite_foods", "")):
             if whole_word_match(food, cuisine, name):
                 score += 10.0
                 is_favorite = True
+                favorite_food = food
                 adjustments.append({"label": "Favorite food match", "delta": 10.0})
                 break
         for food in split_foods(getattr(profile, "disliked_foods", "")):
@@ -568,8 +613,12 @@ def score_restaurant(
         candidates.append(TAG_GRADE_A)
 
     tags = [tag for tag in TAG_ORDER if tag in candidates]
-    if liked_tag:
+    similar_to = ""
+    if liked_tag == TAG_YOU_LIKED:
         tags.insert(0, liked_tag)
+    elif liked_tag:
+        similar_to = liked_tag.replace("Because you liked ", "")
+        tags.insert(0, TAG_SIMILAR_PICK)
     # The card shows the grade only here (no photo badge), so B and C appear too.
     if (grade or "").strip().upper() in ("B", "C"):
         tags.append(f"Grade {(grade or '').strip().upper()}")
@@ -597,16 +646,66 @@ def score_restaurant(
     if has_calories:
         parts.append(_part("calories", "Menu calories", c, w_c))
 
+    # Why this pick: how much each part raised the score vs. an average place
+    # (a 0.5 component, no adjustments).
+    contributions = []
+    if h_parts["cuisine"] > 0:
+        contributions.append(
+            (100 * w_h * h_parts["cuisine"], f"Healthy cuisine ({cuisine})", False)
+        )
+    # Only claim "healthy reviews" on a clear signal, not a score just above 0.5.
+    if ai_health is not None and float(ai_health) >= AI_REASON_MIN:
+        contributions.append(
+            (
+                100 * w_h * h_parts["reviews"],
+                "Reviews describe fresh, healthy food",
+                False,
+            )
+        )
+    elif ai_health is None and TAG_HEALTHY_REVIEWS in candidates:
+        contributions.append(
+            (100 * w_h * h_parts["reviews"], "Reviews mention healthy dishes", False)
+        )
+    if c is not None:
+        contributions.append((100 * w_c * (c - 0.5), "Lighter menu choices", False))
+    highly_rated = blended >= HIGHLY_RATED_MIN and vote_count >= HIGHLY_RATED_MIN_VOTES
+    if google_rating and google_count and highly_rated:
+        contributions.append(
+            (
+                100 * w_r * (r - 0.5),
+                f"Highly rated ({float(google_rating):.1f}★, "
+                f"{int(google_count):,} reviews)",
+                False,
+            )
+        )
+    if is_favorite:
+        contributions.append(
+            (10.0, f"Matches your favorite food ({favorite_food})", False)
+        )
+    if is_nearby:
+        contributions.append((5.0, "Near your home", False))
+    if like_bonus and similar_to:
+        contributions.append(
+            (like_bonus, f"Similar to {similar_to}, which you liked", False)
+        )
+    if (grade or "").strip().upper() == "A":
+        contributions.append((100 * w_g * (g - 0.5), "NYC health grade A", True))
+    reasons = explain_reasons(contributions)
+
     breakdown = {
         "mode": "health_focus" if focus else "default",
         "has_calories": has_calories,
         "ai_health": ai_health,
+        "health_parts": h_parts,
+        "reasons": reasons,
+        "reason_text": " · ".join(reasons),
         "parts": parts,
         "adjustments": adjustments,
         "base_points": base_points,
         "total": score,
         "tags": tags,
         "like_bonus": like_bonus,
+        "similar_to": similar_to,
     }
     return score, tags, breakdown
 

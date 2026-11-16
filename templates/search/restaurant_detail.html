@@ -3,7 +3,7 @@
 {% block title %}{{ dba }} - NYC Food Search{% endblock %}
 
 {% block content %}
-<a class="back-link" href="{% url 'search:index' %}">&larr; Back to search</a>
+<a class="back-link" href="{{ back_url }}">&larr; {{ back_label }}</a>
 <h1>{{ dba }}</h1>
 <p class="muted">{% if cuisine %}{{ cuisine }} &middot; {% endif %}{{ street }}, {{ boro }} {{ zipcode }} &middot; <span class="mono">CAMIS {{ camis }}</span></p>
 
@@ -20,6 +20,17 @@
       <span class="healthiness-score__tag">{{ tag }}</span>
     {% endfor %}
   </p>
+  {% endif %}
+  {% if score_breakdown.reasons %}
+  <h3 class="healthiness-score__how">Why we recommend it</h3>
+  {% if reason_blurb %}
+  <p class="healthiness-score__blurb">{{ reason_blurb }}</p>
+  {% endif %}
+  <ul class="healthiness-score__why">
+    {% for reason in score_breakdown.reasons %}
+      <li>{{ reason }}</li>
+    {% endfor %}
+  </ul>
   {% endif %}
   <h3 class="healthiness-score__how">How this score is calculated</h3>
   <ul class="healthiness-score__parts">
@@ -66,7 +77,19 @@
       {% if place.google_maps_uri %}<a href="{{ place.google_maps_uri }}" rel="noopener nofollow">View on Google Maps</a>{% endif %}
     </p>
 
-    {% if place.reviews.all %}
+    {% with summary=place.review_summary %}
+    {% if summary %}
+      <div class="review-summary">
+        <h3 class="review-summary__title">Review summary</h3>
+        <p class="review-summary__text">{{ summary.text }}</p>
+        <p class="review-summary__meta">
+          {{ summary.disclosure }} &middot;
+          <a href="{{ summary.reviews_uri }}" rel="noopener nofollow" target="_blank">Read reviews on Google Maps</a>
+          {% if summary.flag_uri %}&middot;
+          <a href="{{ summary.flag_uri }}" rel="noopener nofollow" target="_blank">Report this summary</a>{% endif %}
+        </p>
+      </div>
+    {% elif place.reviews.all %}
       <ul class="reviews">
         {% for review in place.reviews.all %}
           <li class="review">
@@ -80,6 +103,7 @@
         {% endfor %}
       </ul>
     {% endif %}
+    {% endwith %}
     <span class="attr">Data from Google. Last fetched {{ place.fetched_at }}.</span>
   </div>
 {% else %}
