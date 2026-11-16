@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Your profile - NYC Food Search{% endblock %}
 
@@ -39,70 +40,119 @@
 </section>
 
 <section class="form-section">
-  <h2>Fixed user inputs</h2>
-  <p class="muted">Basics about you. Update these whenever something changes.</p>
-  <form id="profile-form" method="post" action="{% url 'accounts:profile' %}" enctype="multipart/form-data">
+  <form method="post" action="{% url 'accounts:profile' %}" enctype="multipart/form-data" id="profile-form">
     {% csrf_token %}
     {% if fixed_form.non_field_errors %}
       <ul class="errorlist">{{ fixed_form.non_field_errors }}</ul>
     {% endif %}
+    <div class="section-head">
+      <h2>Personal details</h2>
+    </div>
     <div class="field-grid">
       {% for field in fixed_form %}
-        {% if field.name != "picture" %}
-          <div class="field{% if field.name in wide_fields %} field--wide{% endif %}">
-            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-            {{ field }}
-            {% for error in field.errors %}
-              <p class="field-errors">{{ error }}</p>
-            {% endfor %}
-          </div>
-        {% endif %}
-      {% endfor %}
-    </div>
-    <button type="submit" class="btn" name="action" value="save_fixed">Save fixed inputs</button>
-  </form>
-</section>
-
-<section class="form-section">
-  <h2>Variable user inputs</h2>
-  <p class="muted">A quick daily check-in. Every save is added to your history.</p>
-  <form method="post" action="{% url 'accounts:profile' %}">
-    {% csrf_token %}
-    {% if mood_form.non_field_errors %}
-      <ul class="errorlist">{{ mood_form.non_field_errors }}</ul>
-    {% endif %}
-    <div class="field-grid">
-      {% for field in mood_form %}
-        <div class="field field--wide">
+        {% if field.name not in food_fields and field.name != "picture" %}
+        <div class="field{% if field.name in wide_fields %} field--wide{% endif %}">
           <label for="{{ field.id_for_label }}">{{ field.label }}</label>
           {{ field }}
+          {% if field.help_text %}<p class="muted field-help">{{ field.help_text }}</p>{% endif %}
           {% for error in field.errors %}
             <p class="field-errors">{{ error }}</p>
           {% endfor %}
         </div>
+        {% endif %}
       {% endfor %}
     </div>
-    <button type="submit" class="btn" name="action" value="log_mood">Save check-in</button>
+    <div class="section-head section-head--next">
+      <h2>Food preferences</h2>
+      <p class="muted">Shapes your Top picks</p>
+    </div>
+    <div class="field-grid">
+      {% for field in fixed_form %}
+        {% if field.name in food_fields %}
+        <div class="field{% if field.name in wide_fields %} field--wide{% endif %}">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.help_text %}<p class="muted field-help">{{ field.help_text }}</p>{% endif %}
+          {% for error in field.errors %}
+            <p class="field-errors">{{ error }}</p>
+          {% endfor %}
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <button type="submit" class="btn" name="action" value="save_fixed">Save profile</button>
+  </form>
+</section>
+
+<section class="form-section">
+  <div class="section-head">
+    <h2>Daily check-in</h2>
+    <p class="muted">How are you feeling today?</p>
+  </div>
+  <form method="post" action="{% url 'accounts:profile' %}" class="checkin-form">
+    {% csrf_token %}
+    {% if mood_form.non_field_errors %}
+      <ul class="errorlist">{{ mood_form.non_field_errors }}</ul>
+    {% endif %}
+    {% for field in mood_form %}
+      <div class="checkin-field">
+        <p class="checkin-field__label" id="{{ field.id_for_label }}_label">{{ field.label }}</p>
+        {{ field }}
+        {% for error in field.errors %}
+          <p class="field-errors">{{ error }}</p>
+        {% endfor %}
+      </div>
+    {% endfor %}
+    <button type="submit" class="btn" name="action" value="log_mood">Log check-in</button>
   </form>
 
   <h2>Recent check-ins</h2>
   {% if mood_history %}
-    <table>
-      <thead>
-        <tr><th>When</th><th>Mood</th><th>Energy level</th></tr>
-      </thead>
-      <tbody>
-        {% for log in mood_history %}
-          <tr>
-            <td>{{ log.created_at|date:"N j, Y, P" }}</td>
-            <td>{{ log.mood_display_label }}</td>
-            <td>{{ log.energy_display_label }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <ul class="checkin-history">
+      {% for log in mood_history %}
+        <li>
+          <span class="checkin-history__when muted">{{ log.created_at|date:"N j, P" }}</span>
+          <span class="checkin-history__item">{{ log.mood_icon }}{{ log.mood_display_label }}</span>
+          <span class="checkin-history__item">{{ log.energy_icon }}{{ log.energy_display_label }}</span>
+        </li>
+      {% endfor %}
+    </ul>
   {% else %}
     <p class="empty">No check-ins yet. Log your first one above.</p>
   {% endif %}
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'search/food_picker.js' %}?v=1"></script>
+<script>
+  // Choosing a profile photo (Account details) saves the profile form at once.
+  (function () {
+    var photo = document.getElementById("id_picture");
+    var form = document.getElementById("profile-form");
+    if (!photo || !form) return;
+    photo.addEventListener("change", function () {
+      if (!photo.files.length) return;
+      var save = form.querySelector('[name="action"][value="save_fixed"]');
+      if (form.requestSubmit) form.requestSubmit(save); else save.click();
+    });
+  })();
+</script>
+<script>
+  // BMI is worked out from weight (lbs) and height (in) as they are typed;
+  // the field itself can't be edited. Same formula as search/recommend.bmi.
+  (function () {
+    var weight = document.getElementById("id_weight_lbs");
+    var height = document.getElementById("id_height_in");
+    var out = document.getElementById("id_bmi");
+    if (!weight || !height || !out) return;
+    function update() {
+      var w = parseFloat(weight.value);
+      var h = parseFloat(height.value);
+      out.value = w > 0 && h > 0 ? (703 * w / (h * h)).toFixed(1) : "";
+    }
+    weight.addEventListener("input", update);
+    height.addEventListener("input", update);
+  })();
+</script>
 {% endblock %}

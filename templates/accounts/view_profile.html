@@ -3,14 +3,82 @@
 {% block title %}{{ profile_user.username }}'s profile{% endblock %}
 
 {% block content %}
-<h1>
-  {% if profile_user.get_full_name %}{{ profile_user.get_full_name }}{% else %}{{ profile_user.username }}{% endif %}
-</h1>
-<p class="muted">@{{ profile_user.username }}</p>
+<header class="person-head">
+  {% if profile.picture %}
+    <img class="person-head__photo" src="{{ profile.picture.url }}" alt="{{ profile_user.username }}'s profile picture" width="112" height="112">
+  {% else %}
+    <span class="person-head__photo person-head__initial" aria-hidden="true">{{ profile_user.username|first|upper }}</span>
+  {% endif %}
+  <div>
+    <h1>{% if profile_user.get_full_name %}{{ profile_user.get_full_name }}{% else %}{{ profile_user.username }}{% endif %}</h1>
+    <p class="muted person-head__handle">@{{ profile_user.username }}</p>
+    {% if is_own_profile %}
+      <p class="person-head__meta">
+        <span>{{ liked_places|length }} liked</span>
+        <span aria-hidden="true">·</span>
+        <span>{{ hidden_places|length }} not interested</span>
+        <a href="{% url 'accounts:profile' %}">Edit profile</a>
+      </p>
+    {% endif %}
+  </div>
+</header>
 
-{% if profile.picture %}
-  <img src="{{ profile.picture.url }}" alt="{{ profile_user.username }}'s profile picture" width="160">
-{% else %}
-  <p class="muted">No profile picture yet.</p>
+{% if is_own_profile %}
+<section class="liked-places form-section">
+  <h2>Liked places <span class="liked-places__count">{{ liked_places|length }}</span></h2>
+  <p class="muted liked-places__note">Only you can see this list. Liking a place brings similar places into your Top picks.</p>
+  {% if liked_places %}
+    <form method="post" action="{% url 'accounts:delete_liked_places' %}">
+      {% csrf_token %}
+      <ul class="liked-places__list">
+        {% for place in liked_places %}
+          <li>
+            <input type="checkbox" name="camis" value="{{ place.camis }}"
+                   id="liked-{{ place.camis }}"
+                   aria-label="Select {{ place.name|default:place.camis|title }}">
+            <a href="{% url 'search:restaurant_detail' place.camis %}">{{ place.name|default:place.camis|title }}</a>
+            {% if place.cuisine %}<span class="liked-places__cuisine">{{ place.cuisine }}</span>{% endif %}
+            <span class="muted liked-places__date">{{ place.updated_at|date:"M j" }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+      <div class="liked-places__actions">
+        <button type="submit" class="btn btn--ghost" name="action" value="delete_selected">Delete selected</button>
+        <button type="submit" class="btn btn--ghost btn--danger" name="action" value="delete_all"
+                onclick="return confirm('Remove all liked places?');">Delete all</button>
+      </div>
+    </form>
+  {% else %}
+    <p class="muted">No liked places yet. Press &#9825; on a restaurant to save it here.</p>
+  {% endif %}
+</section>
+
+<section class="liked-places liked-places--hidden form-section">
+  <h2>Not interested <span class="liked-places__count">{{ hidden_places|length }}</span></h2>
+  <p class="muted liked-places__note">Only you can see this list. These places stay out of your Top picks and Explore more until you show them again.</p>
+  {% if hidden_places %}
+    <form method="post" action="{% url 'accounts:restore_hidden_places' %}">
+      {% csrf_token %}
+      <ul class="liked-places__list">
+        {% for place in hidden_places %}
+          <li>
+            <input type="checkbox" name="camis" value="{{ place.camis }}"
+                   id="hidden-{{ place.camis }}"
+                   aria-label="Select {{ place.name|default:place.camis|title }}">
+            <a href="{% url 'search:restaurant_detail' place.camis %}">{{ place.name|default:place.camis|title }}</a>
+            {% if place.cuisine %}<span class="liked-places__cuisine">{{ place.cuisine }}</span>{% endif %}
+            <span class="muted liked-places__date">{{ place.updated_at|date:"M j" }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+      <div class="liked-places__actions">
+        <button type="submit" class="btn btn--ghost" name="action" value="show_selected">Show again</button>
+        <button type="submit" class="btn btn--ghost" name="action" value="show_all">Show all again</button>
+      </div>
+    </form>
+  {% else %}
+    <p class="muted">Nothing hidden. Places you mark Not interested appear here.</p>
+  {% endif %}
+</section>
 {% endif %}
 {% endblock %}

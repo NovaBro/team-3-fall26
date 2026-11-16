@@ -249,9 +249,13 @@ class ProfileTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Account details")
         self.assertContains(response, "foodie")
-        self.assertContains(response, "Not provided yet")
-        self.assertContains(response, "Fixed user inputs")
-        self.assertContains(response, "Variable user inputs")
+        self.assertContains(response, "name not set")
+        self.assertContains(response, "No email yet")
+        self.assertContains(response, "Personal details")
+        self.assertContains(response, "Food preferences")
+        # The photo control sits in Account details but saves with the form.
+        self.assertContains(response, 'form="profile-form"')
+        self.assertContains(response, "Daily check-in")
 
     def test_profile_page_shows_saved_name_and_contact_email(self):
         self.user.email = "sam@example.com"
@@ -280,10 +284,10 @@ class ProfileTests(TestCase):
                 "gender": "non-binary",
                 "weight_lbs": "150.5",
                 "height_in": "68",
-                "favorite_foods": "pizza, dumplings",
-                "disliked_foods": "mushrooms",
+                "favorite_foods": "Pizza, Dumplings",
+                "disliked_foods": "Seafood",
                 "health_goals": ["heart-health", "balanced-diet"],
-                "allergies": "peanuts",
+                "allergies": ["nuts"],
             },
         )
         self.assertRedirects(response, reverse("accounts:profile"))
@@ -299,7 +303,8 @@ class ProfileTests(TestCase):
         self.assertEqual(profile.weight_lbs, 150.5)
         self.assertEqual(profile.height_in, 68)
         self.assertEqual(profile.health_goals, ["heart-health", "balanced-diet"])
-        self.assertEqual(profile.allergies, "peanuts")
+        self.assertEqual(profile.allergies, "Nuts")
+        self.assertEqual(profile.favorite_foods, "Pizza, Dumplings")
         self.assertEqual(profile.phone_number, "(212) 555-0100")
         self.assertTrue(profile.promo_opt_in)
 
@@ -416,6 +421,12 @@ class ProfileTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Pick a mood from the list.")
         self.assertFalse(MoodLog.objects.exists())
+
+    def test_check_in_has_icon_scales_and_no_blank_choice(self):
+        response = self.client.get(reverse("accounts:profile"))
+        self.assertNotContains(response, 'name="mood" value=""')
+        self.assertContains(response, 'class="checkin-scale"', count=2)
+        self.assertContains(response, 'class="checkin-option__icon"', count=10)
 
     def test_mood_history_lists_recent_entries_first(self):
         for mood in (1, 3, 5):

@@ -1,6 +1,11 @@
 """Rule-based Top Picks recommendation score (v3).
 
-score_restaurant() returns (score 0–100+, reason tags, breakdown). Pure logic — no I/O.
+score_restaurant() returns (score 0–100, reason tags, breakdown). Pure logic — no I/O.
+
+Parts: Health, Inspection grade, Rating, and (for a viewer with a profile or
+Like / Not interested history) Personal fit, which holds everything personal:
+favorite and disliked foods, health goals, mild allergies, home area and
+Like / Not interested feedback.
 """
 
 from __future__ import annotations
@@ -10,19 +15,43 @@ import re
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from search.goal_fit import MENU_NUTRIENTS, goal_fit, goals_fit
+from search.profile_options import (
+    ALLERGY_LABELS,
+    first_food_match,
+    mild_allergy_hits,
+    normalize_goals,
+    parse_allergies,
+    parse_foods,
+)
+
 DEFAULT_WEIGHTS = (0.50, 0.25, 0.25)  # health, grade, rating
-HEALTH_FOCUS_WEIGHTS = (0.60, 0.25, 0.15)
+PERSONAL_WEIGHTS = (0.40, 0.20, 0.20, 0.20)  # health, grade, rating, personal
 # When MenuStat calories are available: other weights × 0.9, calorie = 0.10
 CALORIE_WEIGHT = 0.10
 RATING_PRIOR = 4.0
 RATING_PSEUDO_COUNT = 20
 LOWER_CALORIE_TAG_THRESHOLD = 0.6  # calorie component ≥ this → tag
 
+# Personal fit (0-1): starts at 0.5, then each match below moves it.
+FIT_START = 0.5
+FIT_FAVORITE = 0.3
+FIT_DISLIKED = -0.4
+# (goal fit - 0.5) x 1.2 -> -0.6 .. +0.6; x1.2 picked by comparing settings on
+# real reviews (evaluate_personal_fit.py): a goal changes 2-3 of a Top 10.
+FIT_GOAL_RANGE = 1.2
+FIT_MILD_ALLERGY = -0.2
+FIT_NEAR_HOME = 0.1
+# BMI 25+ without Muscle gain (or Weight loss already picked) counts as a
+# Weight loss goal at half strength: lighter places move up a little.
+BMI_LEAN_MIN = 25.0
+BMI_LEAN_SHARE = 0.5
+
 # Like / Not interested feedback (see FeedbackPrefs and feedback_adjustment).
-LIKE_BONUS_PER_PLACE = 3.0
-LIKE_BONUS_CAP = 9.0
+LIKE_BONUS_PER_PLACE = 0.1  # Personal fit per other liked place, same cuisine
+LIKE_BONUS_CAP = 0.3
 NOT_INTERESTED_CUISINE_MIN = 2  # marks of one cuisine before it is penalized
-NOT_INTERESTED_CUISINE_PENALTY = -5.0
+NOT_INTERESTED_CUISINE_PENALTY = -0.2
 LIKED_STARS = 4  # star ratings at or above this count as a like
 DISLIKED_STARS = 2  # star ratings at or below this count as not interested
 BECAUSE_YOU_LIKED = "Because you liked {name}"
@@ -89,13 +118,14 @@ UNHEALTHY_WORDS = {
     "junk",
 }
 
-# muscle-gain adds protein/chicken per PDF; other goals add mild cues.
+# Extra "healthy" review words per goal, used only when there is no AI score
+# (keyword fallback) and to pick which review a Top picks card shows.
 GOAL_HEALTHY_WORDS = {
     "muscle-gain": {"protein", "chicken", "protein-rich"},
     "heart-health": {"heart", "lean", "omega"},
-    "more-energy": {"energizing", "fuel"},
+    "less-sugar": {"unsweetened", "sugar-free", "savory"},
     "balanced-diet": {"balanced", "wholesome"},
-    "manage-condition": {"gentle", "plain"},
+    "low-carb": {"keto", "low-carb", "bunless"},
     "weight-loss": {"light", "low-calorie", "lean"},
 }
 
@@ -190,16 +220,43 @@ TAG_HEALTHY_REVIEWS = "Healthy reviews"
 TAG_LOWER_CALORIE = "Lower-calorie menu"
 TAG_BUDGET = "Budget-friendly"
 TAG_TOP_RATED = "Top rated"
-TAG_GRADE_A = "Grade A"
+TAG_HIDDEN_GEM = "Hidden gem"
+TAG_ALLERGY_CHECK = "Allergy check"
+# Goal tags: for goals the viewer picked (or BMI 25+ -> lighter meals), at
+# most MAX_GOAL_TAGS per card, best-fitting first.
+GOAL_TAGS = {
+    "weight-loss": "Lighter meals",
+    "muscle-gain": "High protein",
+    "heart-health": "Heart-healthy",
+    "less-sugar": "Low sugar",
+    "balanced-diet": "Balanced plates",
+    "low-carb": "Low carb",
+}
+GOAL_TAG_MIN = 0.6  # goal fit needed for the tag
+# Low carb scores sit low on real reviews (best of 48 places: 0.44), so its
+# bar is lower; revisit once more places have reviews.
+GOAL_TAG_MIN_BY_GOAL = {"low-carb": 0.4}
+HIDDEN_GEM_MIN_STARS = 4.6
+HIDDEN_GEM_REVIEWS = (20, 100)  # some reviews, but not many yet
+MAX_GOAL_TAGS = 2  # goals overlap a lot; more would push out other tags
+MAX_TAGS = 5  # Grade A is not a tag: every Top pick is grade A
 
+# Shown in this order, at most MAX_TAGS: a safety warning first, then the
+# viewer's own reasons, then general ones.
 TAG_ORDER = (
+    TAG_ALLERGY_CHECK,
+    "Grade B",
+    "Grade C",
+    TAG_YOU_LIKED,
+    TAG_SIMILAR_PICK,
     TAG_YOUR_FAVORITE,
+    *GOAL_TAGS.values(),
     TAG_NEARBY,
     TAG_HEALTHY_REVIEWS,
     TAG_LOWER_CALORIE,
-    TAG_BUDGET,
+    TAG_HIDDEN_GEM,
     TAG_TOP_RATED,
-    TAG_GRADE_A,
+    TAG_BUDGET,
 )
 
 _WORD_RE = re.compile(r"[a-z0-9']+")
@@ -218,29 +275,47 @@ def bmi(weight_lbs, height_in):
     return 703.0 * w / (h * h)
 
 
-def health_focus_weights(profile=None):
-    """True when BMI ≥ 25 or the profile has a weight-loss goal."""
+def bmi_weight_loss(profile=None):
+    """The viewer's BMI when it should lean picks to lighter meals, else None.
+
+    Only for BMI 25 or more, and not when Muscle gain is picked (BMI can't
+    tell muscle from fat) or Weight loss is already picked (counted there).
+    """
+    if profile is None:
+        return None
+    goals = normalize_goals(getattr(profile, "health_goals", None))
+    if "muscle-gain" in goals or "weight-loss" in goals:
+        return None
+    value = bmi(
+        getattr(profile, "weight_lbs", None), getattr(profile, "height_in", None)
+    )
+    return value if value is not None and value >= BMI_LEAN_MIN else None
+
+
+def has_personal_inputs(profile=None, feedback=None):
+    """True when the viewer gave us anything personal to score with.
+
+    Decided per viewer (not per place) so every place uses the same weights.
+    """
+    if feedback is not None and not feedback.is_empty():
+        return True
     if profile is None:
         return False
-    goals = getattr(profile, "health_goals", None) or []
-    if "weight-loss" in goals:
-        return True
-    value = bmi(
-        getattr(profile, "weight_lbs", None),
-        getattr(profile, "height_in", None),
+    home_zip, home_boro = home_zip_boro(getattr(profile, "home_address", ""))
+    return bool(
+        parse_foods(getattr(profile, "favorite_foods", ""))[0]
+        or parse_foods(getattr(profile, "disliked_foods", ""))[0]
+        or normalize_goals(getattr(profile, "health_goals", None))
+        or parse_allergies(getattr(profile, "allergies", ""))
+        or home_zip
+        or home_boro
+        or bmi_weight_loss(profile) is not None
     )
-    return value is not None and value >= 25.0
 
 
-def _base_weights(profile=None):
-    if health_focus_weights(profile):
-        return HEALTH_FOCUS_WEIGHTS
-    return DEFAULT_WEIGHTS
-
-
-def _weights(profile=None, has_calories=False):
-    """Return (health, grade, rating) or (health, grade, rating, calorie)."""
-    base = _base_weights(profile)
+def _weights(personal=False, has_calories=False):
+    """Weights in this order: health, grade, rating, [personal], [calorie]."""
+    base = PERSONAL_WEIGHTS if personal else DEFAULT_WEIGHTS
     if not has_calories:
         return base
     scale = 1.0 - CALORIE_WEIGHT
@@ -249,33 +324,6 @@ def _weights(profile=None, has_calories=False):
 
 def _tokenize(text):
     return _WORD_RE.findall((text or "").casefold())
-
-
-def whole_word_match(needle, *haystacks):
-    """True if needle appears as a whole word in any haystack."""
-    needle = (needle or "").strip()
-    if not needle:
-        return False
-    pattern = re.compile(rf"\b{re.escape(needle)}\b", re.IGNORECASE)
-    return any(pattern.search(h or "") for h in haystacks)
-
-
-def split_foods(text):
-    """Comma/semicolon/newline separated favorite or disliked foods."""
-    if not text:
-        return []
-    return [part.strip() for part in re.split(r"[,;\n]+", text) if part.strip()]
-
-
-def allergy_keys_from_text(allergies):
-    """Map free-text allergies to diet_filters keys (nuts, shellfish)."""
-    text = (allergies or "").casefold()
-    keys = []
-    if re.search(r"\b(peanuts?|tree\s*nuts?|nuts?)\b", text):
-        keys.append("nuts")
-    if re.search(r"\b(shellfish|shrimp|lobster|crab|mussels?|clams?)\b", text):
-        keys.append("shellfish")
-    return keys
 
 
 def home_zip_boro(home_address):
@@ -318,7 +366,7 @@ def _goal_words(profile):
     words = set()
     if profile is None:
         return words
-    for goal in getattr(profile, "health_goals", None) or []:
+    for goal in normalize_goals(getattr(profile, "health_goals", None)):
         words.update(GOAL_HEALTHY_WORDS.get(goal, set()))
     return words
 
@@ -385,7 +433,7 @@ def pick_display_review(reviews, profile=None):
     return best if best is not None else reviews[0]
 
 
-AI_HEALTH_EFFECT = 0.6  # ai score 0..1 -> -0.3..+0.3, same range as keywords
+AI_HEALTH_EFFECT = 1.0  # ai score 0..1 -> -0.5..+0.5 (keywords stay -0.3..+0.3)
 
 
 def health_parts(cuisine, reviews, name, goal_words=(), ai_score=None):
@@ -504,6 +552,207 @@ def rating_score(google_rating, google_count, app_avg, app_count):
     return max(0.0, min(1.0, (blended - 3.0) / 2.0))
 
 
+def _signed(value):
+    return f"{value:+.2f}" if round(value, 2) else "0"
+
+
+def health_steps(h_parts, health, cuisine="", ai_health=None):
+    """Lines showing how the health part was worked out (detail page)."""
+    raw = 0.5 + sum(h_parts.values())
+    if ai_health is not None:
+        review_label = f"AI review score {float(ai_health):.2f} (MiniLM)"
+    else:
+        review_label = "Review keywords (no AI score yet)"
+    steps = [
+        ("Starting point", "0.50"),
+        (f"Cuisine ({cuisine or 'unknown'})", _signed(h_parts["cuisine"])),
+        (review_label, _signed(h_parts["reviews"])),
+        ("Fast-food chain", _signed(h_parts["fast_food"])),
+    ]
+    if abs(raw - health) > 1e-9:
+        steps.append(("Kept between 0 and 1", f"{raw:.2f} → {health:.2f}"))
+    steps.append(("Health", f"{health:.2f}"))
+    return steps
+
+
+def grade_steps(grade):
+    """Lines showing how the inspection grade part was worked out."""
+    letter = (grade or "").strip().upper()
+    return [
+        ("Latest posted grade", letter or "none yet"),
+        ("Scale", "A = 1.0 · B = 0.5 · C = 0 · other or none = 0.3"),
+        ("Grade", f"{grade_score(grade):.2f}"),
+    ]
+
+
+def rating_steps(google_rating, google_count, app_avg, app_count):
+    """Lines showing how the rating part was worked out (Bayesian average)."""
+    blended, _votes = blended_rating(google_rating, google_count, app_avg, app_count)
+    terms = [f"{RATING_PRIOR:.1f} × {RATING_PSEUDO_COUNT}"]
+    total = RATING_PSEUDO_COUNT
+    steps = []
+    try:
+        g_rating, g_count = float(google_rating), int(google_count or 0)
+    except (TypeError, ValueError):
+        g_rating, g_count = None, 0
+    if g_rating is not None and g_count > 0:
+        steps.append(("Google", f"{g_rating:.1f}★ ({g_count:,} reviews)"))
+        terms.append(f"{g_rating:.1f} × {g_count:,}")
+        total += g_count
+    else:
+        steps.append(("Google", "no rating"))
+    try:
+        a_avg, a_count = float(app_avg), int(app_count or 0)
+    except (TypeError, ValueError):
+        a_avg, a_count = None, 0
+    if a_avg is not None and a_count > 0:
+        steps.append(("Our app", f"{a_avg:.1f}★ ({a_count:,} ratings)"))
+        terms.append(f"{a_avg:.1f} × {a_count:,}")
+        total += a_count
+    else:
+        steps.append(("Our app", "no ratings yet"))
+    steps.append(
+        (
+            f"Adjusted with {RATING_PSEUDO_COUNT} virtual {RATING_PRIOR:.1f}★ votes",
+            f"({' + '.join(terms)}) ÷ {total:,} = {blended:.2f}★",
+        )
+    )
+    score = max(0.0, min(1.0, (blended - 3.0) / 2.0))
+    steps.append(("Rating", f"({blended:.2f} − 3.0) ÷ 2 = {score:.2f} (0 to 1)"))
+    return steps
+
+
+def _fit_step(label, delta):
+    return (label, f"{delta:+.2f}")
+
+
+def personal_fit(
+    *,
+    name,
+    cuisine="",
+    zipcode="",
+    boro="",
+    profile=None,
+    feedback=None,
+    camis="",
+    ai_goals=None,
+    nutrients=None,
+):
+    """(fit 0-1, steps, info) for the Personal fit part.
+
+    ``info`` keeps what the tags and reasons need: favorite (FoodOption or
+    None), nearby, like_fit, similar_tag, goal_effect, best_goal and
+    allergy_warnings (labels of mild allergies common in this cuisine).
+    """
+    raw = FIT_START
+    steps = [("Starting point", f"{FIT_START:.2f}")]
+    info = {
+        "favorite": None,
+        "nearby": False,
+        "like_fit": 0.0,
+        "similar_tag": None,
+        "goal_effect": 0.0,
+        "best_goal": "",
+        "bmi_effect": 0.0,
+        "allergy_warnings": [],
+        "goal_tags": [],
+    }
+    tag_options = []  # (how far above its bar, tag)
+
+    def offer_goal_tag(goal, fit):
+        # A tag needs real evidence (reviews or a menu), not the cuisine
+        # hint alone.
+        field = MENU_NUTRIENTS[goal][0]
+        has_source = (ai_goals or {}).get(goal) is not None or (
+            bool(nutrients) and field in nutrients
+        )
+        bar = GOAL_TAG_MIN_BY_GOAL.get(goal, GOAL_TAG_MIN)
+        if has_source and fit >= bar:
+            tag_options.append((fit - bar, GOAL_TAGS[goal]))
+
+    if profile is not None:
+        favorite = first_food_match(
+            getattr(profile, "favorite_foods", ""), cuisine, name
+        )
+        if favorite is not None:
+            raw += FIT_FAVORITE
+            info["favorite"] = favorite
+            steps.append(_fit_step(f"Favorite food: {favorite.label}", FIT_FAVORITE))
+        disliked = first_food_match(
+            getattr(profile, "disliked_foods", ""), cuisine, name
+        )
+        if disliked is not None:
+            raw += FIT_DISLIKED
+            steps.append(_fit_step(f"Disliked food: {disliked.label}", FIT_DISLIKED))
+
+        goals = normalize_goals(getattr(profile, "health_goals", None))
+        average, details = goals_fit(goals, cuisine, ai_goals, nutrients)
+        if average is not None:
+            for goal, (label, fit, goal_steps) in zip(goals, details):
+                source = "; ".join(f"{a} {b}" for a, b in goal_steps)
+                steps.append((f"Goal: {label} ({source})", f"{fit:.2f}"))
+                offer_goal_tag(goal, fit)
+            effect = FIT_GOAL_RANGE * (average - 0.5)
+            raw += effect
+            info["goal_effect"] = effect
+            info["best_goal"] = max(details, key=lambda d: d[1])[0]
+            steps.append(_fit_step(f"Health goals (average {average:.2f})", effect))
+
+        body_bmi = bmi_weight_loss(profile)
+        if body_bmi is not None:
+            fit, goal_steps = goal_fit(
+                "weight-loss", cuisine, (ai_goals or {}).get("weight-loss"), nutrients
+            )
+            source = "; ".join(f"{a} {b}" for a, b in goal_steps)
+            steps.append(
+                (f"Goal: Weight loss, from BMI {body_bmi:.1f} ({source})", f"{fit:.2f}")
+            )
+            effect = FIT_GOAL_RANGE * BMI_LEAN_SHARE * (fit - 0.5)
+            raw += effect
+            info["bmi_effect"] = effect
+            offer_goal_tag("weight-loss", fit)
+            steps.append(_fit_step("BMI 25+ leans to lighter meals (half)", effect))
+
+        for key in mild_allergy_hits(
+            parse_allergies(getattr(profile, "allergies", "")), cuisine
+        ):
+            label = ALLERGY_LABELS[key]
+            info["allergy_warnings"].append(label)
+            raw += FIT_MILD_ALLERGY
+            steps.append(
+                _fit_step(f"{label} is common in {cuisine} food", FIT_MILD_ALLERGY)
+            )
+
+        home_zip, home_boro = home_zip_boro(getattr(profile, "home_address", ""))
+        if (home_zip and home_zip == (zipcode or "").strip()) or (
+            home_boro and home_boro.casefold() == (boro or "").strip().casefold()
+        ):
+            raw += FIT_NEAR_HOME
+            info["nearby"] = True
+            steps.append(_fit_step("Near your home", FIT_NEAR_HOME))
+
+    if feedback is not None:
+        like_fit, cuisine_penalty, tag = feedback_adjustment(cuisine, feedback, camis)
+        info["like_fit"], info["similar_tag"] = like_fit, tag
+        if like_fit:
+            raw += like_fit
+            steps.append(_fit_step("Similar to places you liked", like_fit))
+        if cuisine_penalty:
+            raw += cuisine_penalty
+            steps.append(
+                _fit_step("Cuisine you marked not interested", cuisine_penalty)
+            )
+
+    for _margin, tag in sorted(tag_options, reverse=True):
+        if tag not in info["goal_tags"] and len(info["goal_tags"]) < MAX_GOAL_TAGS:
+            info["goal_tags"].append(tag)
+    fit = max(0.0, min(1.0, raw))
+    if abs(raw - fit) > 1e-9:
+        steps.append(("Kept between 0 and 1", f"{raw:.2f} → {fit:.2f}"))
+    steps.append(("Personal fit", f"{fit:.2f}"))
+    return fit, steps, info
+
+
 def score_restaurant(
     *,
     name,
@@ -522,14 +771,19 @@ def score_restaurant(
     feedback=None,
     camis="",
     ai_health=None,
+    ai_goals=None,
+    nutrients=None,
 ):
-    """Return (final_score, reason_tags, breakdown) for one restaurant.
+    """Return (final_score, reason tags, breakdown) for one restaurant.
 
     ``calorie_score`` is a 0–1 MenuStat median-meal component when linked; omit
-    (None) to keep the three-part weights. ``feedback`` is the viewer's
-    FeedbackPrefs (Like / Not interested history); None leaves the score as is.
+    (None) to leave the calorie part out. ``profile`` and ``feedback`` (the
+    viewer's FeedbackPrefs: Like / Not interested history) make up the
+    Personal fit part; with neither, the score has no Personal fit part.
     ``camis`` keeps a place's own Like from boosting itself. ``ai_health`` is
     the stored AI health score (0–1); None falls back to review keywords.
+    ``ai_goals`` ({goal: 0-1}) and ``nutrients`` (MenuStat medians) feed the
+    health-goal fit.
     """
     goal_words = _goal_words(profile)
     h_parts = health_parts(cuisine, reviews, name, goal_words, ai_score=ai_health)
@@ -537,59 +791,38 @@ def score_restaurant(
     g = grade_score(grade)
     r = rating_score(google_rating, google_count, app_avg, app_count)
     has_calories = calorie_score is not None
-    focus = health_focus_weights(profile)
-    weights = _weights(profile, has_calories=has_calories)
-    if has_calories:
-        w_h, w_g, w_r, w_c = weights
-        c = max(0.0, min(1.0, float(calorie_score)))
-        base_points = 100.0 * (h * w_h + g * w_g + r * w_r + c * w_c)
-    else:
-        w_h, w_g, w_r = weights
-        c = None
-        w_c = None
-        base_points = 100.0 * (h * w_h + g * w_g + r * w_r)
+    personal = has_personal_inputs(profile, feedback)
+    weights = list(_weights(personal, has_calories=has_calories))
+    w_h, w_g, w_r = weights[:3]
+    w_p = weights[3] if personal else None
+    w_c = weights[-1] if has_calories else None
+    c = max(0.0, min(1.0, float(calorie_score))) if has_calories else None
 
-    score = base_points
-    adjustments = []
-    is_favorite = False
-    is_nearby = False
-    favorite_food = ""
-    if profile is not None:
-        for food in split_foods(getattr(profile, "favorite_foods", "")):
-            if whole_word_match(food, cuisine, name):
-                score += 10.0
-                is_favorite = True
-                favorite_food = food
-                adjustments.append({"label": "Favorite food match", "delta": 10.0})
-                break
-        for food in split_foods(getattr(profile, "disliked_foods", "")):
-            if whole_word_match(food, cuisine, name):
-                score -= 15.0
-                adjustments.append({"label": "Disliked food match", "delta": -15.0})
-                break
-        home_zip, home_boro = home_zip_boro(getattr(profile, "home_address", ""))
-        if (home_zip and home_zip == (zipcode or "").strip()) or (
-            home_boro and home_boro.casefold() == (boro or "").strip().casefold()
-        ):
-            score += 5.0
-            is_nearby = True
-            adjustments.append({"label": "Near home", "delta": 5.0})
-
-    like_bonus, liked_tag = 0.0, None
-    if feedback is not None:
-        like_bonus, cuisine_penalty, liked_tag = feedback_adjustment(
-            cuisine, feedback, camis
+    p, p_steps, info = None, [], {}
+    if personal:
+        p, p_steps, info = personal_fit(
+            name=name,
+            cuisine=cuisine,
+            zipcode=zipcode,
+            boro=boro,
+            profile=profile,
+            feedback=feedback,
+            camis=camis,
+            ai_goals=ai_goals,
+            nutrients=nutrients,
         )
-        if like_bonus:
-            score += like_bonus
-            adjustments.append(
-                {"label": "Similar to places you liked", "delta": like_bonus}
-            )
-        if cuisine_penalty:
-            score += cuisine_penalty
-            adjustments.append(
-                {"label": "Cuisine you marked not interested", "delta": cuisine_penalty}
-            )
+    score = 100.0 * (h * w_h + g * w_g + r * w_r)
+    if personal:
+        score += 100.0 * p * w_p
+    if has_calories:
+        score += 100.0 * c * w_c
+
+    favorite = info.get("favorite")
+    is_favorite = favorite is not None
+    is_nearby = bool(info.get("nearby"))
+    # Points the likes add (pick_top lets only one pick use them).
+    like_bonus = 100.0 * w_p * info["like_fit"] if personal else 0.0
+    liked_tag = info.get("similar_tag")
 
     healthy_n, _unhealthy_n, total = classify_reviews(reviews, goal_words)
     blended, vote_count = blended_rating(
@@ -597,6 +830,11 @@ def score_restaurant(
     )
 
     candidates = []
+    if info.get("allergy_warnings"):
+        candidates.append(TAG_ALLERGY_CHECK)
+    if (grade or "").strip().upper() in ("B", "C"):
+        candidates.append(f"Grade {(grade or '').strip().upper()}")
+    candidates.extend(info.get("goal_tags", []))
     if is_favorite:
         candidates.append(TAG_YOUR_FAVORITE)
     if is_nearby:
@@ -607,23 +845,27 @@ def score_restaurant(
         candidates.append(TAG_LOWER_CALORIE)
     if price == "$":
         candidates.append(TAG_BUDGET)
-    if vote_count >= 50 and blended >= 4.5:
+    try:
+        g_stars, g_count = float(google_rating or 0), int(google_count or 0)
+    except (TypeError, ValueError):
+        g_stars, g_count = 0.0, 0
+    low, high = HIDDEN_GEM_REVIEWS
+    if g_stars >= HIDDEN_GEM_MIN_STARS and low <= g_count < high:
+        candidates.append(TAG_HIDDEN_GEM)
+    elif vote_count >= 50 and blended >= 4.5:
         candidates.append(TAG_TOP_RATED)
-    if (grade or "").strip().upper() == "A":
-        candidates.append(TAG_GRADE_A)
 
-    tags = [tag for tag in TAG_ORDER if tag in candidates]
     similar_to = ""
     if liked_tag == TAG_YOU_LIKED:
-        tags.insert(0, liked_tag)
+        candidates.append(liked_tag)
     elif liked_tag:
         similar_to = liked_tag.replace("Because you liked ", "")
-        tags.insert(0, TAG_SIMILAR_PICK)
-    # The card shows the grade only here (no photo badge), so B and C appear too.
-    if (grade or "").strip().upper() in ("B", "C"):
-        tags.append(f"Grade {(grade or '').strip().upper()}")
+        candidates.append(TAG_SIMILAR_PICK)
+    # The card shows the grade only through tags (no photo badge), so B and C
+    # are tags; A is not (every Top pick is grade A).
+    tags = [tag for tag in TAG_ORDER if tag in candidates][:MAX_TAGS]
 
-    def _part(key, label, value, weight):
+    def _part(key, label, value, weight, steps=()):
         return {
             "key": key,
             "label": label,
@@ -631,6 +873,7 @@ def score_restaurant(
             "weight": weight,
             "weight_pct": weight * 100.0,
             "points": 100.0 * value * weight,
+            "steps": list(steps),  # how the 0-1 value came about (detail page)
         }
 
     parts = [
@@ -639,15 +882,32 @@ def score_restaurant(
             "Health (AI)" if ai_health is not None else "Health",
             h,
             w_h,
+            health_steps(h_parts, h, cuisine, ai_health),
         ),
-        _part("grade", "Inspection grade", g, w_g),
-        _part("rating", "Rating", r, w_r),
+        _part("grade", "Inspection grade", g, w_g, grade_steps(grade)),
+        _part(
+            "rating",
+            "Rating",
+            r,
+            w_r,
+            rating_steps(google_rating, google_count, app_avg, app_count),
+        ),
     ]
+    if personal:
+        parts.append(_part("personal", "Personal fit", p, w_p, p_steps))
     if has_calories:
-        parts.append(_part("calories", "Menu calories", c, w_c))
+        parts.append(
+            _part(
+                "calories",
+                "Menu calories",
+                c,
+                w_c,
+                [("Lighter typical meal on MenuStat = higher", f"{c:.2f}")],
+            )
+        )
 
     # Why this pick: how much each part raised the score vs. an average place
-    # (a 0.5 component, no adjustments).
+    # (every part at 0.5).
     contributions = []
     if h_parts["cuisine"] > 0:
         contributions.append(
@@ -680,10 +940,26 @@ def score_restaurant(
         )
     if is_favorite:
         contributions.append(
-            (10.0, f"Matches your favorite food ({favorite_food})", False)
+            (
+                100 * w_p * FIT_FAVORITE,
+                f"Matches your favorite food ({favorite.label})",
+                False,
+            )
+        )
+    if personal and info["goal_effect"] > 0:
+        contributions.append(
+            (
+                100 * w_p * info["goal_effect"],
+                f"Fits your goal: {info['best_goal']}",
+                False,
+            )
+        )
+    if personal and info["bmi_effect"] > 0:
+        contributions.append(
+            (100 * w_p * info["bmi_effect"], "Lighter meals, based on your BMI", False)
         )
     if is_nearby:
-        contributions.append((5.0, "Near your home", False))
+        contributions.append((100 * w_p * FIT_NEAR_HOME, "Near your home", False))
     if like_bonus and similar_to:
         contributions.append(
             (like_bonus, f"Similar to {similar_to}, which you liked", False)
@@ -693,15 +969,14 @@ def score_restaurant(
     reasons = explain_reasons(contributions)
 
     breakdown = {
-        "mode": "health_focus" if focus else "default",
+        "mode": "personal" if personal else "default",
         "has_calories": has_calories,
         "ai_health": ai_health,
         "health_parts": h_parts,
         "reasons": reasons,
         "reason_text": " · ".join(reasons),
         "parts": parts,
-        "adjustments": adjustments,
-        "base_points": base_points,
+        "allergy_warnings": info.get("allergy_warnings", []),
         "total": score,
         "tags": tags,
         "like_bonus": like_bonus,

@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from urllib.parse import urlencode
@@ -21,7 +22,6 @@ from django.db.models import (
     IntegerField,
     Max,
     Q,
-    Value,
     When,
 )
 from django.db.models.functions import Cast, Concat, Mod, Right
@@ -35,17 +35,16 @@ from assistant.recommend import personalized_picks
 from community.keys import DOHMH, dohmh_key
 from community.models import (
     CommunitySubject,
-    HealthScore,
     PlaceEnrichment,
     PlaceReview,
     ReasonBlurb,
     RecommendationFeedback,
     UserRating,
 )
-from restaurants.diet_filters import ALLERGY_CHOICES, risky_cuisines
+from restaurants.diet_filters import ALLERGY_CHOICES
 from restaurants.inspections import _latest, _match, _restaurants_in_zip, google_zip
 from restaurants.places import PlacesError, find_restaurant_place
-from search import find_food, reason_writer
+from search import ai_scores, find_food, reason_writer
 from search.forms import (
     FARMERS_MARKET,
     GOOGLE,
@@ -55,6 +54,7 @@ from search.forms import (
     STORE_TYPE_CHOICES,
     FindFoodForm,
 )
+from search.goal_fit import menu_nutrients
 from search.locations import resolve
 from search.models import RestaurantInspection
 from search.menustat import calorie_score_for_name, top_low_calorie_meals
@@ -64,22 +64,31 @@ from search.recommend import (
     NON_MEAL_CUISINES,
     NON_MEAL_PREFIXES,
     UNHEALTHY_CUISINES,
-    allergy_keys_from_text,
+    bmi_weight_loss,
     build_feedback_prefs,
     daily_seed,
     home_zip_boro,
     pick_display_review,
     pick_top,
     score_restaurant,
-    split_foods,
-    whole_word_match,
+)
+from search.profile_options import (
+    name_regex,
+    normalize_goals,
+    parse_allergies,
+    parse_foods,
+    strong_allergy_cuisines,
 )
 from search.services.places import PlacesAPIError, enrich_camis
 
 PAGE_SIZE = 25
-POOL_SIZE = 9  # candidates scored per day (one Google lookup each)
+# Top picks candidates: the first POOL_SIZE places for a meal in the viewer's
+# own ranking (the same list Explore more pages through), one Google lookup
+# each. Explore more's first page is drawn from the same places, so its
+# lookups come from the cache.
+POOL_SIZE = 25
 PICKS_TIME_ZONE = ZoneInfo("America/New_York")
-MAX_CANDIDATES = 15
+MAX_CANDIDATES = 31  # POOL_SIZE + favorite and nearby extras
 FAVORITE_EXTRA = 3
 NEARBY_EXTRA = 3
 
@@ -246,31 +255,33 @@ def _profile_for(request):
         return None
 
 
-def _whole_word_q(food):
-    """Case-insensitive whole-word match on cuisine or name (dba)."""
-    food = (food or "").strip()
-    if not food:
-        return Q()
-    # SQLite/Postgres: use icontains then filter precisely in Python if needed;
-    # for candidate expansion, icontains is enough and then we re-check.
-    return Q(cuisine__icontains=food) | Q(name__icontains=food)
+def _food_q(option):
+    """Rows matching a profile food choice: its cuisines or a word in the name."""
+    q = Q(cuisine__in=option.cuisines) if option.cuisines else Q(camis__in=[])
+    if option.words:
+        q |= Q(name__iregex=name_regex(option.words))
+    return q
 
 
 def _today():
     return datetime.now(PICKS_TIME_ZONE).date()
 
 
-def _ai_health_score(camis):
-    """Stored AI health score (0–1) for a restaurant, or None if not computed.
+def _ai_scores(camis, name="", reviews=()):
+    """(AI health score 0–1 or None, {goal: 0-1}) for a restaurant.
 
-    Scores are computed offline by ``python manage.py score_health``."""
-    if not camis:
+    Stored scores are reused; a place without them is scored from the given
+    reviews on the spot (see search/ai_scores.py)."""
+    texts = [r.get("text", "") if isinstance(r, dict) else r for r in reviews or ()]
+    return ai_scores.ai_scores_for(camis, name, texts)
+
+
+def _goal_nutrients(profile, name):
+    """MenuStat nutrient medians for the goal fit; skipped without goals."""
+    goals = normalize_goals(getattr(profile, "health_goals", None))
+    if not goals and bmi_weight_loss(profile) is None:
         return None
-    return (
-        HealthScore.objects.filter(camis=str(camis))
-        .values_list("score", flat=True)
-        .first()
-    )
+    return menu_nutrients(name)
 
 
 def _feedback_prefs(request):
@@ -309,43 +320,55 @@ NOT_A_RESTAURANT_NAME = r"\b(FITNESS|GYM|YOGA|PILATES)\b"
 
 
 def _build_candidate_pool(profile, prefs=None, seed="", boro=""):
-    """Top picks candidates: the 9 best places by the DB-only health score
-    (latest grade A, meals only), shuffled daily within each score tier, plus
-    favorites/nearby extras (max 15). Places marked not interested and cuisines
-    risky for the user's allergies are skipped. With *boro*, every candidate
-    comes from that borough."""
-    avoid = allergy_keys_from_text(getattr(profile, "allergies", "") if profile else "")
-    excluded = risky_cuisines(avoid) if avoid else set()
+    """Top picks candidates: the first POOL_SIZE places for a meal (latest
+    grade A, with a ZIP code so Google data can be matched) in the viewer's
+    ranking, the same list Explore more shows, plus
+    favorites/nearby extras. Places marked not interested and cuisines risky
+    for the user's allergies are skipped. With *boro*, every candidate comes
+    from that borough."""
+    allergies = parse_allergies(getattr(profile, "allergies", "") if profile else "")
+    excluded = strong_allergy_cuisines(allergies)
     hidden = prefs.hidden if prefs is not None else set()
     multiplier = _shuffle_multiplier(seed)
 
     def meal_places(in_boro=boro):
-        # Latest grade A, places for a meal only (no coffee, bakeries, desserts).
+        # The viewer's ranking (as in Explore more), keeping places for a meal
+        # with latest grade A (no coffee, bakeries, desserts, gyms).
         rows = (
-            _scored_restaurants(multiplier)
+            _ranked_rows(multiplier, prefs, profile)
             .filter(latest_grade="A")
             .exclude(cuisine__in=NON_MEAL_CUISINES | set(excluded))
             .exclude(_name_starts_with(NON_MEAL_PREFIXES))
             .exclude(name__iregex=NOT_A_RESTAURANT_NAME)
-            .exclude(camis__in=hidden)
+            .exclude(zipcode="")  # no ZIP: Google data can't be matched
         )
         if in_boro:
             rows = rows.filter(boro__iexact=in_boro)
-        return rows.order_by("-explore_score", "shuffle", "camis")
+        return rows.order_by(*RANK_ORDER)
 
-    base = list(meal_places()[:POOL_SIZE])
+    # The first POOL_SIZE places, at most MAX_PER_CUISINE of one cuisine (so a
+    # liked cuisine can't fill the list); short of places, the rest refill it.
+    base, extra, per_cuisine = [], [], Counter()
+    for row in meal_places()[: POOL_SIZE * 8]:
+        cuisine = (row.get("cuisine") or "").strip()
+        if per_cuisine[cuisine] < MAX_PER_CUISINE:
+            base.append(row)
+            per_cuisine[cuisine] += 1
+            if len(base) == POOL_SIZE:
+                break
+        else:
+            extra.append(row)
+    base += extra[: POOL_SIZE - len(base)]
     by_camis = {row["camis"]: row for row in base}
 
     if profile is not None and len(by_camis) < MAX_CANDIDATES:
-        favorites = split_foods(getattr(profile, "favorite_foods", ""))
+        favorites = parse_foods(getattr(profile, "favorite_foods", ""))[0]
         added = 0
         for food in favorites:
             if added >= FAVORITE_EXTRA or len(by_camis) >= MAX_CANDIDATES:
                 break
-            for row in meal_places().filter(_whole_word_q(food))[: FAVORITE_EXTRA * 3]:
+            for row in meal_places().filter(_food_q(food))[: FAVORITE_EXTRA * 3]:
                 if row["camis"] in by_camis or row["camis"] in hidden:
-                    continue
-                if not whole_word_match(food, row.get("cuisine"), row.get("name")):
                     continue
                 by_camis[row["camis"]] = row
                 added += 1
@@ -432,8 +455,9 @@ def _top_picks(request, count=3, boro=""):
     picks = [pick for pick in picks if pick["camis"] not in hidden]
     ranked_by_claude = bool(picks)
     if not ranked_by_claude:
-        seed = f"{daily_seed(_today(), user_id)}:{boro.casefold()}"
-        picks = _build_candidate_pool(profile, prefs, seed, boro)
+        picks = _build_candidate_pool(
+            profile, prefs, _ranking_seed(request, boro), boro
+        )
     if not picks:
         return []
     feedback_values = {}
@@ -458,6 +482,14 @@ def _top_picks(request, count=3, boro=""):
         for pick, lookup in zip(picks, lookups):
             pick["google"] = lookup.result()
             pick["photo_url"] = _photo_url_for(pick["google"])
+
+    # Places Google couldn't match have no photo, rating or reviews to back a
+    # recommendation, so they are skipped while enough matched places remain
+    # (without a Google key, or if Google is down, nothing is matched and all
+    # places stay).
+    matched = [pick for pick in picks if pick["google"]]
+    if len(matched) >= count:
+        picks = matched
 
     for pick in picks:
         google = pick["google"]
@@ -486,6 +518,9 @@ def _top_picks(request, count=3, boro=""):
         grade = inspection.get("grade") or ""  # no posted grade = unknown
         pick_name = pick.get("name") or ""
         calorie = calorie_score_for_name(pick_name)
+        ai_health, ai_goals = _ai_scores(
+            camis_id or pick["camis"], pick.get("name") or "", reviews
+        )
         score, tags, breakdown = score_restaurant(
             name=pick_name,
             cuisine=pick.get("cuisine") or "",
@@ -502,7 +537,9 @@ def _top_picks(request, count=3, boro=""):
             calorie_score=calorie,
             feedback=prefs,
             camis=pick["camis"],
-            ai_health=_ai_health_score(camis_id or pick["camis"]),
+            ai_health=ai_health,
+            ai_goals=ai_goals,
+            nutrients=_goal_nutrients(profile, pick_name),
         )
         pick["score"] = score
         pick["reason_tags"] = tags
@@ -510,6 +547,7 @@ def _top_picks(request, count=3, boro=""):
         pick["like_bonus"] = breakdown["like_bonus"]
         pick["similar_to"] = breakdown["similar_to"]
         pick["reasons"] = breakdown["reasons"]
+        pick["allergy_warnings"] = breakdown["allergy_warnings"]
         pick["feedback"] = feedback_values.get(pick["camis"], 0)
 
     if ranked_by_claude:
@@ -599,38 +637,75 @@ def _scored_restaurants(multiplier):
     )
 
 
-def _explore_rows(request=None):
-    """All restaurants for "Explore more", best DB score first. Ties are
-    shuffled with a seed that changes daily, so pages stay consistent within a
-    day.
+def _ranking_seed(request=None, boro=""):
+    """One seed per viewer, day and borough, shared by Top picks and Explore
+    more so both read the same ranking."""
+    user = getattr(request, "user", None)
+    user_id = user.pk if user is not None and user.is_authenticated else None
+    return f"{daily_seed(_today(), user_id)}:{(boro or '').casefold()}"
 
-    For a logged-in user: places marked Not interested are left out, and a
-    place gets +1 for a cuisine they liked and +1 for a favorite food.
+
+def _ranked_rows(multiplier, prefs=None, profile=None):
+    """Every restaurant with ``rank`` (the DB score) and ``order_key``.
+
+    Places marked Not interested are left out. Within one score, places are
+    shuffled daily; a place in a cuisine the viewer liked, or matching a
+    favorite food, gets its shuffle number divided by TASTE_PULL (twice for
+    both), so it tends to come earlier while staying mixed in with the rest.
+    Taste never lifts a place above a better score. Order with RANK_ORDER.
     """
-    multiplier = _shuffle_multiplier(_today().isoformat())
     rows = _scored_restaurants(multiplier)
-    personal = Value(0, output_field=IntegerField())
-    prefs = _feedback_prefs(request) if request is not None else None
+    liked = favorite = None
     if prefs is not None:
         rows = rows.exclude(camis__in=prefs.hidden)
         liked_cuisines = [cuisine for cuisine in prefs.liked if cuisine]
         if liked_cuisines:
-            personal = personal + Case(
-                When(cuisine__in=liked_cuisines, then=1),
-                default=0,
-                output_field=IntegerField(),
-            )
-    profile = _profile_for(request) if request is not None else None
-    favorites = Q()
-    for food in split_foods(getattr(profile, "favorite_foods", "")):
-        favorites |= _whole_word_q(food)
-    if favorites:
-        personal = personal + Case(
-            When(favorites, then=1), default=0, output_field=IntegerField()
-        )
-    return rows.annotate(rank=F("explore_score") + personal).order_by(
-        "-rank", "shuffle", "camis"
+            liked = Q(cuisine__in=liked_cuisines)
+    foods = parse_foods(getattr(profile, "favorite_foods", ""))[0]
+    if foods:
+        favorite = Q(camis__in=[])
+        for food in foods:
+            favorite |= _food_q(food)
+    pull = TASTE_PULL
+    whens = []
+    if liked is not None and favorite is not None:
+        whens.append(When(liked & favorite, then=F("shuffle") / (pull * pull)))
+    for match in (liked, favorite):
+        if match is not None:
+            whens.append(When(match, then=F("shuffle") / pull))
+    order_key = (
+        Case(*whens, default=F("shuffle"), output_field=BigIntegerField())
+        if whens
+        else F("shuffle")
     )
+    return rows.annotate(rank=F("explore_score"), order_key=order_key)
+
+
+RANK_ORDER = ("-rank", "order_key", "camis")
+TASTE_PULL = 3  # liked / favorite places sit about 3x earlier within a score
+MAX_PER_CUISINE = 5  # Top picks candidates: at most this many of one cuisine
+
+
+def _explore_rows(request=None, boro=""):
+    """All restaurants for "Explore more", in the viewer's ranking: best DB
+    score first; within a score, shuffled with the same daily per-viewer seed
+    as Top picks and nudged toward their taste (see ``_ranked_rows``), so
+    pages stay put within a day."""
+    multiplier = _shuffle_multiplier(_ranking_seed(request, boro))
+    prefs = _feedback_prefs(request) if request is not None else None
+    profile = _profile_for(request) if request is not None else None
+    return _ranked_rows(multiplier, prefs, profile).order_by(*RANK_ORDER)
+
+
+TOP_PICKS_SESSION_KEY = "top_picks_today"
+
+
+def _is_first_page(page):
+    """True for page 1, a missing page, or one Paginator would turn into 1."""
+    try:
+        return int(page or 1) <= 1
+    except (TypeError, ValueError):
+        return True
 
 
 def home(request):
@@ -638,28 +713,32 @@ def home(request):
     borough_options = list(
         RestaurantInspection.objects.exclude(boro="")
         .exclude(boro__isnull=True)
-        .exclude(boro="0")
+        .exclude(boro="0")  # a few inspection rows have no real borough
         .values_list("boro", flat=True)
         .distinct()
         .order_by("boro")
     )
-    restaurant_rows = _explore_rows(request)
-    if selected_boro in borough_options:
-        restaurant_rows = restaurant_rows.filter(boro__iexact=selected_boro)
-    else:
+    if selected_boro not in borough_options:
         selected_boro = ""
+    restaurant_rows = _explore_rows(request, selected_boro)
+    if selected_boro:
+        restaurant_rows = restaurant_rows.filter(boro__iexact=selected_boro)
+    # Top 3 picks – only on the first page so paginated browsing stays fast.
+    # With a borough selected, the picks come from that borough. Today's picks
+    # are left out of Explore more on every page, so each page shows 16 cards
+    # with no repeats: page 1 remembers them in the session for later pages.
+    top_picks = []
+    seed = _ranking_seed(request, selected_boro)
+    if _is_first_page(request.GET.get("page")):
+        top_picks = _top_picks(request, count=3, boro=selected_boro)
+        shown = [pick["camis"] for pick in top_picks]
+        request.session[TOP_PICKS_SESSION_KEY] = {"seed": seed, "camis": shown}
+    else:
+        saved = request.session.get(TOP_PICKS_SESSION_KEY) or {}
+        shown = saved.get("camis", []) if saved.get("seed") == seed else []
+    restaurant_rows = restaurant_rows.exclude(camis__in=shown)
     page_obj = Paginator(restaurant_rows, 16).get_page(request.GET.get("page"))
     restaurants = list(page_obj.object_list)
-
-    # Top 3 picks – only on the first page so paginated browsing stays fast.
-    # With a borough selected, the picks come from that borough. Places already
-    # shown as Top picks are left out of this page (other pages are unchanged,
-    # so paging is stable).
-    top_picks = []
-    if page_obj.number == 1:
-        top_picks = _top_picks(request, count=3, boro=selected_boro)
-        shown = {pick["camis"] for pick in top_picks}
-        restaurants = [row for row in restaurants if row["camis"] not in shown]
     liked = set()
     if request.user.is_authenticated:
         liked = set(
@@ -697,6 +776,7 @@ def home(request):
             "borough_options": borough_options,
             "selected_boro": selected_boro,
             "top_picks": top_picks,
+            "picks_date": _today(),
             "personalized_picks": any(pick.get("ai_reason") for pick in top_picks),
         },
     )
@@ -730,6 +810,7 @@ def score_for_camis(camis, latest, place, profile=None, feedback=None):
         .first()
         or ""
     ).strip()
+    ai_health, ai_goals = _ai_scores(camis, latest.dba or "", reviews)
     return score_restaurant(
         name=latest.dba or "",
         cuisine=latest.cuisine or "",
@@ -744,7 +825,9 @@ def score_for_camis(camis, latest, place, profile=None, feedback=None):
         boro=latest.boro or "",
         profile=profile,
         calorie_score=calorie_score_for_name(latest.dba),
-        ai_health=_ai_health_score(camis),
+        ai_health=ai_health,
+        ai_goals=ai_goals,
+        nutrients=_goal_nutrients(profile, latest.dba or ""),
         feedback=feedback,
         camis=camis,
     )

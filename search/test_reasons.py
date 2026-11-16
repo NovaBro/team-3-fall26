@@ -130,7 +130,7 @@ class ScoreReasonsTests(SimpleTestCase):
         self.assertEqual(
             breakdown["reasons"],
             [
-                "Matches your favorite food (mexican)",
+                "Matches your favorite food (Mexican)",
                 "Near your home",
                 "Similar to Old Taqueria, which you liked",
             ],

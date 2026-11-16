@@ -1191,6 +1191,12 @@ button.panel-edge-tab:focus-visible {
   font-size: 0.75rem;
   font-weight: 600;
 }
+/* "Allergy check": shown only to people with an allergy, by color alone. */
+.healthiness-score__tag--warn {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, var(--raised));
+  color: var(--danger);
+}
 .healthiness-score__how {
   margin: 16px 0 8px;
   font-size: 0.95rem;
@@ -1237,6 +1243,51 @@ button.panel-edge-tab:focus-visible {
   font-size: 0.9rem;
 }
 .healthiness-score__part-label { color: var(--ink-soft); }
+
+/* Each score part opens to show how its 0-1 value was worked out. */
+.healthiness-score__parts li.healthiness-score__part { display: block; }
+.healthiness-score__part summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.healthiness-score__part summary::-webkit-details-marker { display: none; }
+.healthiness-score__part summary .healthiness-score__part-label::before {
+  content: "\25B8";
+  display: inline-block;
+  width: 1em;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+.healthiness-score__part details[open] summary .healthiness-score__part-label::before {
+  transform: rotate(90deg);
+}
+.healthiness-score__part summary:hover .healthiness-score__part-label { color: var(--ink); }
+.healthiness-score__steps {
+  margin: 8px 0 4px 1em;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--raised);
+  display: grid;
+  gap: 4px;
+  font-size: 0.84rem;
+}
+.healthiness-score__steps div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.healthiness-score__steps dt { color: var(--muted); }
+.healthiness-score__steps dd { margin: 0; text-align: right; color: var(--ink-soft); }
+.healthiness-score__steps .is-result {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.healthiness-score__steps .is-result dt,
+.healthiness-score__steps .is-result dd { color: var(--ink); font-weight: 650; }
 .healthiness-score__total {
   font-weight: 650;
   border-top: 1px solid var(--border);
@@ -1267,4 +1318,348 @@ button.panel-edge-tab:focus-visible {
   margin: 0;
   font-size: 0.85rem;
   color: var(--muted);
+}
+
+/* Profile page: the user's own liked places. */
+.liked-places { margin-top: 24px; }
+.liked-places h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.liked-places__count {
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+.liked-places__note { margin: 4px 0 12px; font-size: 0.9rem; }
+.liked-places__list { list-style: none; margin: 0; padding: 0; }
+.liked-places__list li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 8px;
+  border-top: 1px solid var(--border);
+  border-radius: 6px;
+}
+.liked-places__list li:first-child { border-top: 0; }
+.liked-places__list li:hover { background: var(--raised); }
+.liked-places__list li:has(input:checked) { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.liked-places__list a { font-weight: 600; color: var(--ink); text-decoration: none; }
+.liked-places__list a:hover { color: var(--accent); text-decoration: underline; }
+.liked-places--hidden .liked-places__list a { color: var(--ink-soft); }
+.liked-places__cuisine {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--raised);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.liked-places__date { margin-left: auto; font-size: 0.85rem; }
+.liked-places__list input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex: none;
+  align-self: center;
+  accent-color: var(--accent);
+}
+.liked-places__actions { display: flex; gap: 10px; margin-top: 14px; }
+.liked-places__actions .btn--ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--border);
+}
+.liked-places__actions .btn--ghost:hover { border-color: var(--ink); }
+.liked-places__actions .btn--danger:hover,
+.liked-places__actions .btn--danger:focus-visible {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #fff;
+}
+
+/* Profile: BMI is shown, worked out from weight and height, never typed. */
+.field input:disabled,
+.field input[readonly] {
+  background: var(--raised);
+  color: var(--ink);
+  cursor: not-allowed;
+}
+.field-help { margin: 4px 0 0; font-size: 0.8rem; }
+
+/* Profile: food picker chips, health goal cards, allergy grid */
+/* Selected text/icons: the dark theme's --accent is a dark button blue, too
+   dim for text, so selected states use this lighter blue there. */
+:root { --accent-text: var(--accent); }
+:root[data-theme="dark"] { --accent-text: #98b6ee; }
+.food-picker__picked:not(:empty) { margin-bottom: 8px; }
+.food-picker__popular {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.food-picker__popular .food-chip { justify-content: center; margin: 0; }
+@media (max-width: 720px) {
+  .food-picker__popular { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.food-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 6px 8px 0;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  font: 400 0.85rem var(--font-ui);
+  cursor: pointer;
+}
+.food-chip:hover { border-color: var(--accent); }
+.food-chip__icon { color: var(--muted); }
+.food-chip.is-favorite {
+  border-color: var(--grade-b);
+  background: color-mix(in srgb, var(--grade-b) 14%, transparent);
+}
+.food-chip.is-disliked {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.food-picker__suggest {
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+.food-picker__option {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: 400 0.9rem var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.food-picker__option:hover,
+.food-picker__option:focus-visible { background: var(--raised); }
+.food-picker__none { margin: 0; padding: 8px 12px; font-size: 0.85rem; }
+
+.goal-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (max-width: 720px) {
+  .goal-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.field label.goal-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  cursor: pointer;
+}
+.field label.goal-card:hover { border-color: var(--accent); }
+.goal-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.goal-card__icon { flex: none; margin-top: 1px; color: var(--muted); }
+.goal-card__text { display: flex; flex-direction: column; gap: 2px; }
+.goal-card__title { font-weight: 500; color: var(--ink); }
+.goal-card__hint { font-weight: 400; font-size: 0.8rem; color: var(--muted); }
+.field label.goal-card:has(input:checked) {
+  border-color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.goal-card:has(input:checked) .goal-card__title,
+.goal-card:has(input:checked) .goal-card__icon { color: var(--accent-text); }
+.goal-card:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+#id_allergies {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+#id_allergies label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 400;
+  color: var(--ink);
+}
+
+/* Profile: daily check-in (mood and energy icon scales) */
+.checkin-form { margin: 14px 0 18px; }
+.checkin-field { margin-bottom: 18px; }
+.checkin-field__label {
+  margin: 0 0 8px;
+  font-weight: 500;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+.checkin-scale {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.checkin-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.checkin-option:hover { border-color: var(--accent); }
+.checkin-option input { position: absolute; opacity: 0; pointer-events: none; }
+.checkin-option span { color: var(--ink-soft); }
+.checkin-option:has(input:checked) {
+  border-color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent-text) 10%, transparent);
+  color: var(--accent-text);
+}
+.checkin-option:has(input:checked) span { color: var(--accent-text); font-weight: 500; }
+.checkin-option:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.checkin-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.checkin-history li {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+}
+.checkin-history__when { min-width: 120px; font-size: 0.85rem; }
+.checkin-history__item { display: inline-flex; align-items: center; gap: 6px; }
+.checkin-history__icon { color: var(--muted); }
+
+/* Section title with a short note on the same line (profile page). */
+.section-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0 0 10px;
+}
+.section-head h2 { margin: 0; }
+.section-head p { margin: 0; font-size: 0.9rem; }
+.section-head--next { margin-top: 26px; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Account details: photo beside the account info. */
+.account-card { display: flex; align-items: flex-start; gap: 24px; flex-wrap: wrap; }
+.account-card dl { margin-top: 0; }
+.account-photo { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.account-photo__img {
+  display: block;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+.account-photo__initial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 2.2rem;
+  font-weight: 600;
+}
+.account-photo__change { color: var(--accent); font-size: 0.85rem; cursor: pointer; }
+.account-photo__change:hover { text-decoration: underline; }
+.account-photo:has(#id_picture:focus-visible) .account-photo__change { outline: 2px solid var(--accent); outline-offset: 2px; }
+.account-card { align-items: center; }
+.account-info p { margin: 0; }
+.account-info__name {
+  font-family: var(--font-serif, Georgia, serif);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.account-info__note { font-family: var(--font-ui); font-size: 0.85rem; font-weight: 400; color: var(--muted); }
+.account-info__username { margin-top: 2px; color: var(--muted); }
+.account-info__line { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--ink-soft); }
+.account-info__line svg { color: var(--muted); flex: none; }
+.account-info__link { display: inline-block; margin-top: 12px; font-size: 0.9rem; color: var(--accent); text-decoration: none; }
+.account-info__link:hover { text-decoration: underline; }
+
+/* Public profile header: round photo beside the name. */
+.person-head { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; margin: 6px 0 8px; }
+.person-head h1 { margin: 0; }
+.person-head__photo {
+  display: block;
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  flex: none;
+}
+.person-head__initial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 2.6rem;
+  font-weight: 600;
+}
+.person-head__handle { margin: 2px 0 0; }
+.person-head__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; font-size: 0.9rem; color: var(--ink-soft); }
+.person-head__meta a { margin-left: 8px; color: var(--accent); }
+
+/* Night mode: theme.css fills every .btn; keep these list buttons outlined. */
+:root[data-theme="dark"] .liked-places__actions .btn--ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--border);
+}
+:root[data-theme="dark"] .liked-places__actions .btn--ghost:hover { border-color: var(--ink); }
+:root[data-theme="dark"] .liked-places__actions .btn--danger:hover,
+:root[data-theme="dark"] .liked-places__actions .btn--danger:focus-visible {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #fff;
 }

@@ -31,6 +31,16 @@ urlpatterns = [
         name="admin_delete_comment",
     ),
     path("profile/", views.profile, name="profile"),
+    path(
+        "profile/liked/delete/",
+        views.delete_liked_places,
+        name="delete_liked_places",
+    ),
+    path(
+        "profile/hidden/restore/",
+        views.restore_hidden_places,
+        name="restore_hidden_places",
+    ),
     path("profile/<str:username>/", views.view_profile, name="view_profile"),
     path("signup/", views.signup, name="signup"),
     path("login/", ProfileLoginView.as_view(), name="login"),

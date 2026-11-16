@@ -5,3 +5,4 @@ pandas>=2.0
 requests==2.34.2
 python-dotenv==1.2.4
 pillow==12.3.0
+fastembed>=0.7

@@ -2,6 +2,10 @@ from django.conf import settings
 from django.core.validators import RegexValidator
 from django.db import models
 
+from accounts.goal_icons import ENERGY_ICONS, MOOD_ICONS, icon
+from search.profile_options import GOAL_LABELS, normalize_goals
+from search.profile_options import HEALTH_GOALS as GOAL_OPTIONS
+
 phone_validator = RegexValidator(
     r"^\+?[0-9\s\-()]{7,20}$", "Enter a valid phone number."
 )
@@ -18,14 +22,8 @@ class UserProfile(models.Model):
         ("prefer-not-to-say", "Prefer not to say"),
     ]
 
-    HEALTH_GOALS = [
-        ("weight-loss", "Weight loss"),
-        ("muscle-gain", "Muscle gain"),
-        ("heart-health", "Heart health"),
-        ("more-energy", "More energy"),
-        ("balanced-diet", "Balanced diet"),
-        ("manage-condition", "Manage a medical condition"),
-    ]
+    # Keys and labels live in search/profile_options.py (also used by scoring).
+    HEALTH_GOALS = [(key, label) for key, label, _hint in GOAL_OPTIONS]
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, related_name="profile", on_delete=models.CASCADE
@@ -56,8 +54,8 @@ class UserProfile(models.Model):
 
     @property
     def health_goals_display(self):
-        labels = dict(self.HEALTH_GOALS)
-        return ", ".join(labels.get(goal, goal) for goal in self.health_goals)
+        goals = normalize_goals(self.health_goals)
+        return ", ".join(GOAL_LABELS[goal] for goal in goals)
 
 
 class MoodLog(models.Model):
@@ -99,3 +97,13 @@ class MoodLog(models.Model):
     @property
     def energy_display_label(self):
         return dict(self.ENERGY_CHOICES).get(self.energy_level, str(self.energy_level))
+
+    @property
+    def mood_icon(self):
+        return icon(MOOD_ICONS.get(self.mood, ""), "checkin-history__icon", 18)
+
+    @property
+    def energy_icon(self):
+        return icon(
+            ENERGY_ICONS.get(self.energy_level, ""), "checkin-history__icon", 18
+        )
