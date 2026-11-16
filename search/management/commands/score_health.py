@@ -1,8 +1,8 @@
 """Compute AI health scores offline and store them in community.HealthScore.
 
-Run on your Mac (not on the server):
+Scores are also worked out on the fly the first time a place is shown (see
+search/ai_scores.py); this command fills many places ahead of time:
 
-    pip install -r requirements-ml.txt
     python manage.py score_health --limit 20      # quick try
     python manage.py score_health                  # every restaurant with text
     python manage.py score_health --refresh        # recompute existing rows
@@ -17,23 +17,12 @@ from django.db.models import Max
 from community.keys import DOHMH
 from community.models import HealthScore, PlaceEnrichment
 from search import health_ai
-from search.menustat import MEAL_CATEGORIES, match_menustat_restaurant
-from search.models import MenuItem, RestaurantInspection
+from search.ai_scores import menu_texts as _menu_texts
+from search.models import RestaurantInspection
 
 
 def _camis(key):
     return key.split(":", 1)[1] if key.startswith("camis:") else ""
-
-
-def _menu_texts(name):
-    chain = match_menustat_restaurant(name)
-    if not chain:
-        return []
-    latest = MenuItem.objects.filter(restaurant=chain).aggregate(y=Max("year"))["y"]
-    rows = MenuItem.objects.filter(
-        restaurant=chain, year=latest, food_category__in=MEAL_CATEGORIES
-    ).values_list("item_name", "item_description")
-    return [f"{item}. {desc}".strip() for item, desc in rows if item]
 
 
 class Command(BaseCommand):
@@ -45,6 +34,12 @@ class Command(BaseCommand):
             "--refresh", action="store_true", help="Recompute existing scores."
         )
         parser.add_argument("--model", default=health_ai.MODEL_NAME)
+        parser.add_argument(
+            "--backend",
+            default="auto",
+            choices=["auto", "fastembed", "sentence-transformers"],
+            help="auto: fastembed if installed, else sentence-transformers.",
+        )
 
     def handle(self, *args, **options):
         places = (
@@ -54,7 +49,12 @@ class Command(BaseCommand):
         )
         done = set()
         if not options["refresh"]:
-            done = set(HealthScore.objects.values_list("camis", flat=True))
+            # Rows made before goal scores existed are scored again.
+            done = set(
+                HealthScore.objects.filter(goal_scores__isnull=False).values_list(
+                    "camis", flat=True
+                )
+            )
         todo = [p for p in places if _camis(p.key) and _camis(p.key) not in done]
         if options["limit"]:
             todo = todo[: options["limit"]]
@@ -69,14 +69,14 @@ class Command(BaseCommand):
             .values_list("camis", "name")
         )
         self.stdout.write(f"Loading model {options['model']} ...")
-        encoder = health_ai.load_encoder(options["model"])
+        encoder = health_ai.load_encoder(options["model"], options["backend"])
 
         saved = skipped = 0
         for index, place in enumerate(todo, start=1):
             camis = _camis(place.key)
             texts = [r.text for r in place.reviews.all() if (r.text or "").strip()]
             texts += _menu_texts(names.get(camis) or place.display_name)
-            score, used = health_ai.restaurant_score(texts, encoder)
+            score, used, goals = health_ai.all_scores(texts, encoder)
             if score is None:
                 skipped += 1
                 continue
@@ -85,6 +85,7 @@ class Command(BaseCommand):
                 defaults={
                     "score": score,
                     "sentences_used": used,
+                    "goal_scores": goals,
                     "model_name": options["model"],
                 },
             )

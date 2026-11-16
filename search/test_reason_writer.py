@@ -270,6 +270,6 @@ class OnDemandTests(TestCase):
         ), patch("search.reason_writer.live_generate", return_value=self.fake):
             page = self.client.get(self.url)
         shown = page.context["score_breakdown"]["reasons"]
-        self.assertIn("Matches your favorite food (Salads)", shown)
+        self.assertIn("Matches your favorite food (Salad)", shown)
         self.assertNotIn("favorite food", self.calls[0])
         self.assertNotIn("Near your home", self.calls[0])

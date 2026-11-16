@@ -263,6 +263,9 @@ class HealthScore(models.Model):
     score = models.FloatField()
     sentences_used = models.PositiveIntegerField(default=0)
     model_name = models.CharField(max_length=128, blank=True)
+    # {goal key: 0-1} from the same text (search/health_ai.GOAL_ANCHORS);
+    # None = not worked out yet (rows made before goal scores existed).
+    goal_scores = models.JSONField(null=True, blank=True, default=None)
     computed_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):

@@ -5,7 +5,7 @@
 {% block main_class %}restaurant-main{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=19">
+<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=26">
 <script src="{% static 'search/explore_like.js' %}?v=4" defer></script>
 {% endblock %}
 
@@ -16,19 +16,18 @@
   {% if top_picks %}
   <section class="top-picks" aria-labelledby="top-picks-title">
     <div class="top-picks__header">
-      <div class="top-picks__titles">
-      <h2 id="top-picks-title"><span class="top-picks__icon" aria-hidden="true">🏆</span> {% if personalized_picks %}Picked for you{% else %}Today's Top Picks{% if selected_boro %} in {{ selected_boro|title }}{% endif %}{% endif %}</h2>
-      <p class="top-picks__subtitle muted">{% if personalized_picks %}Ranked by AI using your profile. Always confirm allergies with the restaurant.{% else %}Your next unforgettable food experience starts here!{% endif %}</p></div>
-      <div class="top-picks__loc"><form class="restaurant-borough-filter" method="get">
-      <label for="restaurant-boro">Select your location</label>
-      <select id="restaurant-boro" name="boro" onchange="this.form.submit()">
-        <option value="">All boroughs</option>
-        {% for boro in borough_options %}
-          <option value="{{ boro }}" {% if selected_boro == boro %}selected{% endif %}>{{ boro|title }}</option>
-        {% endfor %}
-      </select>
-      <noscript><button type="submit">Apply</button></noscript>
-    </form></div>
+      <p class="top-picks__date"><span class="top-picks__dot" aria-hidden="true"></span>{{ picks_date|date:"l, M j" }} · refreshed daily</p>
+      <form class="top-picks__title-form" method="get">
+        <h2 id="top-picks-title">{% if personalized_picks %}Picked for you{% else %}Today's Top Picks{% endif %} in
+          <label class="sr-only" for="restaurant-boro">Select your location</label><select id="restaurant-boro" name="boro" class="top-picks__boro" onchange="this.form.submit()">
+            <option value="">New York</option>
+            {% for boro in borough_options %}
+              <option value="{{ boro }}" {% if selected_boro == boro %}selected{% endif %}>{{ boro|title }}</option>
+            {% endfor %}
+          </select></h2>
+        <noscript><button type="submit" class="btn">Apply</button></noscript>
+      </form>
+      <p class="top-picks__subtitle muted">{% if personalized_picks %}Ranked by AI using your profile. Always confirm allergies with the restaurant.{% else %}Your next unforgettable food experience starts here!{% endif %}</p>
     </div>
     <div class="top-picks__grid">
       {% for pick in top_picks %}
@@ -66,7 +65,7 @@
             {% if pick.reason_tags %}
             <div class="top-pick-card__reasons" aria-label="Why this pick">
               {% for tag in pick.reason_tags %}
-                <span class="top-pick-card__reason"{% if tag == "Similar pick" and pick.similar_to %} title="Because you liked {{ pick.similar_to }}"{% endif %}>{{ tag }}</span>
+                <span class="top-pick-card__reason{% if tag == "Allergy check" %} top-pick-card__reason--warn{% endif %}"{% if tag == "Similar pick" and pick.similar_to %} title="Because you liked {{ pick.similar_to }}"{% elif tag == "Allergy check" %} title="{{ pick.allergy_warnings|join:", " }} common in {{ pick.cuisine }} food. Always confirm with the restaurant."{% endif %}>{{ tag }}</span>
               {% endfor %}
             </div>
             {% endif %}
@@ -225,4 +224,8 @@
     <p class="restaurant-home__empty">No restaurant records are available. Import the CSV dataset to populate this page.</p>
   {% endif %}
 </section>
+{% endblock %}
+
+{% block scripts %}{{ block.super }}
+<script src="{% static 'search/boro_reel.js' %}?v=3"></script>
 {% endblock %}

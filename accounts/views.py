@@ -16,10 +16,17 @@ from django.views.decorators.http import require_POST
 from accounts.forms import MoodLogForm, SignupForm, UserProfileForm
 from accounts.models import MoodLog, UserProfile
 from accounts.tokens import email_verification_token
-from community.models import UserComment, UserPhoto, UserRating
+from community.models import (
+    RecommendationFeedback,
+    UserComment,
+    UserPhoto,
+    UserRating,
+)
 
 MOOD_HISTORY_LIMIT = 10
 ADMIN_PAGE_SIZE = 25
+# Shown under "Food preferences" on the profile page (they shape Top picks).
+FOOD_FIELDS = ("favorite_foods", "disliked_foods", "health_goals", "allergies")
 WIDE_FIELDS = {
     "home_address",
     "favorite_foods",
@@ -145,19 +152,83 @@ def profile(request):
             "mood_form": mood_form,
             "mood_history": mood_history,
             "wide_fields": WIDE_FIELDS,
+            "food_fields": FOOD_FIELDS,
             "profile": instance,
         },
     )
 
 
+LIKED_PLACES_SHOWN = 50
+
+
 def view_profile(request, username):
     user = get_object_or_404(User, username=username)
     profile, _created = UserProfile.objects.get_or_create(user=user)
+    # Places the user liked (Like button or heart), newest first. Only the
+    # user sees their own list; it is not shown to other people.
+    is_own = request.user.is_authenticated and request.user.pk == user.pk
+    liked_places = hidden_places = []
+    if is_own:
+        mine = RecommendationFeedback.objects.filter(user_id=user.pk).order_by(
+            "-updated_at"
+        )
+        liked_places = mine.filter(value=RecommendationFeedback.LIKE)[
+            :LIKED_PLACES_SHOWN
+        ]
+        hidden_places = mine.filter(value=RecommendationFeedback.NOT_INTERESTED)[
+            :LIKED_PLACES_SHOWN
+        ]
     return render(
         request,
         "accounts/view_profile.html",
-        {"profile_user": user, "profile": profile},
+        {
+            "profile_user": user,
+            "profile": profile,
+            "is_own_profile": is_own,
+            "liked_places": liked_places,
+            "hidden_places": hidden_places,
+        },
     )
+
+
+@login_required
+@require_POST
+def delete_liked_places(request):
+    """Remove the user's Likes: the ticked places, or all of them."""
+    likes = RecommendationFeedback.objects.filter(
+        user_id=request.user.pk, value=RecommendationFeedback.LIKE
+    )
+    if request.POST.get("action") != "delete_all":
+        likes = likes.filter(camis__in=request.POST.getlist("camis"))
+    removed, _ = likes.delete()
+    if removed:
+        messages.success(
+            request, f"Removed {removed} liked place{'s' if removed != 1 else ''}."
+        )
+    else:
+        messages.info(request, "No places were selected.")
+    return redirect("accounts:view_profile", username=request.user.username)
+
+
+@login_required
+@require_POST
+def restore_hidden_places(request):
+    """Undo Not interested for the ticked places, or all of them, so they can
+    show up in Top picks and Explore more again."""
+    hidden = RecommendationFeedback.objects.filter(
+        user_id=request.user.pk, value=RecommendationFeedback.NOT_INTERESTED
+    )
+    if request.POST.get("action") != "show_all":
+        hidden = hidden.filter(camis__in=request.POST.getlist("camis"))
+    restored, _ = hidden.delete()
+    if restored:
+        messages.success(
+            request,
+            f"{restored} place{'s' if restored != 1 else ''} can show up again.",
+        )
+    else:
+        messages.info(request, "No places were selected.")
+    return redirect("accounts:view_profile", username=request.user.username)
 
 
 @login_required
