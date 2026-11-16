@@ -54,7 +54,7 @@
 
 <section class="form-section">
   <h2>Variable user inputs</h2>
-  <p class="muted">A quick daily check-in. Every save is added to your history.</p>
+  <p class="muted">A quick daily check-in. Saving again today updates today's entry (one per day).</p>
   <form method="post" action="{% url 'accounts:profile' %}">
     {% csrf_token %}
     {% if mood_form.non_field_errors %}
@@ -83,7 +83,7 @@
       <tbody>
         {% for log in mood_history %}
           <tr>
-            <td>{{ log.created_at|date:"N j, Y, P" }}</td>
+            <td>{{ log.log_date|date:"N j, Y" }}</td>
             <td>{{ log.mood_display_label }}</td>
             <td>{{ log.energy_display_label }}</td>
           </tr>

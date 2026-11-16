@@ -75,6 +75,6 @@ class UserProfileAdmin(admin.ModelAdmin):
 
 @admin.register(MoodLog)
 class MoodLogAdmin(admin.ModelAdmin):
-    list_display = ("user", "mood", "energy_level", "created_at")
-    list_filter = ("mood", "energy_level")
-    date_hierarchy = "created_at"
+    list_display = ("user", "log_date", "mood", "energy_level", "updated_at")
+    list_filter = ("mood", "energy_level", "log_date")
+    date_hierarchy = "log_date"

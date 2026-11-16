@@ -175,6 +175,10 @@ class MoodLogForm(forms.ModelForm):
     class Meta:
         model = MoodLog
         fields = ("mood", "energy_level")
+        labels = {
+            "mood": "What is your mood?",
+            "energy_level": "What is your energy?",
+        }
         widgets = {
             "mood": forms.RadioSelect,
             "energy_level": forms.RadioSelect,

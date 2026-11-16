@@ -1,6 +1,9 @@
-"""Rule-based Top Picks recommendation score (v3).
+"""Rule-based Top Picks recommendation score (v4 / ranking-v2).
 
-score_restaurant() returns (score 0–100+, reason tags, breakdown). Pure logic — no I/O.
+Menu-first nutrition when MenuStat links; cuisine/reviews are soft priors only.
+score_restaurant() returns (sort_score 0–100+, reason tags, breakdown) including
+health_estimate and confidence. Pure logic — no I/O.
+See md_guides/ranking-v2-plan.md and md_guides/scoring-algorithm.md.
 """
 
 from __future__ import annotations
@@ -10,13 +13,30 @@ import re
 from dataclasses import dataclass, field
 from typing import Iterable
 
-DEFAULT_WEIGHTS = (0.50, 0.25, 0.25)  # health, grade, rating
-HEALTH_FOCUS_WEIGHTS = (0.60, 0.25, 0.15)
-# When MenuStat calories are available: other weights × 0.9, calorie = 0.10
-CALORIE_WEIGHT = 0.10
+# Sort weights: (nutrition_or_prior, safety, rating)
+LINKED_WEIGHTS = (0.70, 0.20, 0.10)
+UNLINKED_WEIGHTS = (0.40, 0.40, 0.20)
+LINKED_HEALTH_FOCUS_WEIGHTS = (0.75, 0.15, 0.10)
+UNLINKED_HEALTH_FOCUS_WEIGHTS = (0.55, 0.30, 0.15)
+
+# Soft prior knobs (unlinked nutrition estimate / prior component).
+CUISINE_PRIOR = 0.10
+REVIEW_PRIOR_WEIGHT = 0.10  # × (healthy_share − unhealthy_share), so ±0.1 cap
+FAST_FOOD_PENALTY = 0.15
+
+# Confidence: menu year / meal count thresholds (match MenuStat helpers).
+STALE_MENU_YEAR = 2019
+THIN_MEAL_COUNT = 5
+CONFIDENCE_RANK = {"high": 0, "medium": 1, "low": 2}
+
 RATING_PRIOR = 4.0
 RATING_PSEUDO_COUNT = 20
-LOWER_CALORIE_TAG_THRESHOLD = 0.6  # calorie component ≥ this → tag
+LOWER_CALORIE_TAG_THRESHOLD = 0.6  # menu nutrition ≥ this → tag
+
+# Back-compat aliases used by older tests / imports.
+DEFAULT_WEIGHTS = UNLINKED_WEIGHTS
+HEALTH_FOCUS_WEIGHTS = UNLINKED_HEALTH_FOCUS_WEIGHTS
+CALORIE_WEIGHT = LINKED_WEIGHTS[0]  # menu share when linked
 
 # Like / Not interested feedback (see FeedbackPrefs and feedback_adjustment).
 LIKE_BONUS_PER_PLACE = 3.0
@@ -27,6 +47,50 @@ LIKED_STARS = 4  # star ratings at or above this count as a like
 DISLIKED_STARS = 2  # star ratings at or below this count as not interested
 BECAUSE_YOU_LIKED = "Because you liked {name}"
 TAG_YOU_LIKED = "You liked this"
+
+# Daily mood / energy check-in adjustments (accounts.MoodLog).
+MOOD_LOW = 2
+MOOD_HIGH = 4
+ENERGY_LOW = 2
+ENERGY_HIGH = 4
+ENERGY_LIGHT_BONUS = 5.0
+ENERGY_HEAVY_PENALTY = -4.0
+ENERGY_HEARTY_BONUS = 3.0
+ENERGY_MENU_LIGHT_BONUS = 3.0
+ENERGY_MENU_HEAVY_PENALTY = -3.0
+MOOD_COMFORT_BONUS = 5.0
+MOOD_FRESH_BONUS = 3.0
+MENU_LIGHT_THRESHOLD = 0.6
+MENU_HEAVY_THRESHOLD = 0.35
+
+COMFORT_MOOD_CUISINES = {
+    "Pizza",
+    "American",
+    "Hamburgers",
+    "Mexican",
+    "Chinese",
+    "Italian",
+    "Chicken",
+    "Soul Food",
+    "BBQ",
+    "Bakery Products/Desserts",
+    "Frozen Desserts",
+    "Donuts",
+    "Irish",
+    "Sandwiches",
+}
+
+HEARTY_ENERGY_CUISINES = {
+    "Steakhouse",
+    "BBQ",
+    "Korean",
+    "Latin American",
+    "Indian",
+    "Caribbean",
+    "Portuguese",
+    "Brazilian",
+    "Soul Food",
+}
 
 HEALTHY_CUISINES = {
     "Salads",
@@ -44,6 +108,9 @@ HEALTHY_CUISINES = {
     "Seafood",
     "Hawaiian",
 }
+
+# Lighter picks when today's energy check-in is low.
+LIGHT_ENERGY_CUISINES = HEALTHY_CUISINES
 
 UNHEALTHY_CUISINES = {
     "Hamburgers",
@@ -183,8 +250,11 @@ BOROUGHS = (
 
 TAG_YOUR_FAVORITE = "Your favorite"
 TAG_NEARBY = "Nearby"
+TAG_FITS_ENERGY = "Fits your energy"
+TAG_COMFORT_MOOD = "Comfort for your mood"
 TAG_HEALTHY_REVIEWS = "Healthy reviews"
 TAG_LOWER_CALORIE = "Lower-calorie menu"
+TAG_MENU_BASED = "Menu-based estimate"
 TAG_BUDGET = "Budget-friendly"
 TAG_TOP_RATED = "Top rated"
 TAG_GRADE_A = "Grade A"
@@ -192,6 +262,9 @@ TAG_GRADE_A = "Grade A"
 TAG_ORDER = (
     TAG_YOUR_FAVORITE,
     TAG_NEARBY,
+    TAG_FITS_ENERGY,
+    TAG_COMFORT_MOOD,
+    TAG_MENU_BASED,
     TAG_HEALTHY_REVIEWS,
     TAG_LOWER_CALORIE,
     TAG_BUDGET,
@@ -229,19 +302,30 @@ def health_focus_weights(profile=None):
     return value is not None and value >= 25.0
 
 
-def _base_weights(profile=None):
-    if health_focus_weights(profile):
-        return HEALTH_FOCUS_WEIGHTS
-    return DEFAULT_WEIGHTS
-
-
 def _weights(profile=None, has_calories=False):
-    """Return (health, grade, rating) or (health, grade, rating, calorie)."""
-    base = _base_weights(profile)
-    if not has_calories:
-        return base
-    scale = 1.0 - CALORIE_WEIGHT
-    return tuple(w * scale for w in base) + (CALORIE_WEIGHT,)
+    """Return (nutrition_or_prior, safety, rating) for linked or unlinked path."""
+    focus = health_focus_weights(profile)
+    if has_calories:
+        return LINKED_HEALTH_FOCUS_WEIGHTS if focus else LINKED_WEIGHTS
+    return UNLINKED_HEALTH_FOCUS_WEIGHTS if focus else UNLINKED_WEIGHTS
+
+
+def nutrition_confidence(
+    *,
+    has_menu,
+    match_kind=None,
+    menu_year=None,
+    meal_count=None,
+):
+    """high / medium / low from MenuStat link quality (see ranking-v2 plan)."""
+    if not has_menu:
+        return "low"
+    weak_match = match_kind in ("prefix", "contains")
+    stale = menu_year is not None and int(menu_year) < STALE_MENU_YEAR
+    thin = meal_count is not None and int(meal_count) < THIN_MEAL_COUNT
+    if weak_match or stale or thin:
+        return "medium"
+    return "high"
 
 
 def _tokenize(text):
@@ -382,27 +466,35 @@ def pick_display_review(reviews, profile=None):
     return best if best is not None else reviews[0]
 
 
-def health_score(cuisine, reviews, name, goal_words=()):
-    """Health component in [0, 1]."""
+def prior_health_score(cuisine, reviews, name, goal_words=()):
+    """Soft nutrition prior in [0, 1] when MenuStat is missing.
+
+    Cuisine ±0.1, review keyword share ±0.1, fast-food chain −0.15.
+    """
     score = 0.5
     cuisine = (cuisine or "").strip()
     if cuisine in HEALTHY_CUISINES:
-        score += 0.2
+        score += CUISINE_PRIOR
     elif cuisine in UNHEALTHY_CUISINES:
-        score -= 0.2
+        score -= CUISINE_PRIOR
 
     healthy, unhealthy, total = classify_reviews(reviews, goal_words)
     if total:
-        score += 0.3 * ((healthy / total) - (unhealthy / total))
+        score += REVIEW_PRIOR_WEIGHT * ((healthy / total) - (unhealthy / total))
 
     if is_fast_food(name):
-        score -= 0.2
+        score -= FAST_FOOD_PENALTY
 
     return max(0.0, min(1.0, score))
 
 
+def health_score(cuisine, reviews, name, goal_words=()):
+    """Alias for ``prior_health_score`` (kept for callers / tests)."""
+    return prior_health_score(cuisine, reviews, name, goal_words)
+
+
 def grade_score(grade):
-    """Inspection grade component in [0, 1]."""
+    """Inspection safety component in [0, 1] (not nutrition)."""
     g = (grade or "").strip().upper()
     if g == "A":
         return 1.0
@@ -451,6 +543,91 @@ def rating_score(google_rating, google_count, app_avg, app_count):
     return max(0.0, min(1.0, (blended - 3.0) / 2.0))
 
 
+def mood_energy_adjustment(cuisine, name, check_in, calorie_score=None):
+    """Score deltas from today's mood / energy check-in.
+
+    Returns ``(delta, reason_tags, adjustment_rows)``. ``check_in`` needs
+    ``mood`` and ``energy_level`` (1–5), e.g. a MoodLog or SimpleNamespace.
+    Neutral (3) values and a missing check-in apply no change. Adjustments are
+    profile-style points, not part of the nutrition estimate.
+    """
+    if check_in is None:
+        return 0.0, [], []
+
+    mood = getattr(check_in, "mood", None)
+    energy = getattr(check_in, "energy_level", None)
+    if mood is None or energy is None:
+        return 0.0, [], []
+
+    cuisine_label = (cuisine or "").strip()
+    is_light = cuisine_label in LIGHT_ENERGY_CUISINES
+    is_comfort = cuisine_label in COMFORT_MOOD_CUISINES
+    is_hearty = cuisine_label in HEARTY_ENERGY_CUISINES
+    is_heavy = cuisine_label in UNHEALTHY_CUISINES or is_fast_food(name)
+    menu_health = None if calorie_score is None else max(0.0, min(1.0, float(calorie_score)))
+
+    delta = 0.0
+    tags = []
+    rows = []
+
+    if energy <= ENERGY_LOW:
+        if is_light:
+            delta += ENERGY_LIGHT_BONUS
+            rows.append(
+                {"label": "Lighter pick for low energy", "delta": ENERGY_LIGHT_BONUS}
+            )
+            tags.append(TAG_FITS_ENERGY)
+        if is_heavy:
+            delta += ENERGY_HEAVY_PENALTY
+            rows.append(
+                {
+                    "label": "Heavier when energy is low",
+                    "delta": ENERGY_HEAVY_PENALTY,
+                }
+            )
+        if menu_health is not None:
+            if menu_health >= MENU_LIGHT_THRESHOLD:
+                delta += ENERGY_MENU_LIGHT_BONUS
+                rows.append(
+                    {
+                        "label": "Lower-calorie menu for low energy",
+                        "delta": ENERGY_MENU_LIGHT_BONUS,
+                    }
+                )
+                if TAG_FITS_ENERGY not in tags:
+                    tags.append(TAG_FITS_ENERGY)
+            elif menu_health <= MENU_HEAVY_THRESHOLD:
+                delta += ENERGY_MENU_HEAVY_PENALTY
+                rows.append(
+                    {
+                        "label": "Higher-calorie when energy is low",
+                        "delta": ENERGY_MENU_HEAVY_PENALTY,
+                    }
+                )
+    elif energy >= ENERGY_HIGH and is_hearty:
+        delta += ENERGY_HEARTY_BONUS
+        rows.append(
+            {"label": "Hearty pick for high energy", "delta": ENERGY_HEARTY_BONUS}
+        )
+        tags.append(TAG_FITS_ENERGY)
+
+    if mood <= MOOD_LOW and is_comfort:
+        delta += MOOD_COMFORT_BONUS
+        rows.append(
+            {"label": "Comfort food for your mood", "delta": MOOD_COMFORT_BONUS}
+        )
+        tags.append(TAG_COMFORT_MOOD)
+    elif mood >= MOOD_HIGH and is_light:
+        delta += MOOD_FRESH_BONUS
+        rows.append(
+            {"label": "Fresh pick for a good mood", "delta": MOOD_FRESH_BONUS}
+        )
+        if TAG_FITS_ENERGY not in tags:
+            tags.append(TAG_FITS_ENERGY)
+
+    return delta, tags, rows
+
+
 def score_restaurant(
     *,
     name,
@@ -466,32 +643,50 @@ def score_restaurant(
     boro="",
     profile=None,
     calorie_score=None,
+    menu_match_kind=None,
+    menu_year=None,
+    meal_count=None,
     feedback=None,
     camis="",
+    mood_check_in=None,
 ):
-    """Return (final_score, reason_tags, breakdown) for one restaurant.
+    """Return (sort_score, reason_tags, breakdown) for one restaurant.
 
-    ``calorie_score`` is a 0–1 MenuStat median-meal component when linked; omit
-    (None) to keep the three-part weights. ``feedback`` is the viewer's
-    FeedbackPrefs (Like / Not interested history); None leaves the score as is.
-    ``camis`` keeps a place's own Like from boosting itself.
+    When ``calorie_score`` is set (MenuStat linked), nutrition is menu-based
+    (70% default). Otherwise a soft prior (cuisine / reviews / chain) is used
+    at lower confidence. Grade is safety, not nutrition. ``feedback`` is the
+    viewer's FeedbackPrefs; ``camis`` keeps a place's own Like from boosting
+    itself. ``mood_check_in`` is today's mood/energy log (optional). Breakdown
+    includes ``health_estimate`` and ``confidence``.
     """
     goal_words = _goal_words(profile)
-    h = health_score(cuisine, reviews, name, goal_words)
-    g = grade_score(grade)
+    prior = prior_health_score(cuisine, reviews, name, goal_words)
+    safety = grade_score(grade)
     r = rating_score(google_rating, google_count, app_avg, app_count)
-    has_calories = calorie_score is not None
+    has_menu = calorie_score is not None
     focus = health_focus_weights(profile)
-    weights = _weights(profile, has_calories=has_calories)
-    if has_calories:
-        w_h, w_g, w_r, w_c = weights
-        c = max(0.0, min(1.0, float(calorie_score)))
-        base_points = 100.0 * (h * w_h + g * w_g + r * w_r + c * w_c)
+    w_n, w_s, w_r = _weights(profile, has_calories=has_menu)
+
+    if has_menu:
+        menu_health = max(0.0, min(1.0, float(calorie_score)))
+        nutrition = menu_health
+        nutrition_label = "Menu nutrition"
+        nutrition_key = "nutrition"
+        health_estimate = 100.0 * menu_health
     else:
-        w_h, w_g, w_r = weights
-        c = None
-        w_c = None
-        base_points = 100.0 * (h * w_h + g * w_g + r * w_r)
+        menu_health = None
+        nutrition = prior
+        nutrition_label = "Nutrition prior"
+        nutrition_key = "prior"
+        health_estimate = 100.0 * prior
+
+    confidence = nutrition_confidence(
+        has_menu=has_menu,
+        match_kind=menu_match_kind,
+        menu_year=menu_year,
+        meal_count=meal_count,
+    )
+    base_points = 100.0 * (nutrition * w_n + safety * w_s + r * w_r)
 
     score = base_points
     adjustments = []
@@ -533,6 +728,13 @@ def score_restaurant(
                 {"label": "Cuisine you marked not interested", "delta": cuisine_penalty}
             )
 
+    mood_delta, mood_tags, mood_rows = mood_energy_adjustment(
+        cuisine, name, mood_check_in, calorie_score=calorie_score
+    )
+    if mood_delta:
+        score += mood_delta
+    adjustments.extend(mood_rows)
+
     healthy_n, _unhealthy_n, total = classify_reviews(reviews, goal_words)
     blended, vote_count = blended_rating(
         google_rating, google_count, app_avg, app_count
@@ -543,9 +745,12 @@ def score_restaurant(
         candidates.append(TAG_YOUR_FAVORITE)
     if is_nearby:
         candidates.append(TAG_NEARBY)
+    candidates.extend(mood_tags)
+    if has_menu:
+        candidates.append(TAG_MENU_BASED)
     if total and healthy_n >= 2 and (healthy_n / total) >= 0.40:
         candidates.append(TAG_HEALTHY_REVIEWS)
-    if c is not None and c >= LOWER_CALORIE_TAG_THRESHOLD:
+    if menu_health is not None and menu_health >= LOWER_CALORIE_TAG_THRESHOLD:
         candidates.append(TAG_LOWER_CALORIE)
     if price == "$":
         candidates.append(TAG_BUDGET)
@@ -561,10 +766,11 @@ def score_restaurant(
     if (grade or "").strip().upper() in ("B", "C"):
         tags.append(f"Grade {(grade or '').strip().upper()}")
 
-    def _part(key, label, value, weight):
+    def _part(key, label, value, weight, section):
         return {
             "key": key,
             "label": label,
+            "section": section,
             "value_0_1": value,
             "weight": weight,
             "weight_pct": weight * 100.0,
@@ -572,22 +778,28 @@ def score_restaurant(
         }
 
     parts = [
-        _part("health", "Health", h, w_h),
-        _part("grade", "Inspection grade", g, w_g),
-        _part("rating", "Rating", r, w_r),
+        _part(nutrition_key, nutrition_label, nutrition, w_n, "nutrition"),
+        _part("safety", "Inspection safety", safety, w_s, "safety"),
+        _part("rating", "Rating", r, w_r, "rating"),
     ]
-    if has_calories:
-        parts.append(_part("calories", "Menu calories", c, w_c))
 
     breakdown = {
         "mode": "health_focus" if focus else "default",
-        "has_calories": has_calories,
+        "linked": has_menu,
+        "has_calories": has_menu,
+        "has_menu": has_menu,
+        "health_focus": focus,
+        "confidence": confidence,
+        "health_estimate": health_estimate,
+        "prior_health": prior,
+        "menu_health": menu_health,
         "parts": parts,
         "adjustments": adjustments,
         "base_points": base_points,
         "total": score,
         "tags": tags,
         "like_bonus": like_bonus,
+        "mood_delta": mood_delta,
     }
     return score, tags, breakdown
 
@@ -676,16 +888,28 @@ def daily_sample(rows, size, seed):
     return [row for index, row in enumerate(rows) if index in chosen]
 
 
+def _pick_sort_key(item):
+    """Higher score first; on ties prefer higher confidence, then rating."""
+    confidence = CONFIDENCE_RANK.get(item.get("confidence"), 2)
+    rating = item.get("google_rating")
+    try:
+        rating_key = -float(rating) if rating is not None else 0.0
+    except (TypeError, ValueError):
+        rating_key = 0.0
+    return (-item["score"], confidence, rating_key)
+
+
 def pick_top(items, count=3):
     """Pick the final *count* items from scored dicts.
 
     Each item needs ``score``, ``cuisine`` and ``like_bonus``. Rules:
-    1. Highest score first, but skip a cuisine that is already chosen; refill
-       from the skipped items if fewer than *count* remain.
+    1. Highest score first (ties: higher confidence, then rating); skip a
+       cuisine that is already chosen; refill from the skipped items if fewer
+       than *count* remain.
     2. At most one pick may use its like bonus. Other liked items compete with
        their score minus the bonus.
     """
-    pool = sorted(items, key=lambda item: -item["score"])
+    pool = sorted(items, key=_pick_sort_key)
     chosen, skipped, cuisines = [], [], set()
     bonus_used = False
     while pool and len(chosen) < count:
@@ -693,7 +917,7 @@ def pick_top(items, count=3):
         if item.get("like_bonus") and bonus_used:
             item = dict(item, score=item["score"] - item["like_bonus"], like_bonus=0)
             pool.append(item)
-            pool.sort(key=lambda other: -other["score"])
+            pool.sort(key=_pick_sort_key)
             continue
         cuisine = (item.get("cuisine") or "").strip()
         if cuisine and cuisine in cuisines:

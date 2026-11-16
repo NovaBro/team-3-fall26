@@ -123,8 +123,11 @@ class ProfileContextTests(TestCase):
         self.assertEqual(
             preferences(user)["latest_check_in"], "mood Good, energy Tired"
         )
+        stale = timezone.now() - timedelta(days=2)
         MoodLog.objects.filter(pk=mood.pk).update(
-            created_at=timezone.now() - timedelta(days=2)
+            created_at=stale,
+            updated_at=stale,
+            log_date=stale.date(),
         )
         self.assertEqual(preferences(user)["latest_check_in"], "")
 

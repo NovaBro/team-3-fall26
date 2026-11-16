@@ -1,20 +1,26 @@
-"""Unit tests for the v3 Top Picks recommendation score."""
+"""Unit tests for the v4 / ranking-v2 Top Picks recommendation score."""
 
 from types import SimpleNamespace
 from unittest import TestCase
 
 from restaurants.diet_filters import risky_cuisines
 from search.recommend import (
-    CALORIE_WEIGHT,
-    DEFAULT_WEIGHTS,
-    HEALTH_FOCUS_WEIGHTS,
+    ENERGY_HEAVY_PENALTY,
+    ENERGY_LIGHT_BONUS,
+    LINKED_WEIGHTS,
+    MOOD_COMFORT_BONUS,
     TAG_BUDGET,
+    TAG_COMFORT_MOOD,
+    TAG_FITS_ENERGY,
     TAG_GRADE_A,
     TAG_HEALTHY_REVIEWS,
     TAG_LOWER_CALORIE,
+    TAG_MENU_BASED,
     TAG_NEARBY,
     TAG_TOP_RATED,
     TAG_YOUR_FAVORITE,
+    UNLINKED_HEALTH_FOCUS_WEIGHTS,
+    UNLINKED_WEIGHTS,
     _weights,
     allergy_keys_from_text,
     bmi,
@@ -22,34 +28,81 @@ from search.recommend import (
     health_focus_weights,
     home_zip_boro,
     is_fast_food,
+    mood_energy_adjustment,
+    nutrition_confidence,
+    prior_health_score,
     rating_score,
     score_restaurant,
 )
 
 
 class WeightsTests(TestCase):
-    def test_default_and_health_focus_weights_sum_to_one(self):
-        self.assertAlmostEqual(sum(DEFAULT_WEIGHTS), 1.0)
-        self.assertAlmostEqual(sum(HEALTH_FOCUS_WEIGHTS), 1.0)
+    def test_linked_and_unlinked_weights_sum_to_one(self):
+        self.assertAlmostEqual(sum(LINKED_WEIGHTS), 1.0)
+        self.assertAlmostEqual(sum(UNLINKED_WEIGHTS), 1.0)
+        self.assertAlmostEqual(sum(UNLINKED_HEALTH_FOCUS_WEIGHTS), 1.0)
 
     def test_no_price_weight(self):
-        self.assertEqual(len(DEFAULT_WEIGHTS), 3)
-        self.assertEqual(len(HEALTH_FOCUS_WEIGHTS), 3)
+        self.assertEqual(len(LINKED_WEIGHTS), 3)
+        self.assertEqual(len(UNLINKED_WEIGHTS), 3)
 
-    def test_calorie_weights_renormalize_to_one(self):
-        self.assertAlmostEqual(sum(_weights(has_calories=True)), 1.0)
+    def test_weights_switch_on_menu_and_health_focus(self):
+        self.assertEqual(_weights(has_calories=False), UNLINKED_WEIGHTS)
+        self.assertEqual(_weights(has_calories=True), LINKED_WEIGHTS)
         heavy = SimpleNamespace(
             weight_lbs=200,
             height_in=68,
             health_goals=[],
         )
+        self.assertEqual(
+            _weights(heavy, has_calories=False), UNLINKED_HEALTH_FOCUS_WEIGHTS
+        )
         self.assertAlmostEqual(sum(_weights(heavy, has_calories=True)), 1.0)
-        default_cal = _weights(has_calories=True)
-        self.assertEqual(len(default_cal), 4)
-        self.assertAlmostEqual(default_cal[-1], CALORIE_WEIGHT)
-        self.assertEqual(default_cal[:3], (0.45, 0.225, 0.225))
-        # Without calories, still three weights.
-        self.assertEqual(_weights(has_calories=False), DEFAULT_WEIGHTS)
+
+
+class ConfidenceTests(TestCase):
+    def test_low_without_menu(self):
+        self.assertEqual(nutrition_confidence(has_menu=False), "low")
+
+    def test_high_for_exact_fresh_enough_meals(self):
+        self.assertEqual(
+            nutrition_confidence(
+                has_menu=True,
+                match_kind="exact",
+                menu_year=2020,
+                meal_count=6,
+            ),
+            "high",
+        )
+
+    def test_medium_for_stale_or_weak_or_thin(self):
+        self.assertEqual(
+            nutrition_confidence(
+                has_menu=True,
+                match_kind="prefix",
+                menu_year=2020,
+                meal_count=6,
+            ),
+            "medium",
+        )
+        self.assertEqual(
+            nutrition_confidence(
+                has_menu=True,
+                match_kind="exact",
+                menu_year=2018,
+                meal_count=6,
+            ),
+            "medium",
+        )
+        self.assertEqual(
+            nutrition_confidence(
+                has_menu=True,
+                match_kind="exact",
+                menu_year=2020,
+                meal_count=3,
+            ),
+            "medium",
+        )
 
 
 class CalorieScoreTests(TestCase):
@@ -61,14 +114,22 @@ class CalorieScoreTests(TestCase):
             google_rating=4.0,
             google_count=100,
             reviews=[],
+            menu_match_kind="exact",
+            menu_year=2020,
+            meal_count=6,
         )
-        low, tags_low, _ = score_restaurant(calorie_score=1.0, **kwargs)
+        low, tags_low, bd_low = score_restaurant(calorie_score=1.0, **kwargs)
         high, tags_high, _ = score_restaurant(calorie_score=0.0, **kwargs)
-        none, _, _ = score_restaurant(calorie_score=None, **kwargs)
-        self.assertGreater(low - high, 9)  # ~10 points from the calorie term
+        none, _, bd_none = score_restaurant(
+            calorie_score=None, name="Chain Spot", grade="A"
+        )
+        self.assertGreater(low - high, 60)  # ~70 pts from menu nutrition weight
         self.assertIn(TAG_LOWER_CALORIE, tags_low)
+        self.assertIn(TAG_MENU_BASED, tags_low)
         self.assertNotIn(TAG_LOWER_CALORIE, tags_high)
-        # Unlinked path uses 3 weights (score differs from calorie=0.5 mid-point).
+        self.assertEqual(bd_low["confidence"], "high")
+        self.assertEqual(bd_none["confidence"], "low")
+        self.assertAlmostEqual(bd_low["health_estimate"], 100.0)
         mid, _, _ = score_restaurant(calorie_score=0.5, **kwargs)
         self.assertNotAlmostEqual(none, mid, places=1)
 
@@ -96,16 +157,24 @@ class BreakdownTests(TestCase):
             calorie_score=None,
         )
         self.assertEqual(breakdown["mode"], "default")
-        self.assertFalse(breakdown["has_calories"])
+        self.assertFalse(breakdown["has_menu"])
+        self.assertEqual(breakdown["confidence"], "low")
         self.assertEqual(len(breakdown["parts"]), 3)
+        self.assertEqual(
+            [p["section"] for p in breakdown["parts"]],
+            ["nutrition", "safety", "rating"],
+        )
         parts_sum = sum(p["points"] for p in breakdown["parts"])
         self.assertAlmostEqual(parts_sum, breakdown["base_points"], places=5)
         adj_sum = sum(a["delta"] for a in breakdown["adjustments"])
         self.assertAlmostEqual(breakdown["base_points"] + adj_sum, score, places=5)
         self.assertAlmostEqual(breakdown["total"], score, places=5)
         self.assertEqual(breakdown["tags"], tags)
+        self.assertAlmostEqual(
+            breakdown["health_estimate"], 100.0 * breakdown["prior_health"], places=5
+        )
 
-    def test_breakdown_includes_calories_and_health_focus(self):
+    def test_breakdown_includes_menu_and_health_focus(self):
         profile = SimpleNamespace(
             weight_lbs=200,
             height_in=68,
@@ -123,12 +192,17 @@ class BreakdownTests(TestCase):
             google_count=50,
             profile=profile,
             calorie_score=0.8,
+            menu_match_kind="exact",
+            menu_year=2018,
+            meal_count=6,
         )
         self.assertEqual(breakdown["mode"], "health_focus")
-        self.assertTrue(breakdown["has_calories"])
+        self.assertTrue(breakdown["has_menu"])
+        self.assertEqual(breakdown["confidence"], "medium")  # stale year
         keys = [p["key"] for p in breakdown["parts"]]
-        self.assertEqual(keys, ["health", "grade", "rating", "calories"])
+        self.assertEqual(keys, ["nutrition", "safety", "rating"])
         self.assertAlmostEqual(sum(p["weight"] for p in breakdown["parts"]), 1.0)
+        self.assertAlmostEqual(breakdown["health_estimate"], 80.0)
 
 
 class ReviewCountingTests(TestCase):
@@ -138,6 +212,17 @@ class ReviewCountingTests(TestCase):
         self.assertEqual(total, 1)
         self.assertEqual(healthy, 1)
         self.assertEqual(unhealthy, 0)
+
+
+class PriorHealthTests(TestCase):
+    def test_cuisine_and_fast_food_priors_are_soft(self):
+        healthy = prior_health_score("Salads", [], "Local Bowl")
+        unhealthy = prior_health_score("Hamburgers", [], "Local Burger")
+        fast = prior_health_score("Hamburgers", [], "McDonald's")
+        self.assertAlmostEqual(healthy, 0.6)
+        self.assertAlmostEqual(unhealthy, 0.4)
+        self.assertAlmostEqual(fast, 0.25)
+        self.assertLess(healthy - unhealthy, 0.25)
 
 
 class FastFoodTests(TestCase):
@@ -175,8 +260,22 @@ class ScoreOrderingTests(TestCase):
         )
         self.assertGreaterEqual(sweet - mcd, 20)
 
-    def test_bmi_health_focus_flips_order(self):
-        # PDF §5: Green Bowl health ~0.9 / low rating; Taqueria ~0.6 / high rating.
+    def test_linked_low_calorie_beats_high_calorie(self):
+        kwargs = dict(
+            name="Chain",
+            cuisine="American",
+            grade="A",
+            google_rating=4.0,
+            google_count=50,
+            menu_match_kind="exact",
+            menu_year=2020,
+            meal_count=6,
+        )
+        low, _, _ = score_restaurant(calorie_score=0.9, **kwargs)
+        high, _, _ = score_restaurant(calorie_score=0.1, **kwargs)
+        self.assertGreater(low, high)
+
+    def test_health_focus_raises_nutrition_weight(self):
         green_kwargs = dict(
             name="Green Bowl",
             cuisine="Salads",
@@ -229,8 +328,11 @@ class ScoreOrderingTests(TestCase):
         green_heavy, _, _ = score_restaurant(profile=heavy, **green_kwargs)
         taco_heavy, _, _ = score_restaurant(profile=heavy, **taco_kwargs)
 
-        self.assertGreater(taco_slim, green_slim)
-        self.assertGreater(green_heavy, taco_heavy)
+        # Health focus should improve Green's standing relative to the taqueria.
+        self.assertGreater(
+            (green_heavy - taco_heavy) - (green_slim - taco_slim),
+            0,
+        )
 
     def test_weight_loss_goal_enables_health_focus(self):
         profile = SimpleNamespace(
@@ -312,6 +414,86 @@ class ProfileHeuristicTests(TestCase):
             google_count=100,
         )
         self.assertAlmostEqual(dislike_score, dislike_base - 15, places=1)
+
+
+class MoodEnergyAdjustmentTests(TestCase):
+    def test_no_check_in_leaves_score_unchanged(self):
+        base, _, bd = score_restaurant(
+            name="Green Bowl", cuisine="Salads", grade="A", google_rating=4.0
+        )
+        same, _, same_bd = score_restaurant(
+            name="Green Bowl",
+            cuisine="Salads",
+            grade="A",
+            google_rating=4.0,
+            mood_check_in=None,
+        )
+        self.assertAlmostEqual(base, same, places=5)
+        self.assertEqual(same_bd["mood_delta"], 0.0)
+
+    def test_low_energy_boosts_light_and_penalizes_heavy(self):
+        check_in = SimpleNamespace(mood=3, energy_level=1)
+        salad, salad_tags, salad_bd = score_restaurant(
+            name="Green Bowl",
+            cuisine="Salads",
+            grade="A",
+            google_rating=4.0,
+            mood_check_in=check_in,
+        )
+        burger, _, burger_bd = score_restaurant(
+            name="Burger Spot",
+            cuisine="Hamburgers",
+            grade="A",
+            google_rating=4.0,
+            mood_check_in=check_in,
+        )
+        salad_base, _, _ = score_restaurant(
+            name="Green Bowl", cuisine="Salads", grade="A", google_rating=4.0
+        )
+        burger_base, _, _ = score_restaurant(
+            name="Burger Spot", cuisine="Hamburgers", grade="A", google_rating=4.0
+        )
+        self.assertAlmostEqual(salad, salad_base + ENERGY_LIGHT_BONUS, places=1)
+        self.assertAlmostEqual(
+            burger, burger_base + ENERGY_HEAVY_PENALTY, places=1
+        )
+        self.assertIn(TAG_FITS_ENERGY, salad_tags)
+        self.assertGreater(salad_bd["mood_delta"], 0)
+        self.assertLess(burger_bd["mood_delta"], 0)
+
+    def test_low_mood_boosts_comfort_food(self):
+        check_in = SimpleNamespace(mood=1, energy_level=3)
+        pizza, tags, breakdown = score_restaurant(
+            name="Slice House",
+            cuisine="Pizza",
+            grade="A",
+            google_rating=4.0,
+            mood_check_in=check_in,
+        )
+        base, _, _ = score_restaurant(
+            name="Slice House", cuisine="Pizza", grade="A", google_rating=4.0
+        )
+        self.assertAlmostEqual(pizza, base + MOOD_COMFORT_BONUS, places=1)
+        self.assertIn(TAG_COMFORT_MOOD, tags)
+        self.assertEqual(breakdown["mood_delta"], MOOD_COMFORT_BONUS)
+
+    def test_low_energy_uses_menu_calorie_signal(self):
+        check_in = SimpleNamespace(mood=3, energy_level=2)
+        delta, tags, rows = mood_energy_adjustment(
+            "American", "Local Diner", check_in, calorie_score=0.9
+        )
+        self.assertGreater(delta, 0)
+        self.assertIn(TAG_FITS_ENERGY, tags)
+        self.assertTrue(any("Lower-calorie" in row["label"] for row in rows))
+
+    def test_neutral_check_in_is_noop(self):
+        check_in = SimpleNamespace(mood=3, energy_level=3)
+        delta, tags, rows = mood_energy_adjustment(
+            "Salads", "Green Bowl", check_in
+        )
+        self.assertEqual(delta, 0.0)
+        self.assertEqual(tags, [])
+        self.assertEqual(rows, [])
 
 
 class RatingAndTagTests(TestCase):

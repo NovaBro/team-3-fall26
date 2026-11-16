@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.core.validators import RegexValidator
 from django.db import models
+from django.utils import timezone
 
 phone_validator = RegexValidator(
     r"^\+?[0-9\s\-()]{7,20}$", "Enter a valid phone number."
@@ -61,7 +62,7 @@ class UserProfile(models.Model):
 
 
 class MoodLog(models.Model):
-    """One timestamped mood/energy check-in. Variable inputs logged over time."""
+    """One mood/energy check-in per user per America/New_York calendar day."""
 
     MOOD_CHOICES = [
         (1, "Awful"),
@@ -83,14 +84,32 @@ class MoodLog(models.Model):
     )
     mood = models.PositiveSmallIntegerField(choices=MOOD_CHOICES)
     energy_level = models.PositiveSmallIntegerField(choices=ENERGY_CHOICES)
+    log_date = models.DateField(
+        db_index=True,
+        help_text="America/New_York calendar day for this check-in.",
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = "mood log"
-        ordering = ["-created_at"]
+        ordering = ["-log_date", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "log_date"],
+                name="accounts_moodlog_user_log_date_uniq",
+            )
+        ]
 
     def __str__(self):
         return f"{self.user.username}: mood {self.mood}, energy {self.energy_level}"
+
+    def save(self, *args, **kwargs):
+        if self.log_date is None:
+            from accounts.mood import today_ny
+
+            self.log_date = today_ny(timezone.now())
+        super().save(*args, **kwargs)
 
     @property
     def mood_display_label(self):

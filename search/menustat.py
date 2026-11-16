@@ -29,6 +29,10 @@ MIN_PROTEIN_G = 15.0
 MIN_MEALS_FOR_SCORE = 3
 CALORIE_SCORE_HIGH_KCAL = 200.0  # → 1.0
 CALORIE_SCORE_LOW_KCAL = 800.0  # → 0.0
+# Menus strictly before this year are treated as stale (medium confidence).
+STALE_MENU_YEAR = 2019
+# Fewer than this many qualifying meals → medium confidence.
+THIN_MEAL_COUNT = 5
 
 
 def normalize_name(value):
@@ -59,18 +63,18 @@ def clear_menustat_cache():
     _menustat_restaurant_index.cache_clear()
 
 
-def match_menustat_restaurant(name):
-    """Fuzzy-match an inspection/Google name to a MenuStat restaurant label.
+def match_menustat_restaurant_detail(name):
+    """Fuzzy-match to MenuStat; return (display_name, match_kind) or (None, None).
 
-    Exact normalized match first; otherwise a single unambiguous prefix or
-    contains hit. Returns the MenuStat ``restaurant`` string, or None.
+    ``match_kind`` is ``exact``, ``prefix``, or ``contains``. Ambiguous matches
+    are rejected.
     """
     key = normalize_name(name)
     if not key:
-        return None
+        return None, None
     index = _menustat_restaurant_index()
     if key in index:
-        return index[key]
+        return index[key], "exact"
 
     # Prefix: "mcdonalds 123" ↔ "mcdonalds", or "burger king midtown" ↔ "burger king".
     prefix_hits = [
@@ -80,15 +84,25 @@ def match_menustat_restaurant(name):
     ]
     unique_prefix = list(dict.fromkeys(prefix_hits))
     if len(unique_prefix) == 1:
-        return unique_prefix[0]
+        return unique_prefix[0], "prefix"
 
     contains_hits = [
         display for norm, display in index.items() if key in norm or norm in key
     ]
     unique_contains = list(dict.fromkeys(contains_hits))
     if len(unique_contains) == 1:
-        return unique_contains[0]
-    return None
+        return unique_contains[0], "contains"
+    return None, None
+
+
+def match_menustat_restaurant(name):
+    """Fuzzy-match an inspection/Google name to a MenuStat restaurant label.
+
+    Exact normalized match first; otherwise a single unambiguous prefix or
+    contains hit. Returns the MenuStat ``restaurant`` string, or None.
+    """
+    matched, _kind = match_menustat_restaurant_detail(name)
+    return matched
 
 
 def qualifying_meals(restaurant_name):
@@ -145,12 +159,36 @@ def calorie_score_from_median(median):
     return max(0.0, min(1.0, (CALORIE_SCORE_LOW_KCAL - value) / span))
 
 
-def calorie_score_for_name(name):
-    """Resolve fuzzy match → median → score, or None if unlinked/insufficient."""
-    matched = match_menustat_restaurant(name)
+def menu_nutrition_for_name(name):
+    """Resolve fuzzy match → nutrition link dict, or None if unlinked/insufficient.
+
+    Keys: ``score`` (0–1), ``match_kind``, ``menu_year``, ``meal_count``,
+    ``menustat_name``, ``median_calories``.
+    """
+    matched, kind = match_menustat_restaurant_detail(name)
     if not matched:
         return None
-    return calorie_score_from_median(median_meal_calories(matched))
+    meals = qualifying_meals(matched)
+    if len(meals) < MIN_MEALS_FOR_SCORE:
+        return None
+    median = statistics.median(float(m.calories) for m in meals)
+    score = calorie_score_from_median(median)
+    if score is None:
+        return None
+    return {
+        "score": score,
+        "match_kind": kind,
+        "menu_year": meals[0].year,
+        "meal_count": len(meals),
+        "menustat_name": matched,
+        "median_calories": median,
+    }
+
+
+def calorie_score_for_name(name):
+    """Resolve fuzzy match → median → score, or None if unlinked/insufficient."""
+    info = menu_nutrition_for_name(name)
+    return None if info is None else info["score"]
 
 
 def top_low_calorie_meals(name, limit=5):

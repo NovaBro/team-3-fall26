@@ -1,8 +1,10 @@
 import io
 import re
 import tempfile
+from datetime import datetime, timedelta
 from io import BytesIO
 from tempfile import TemporaryDirectory
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import Permission, User
 from django.core import mail
@@ -14,6 +16,7 @@ from django.urls import reverse
 from PIL import Image
 
 from accounts.models import MoodLog, UserProfile
+from accounts.mood import latest_check_in_for, today_ny, upsert_today_mood
 from accounts.tokens import email_verification_token
 from community.models import CommunitySubject, UserComment, UserRating
 
@@ -384,7 +387,7 @@ class ProfileTests(TestCase):
             profile = UserProfile.objects.get(user=self.user)
             self.assertTrue(profile.picture.name.startswith("profile_pictures/"))
 
-    def test_log_mood_appends_timestamped_entry(self):
+    def test_log_mood_creates_todays_entry(self):
         response = self.client.post(
             reverse("accounts:profile"),
             {"action": "log_mood", "mood": "4", "energy_level": "2"},
@@ -394,6 +397,22 @@ class ProfileTests(TestCase):
         self.assertEqual(log.mood, 4)
         self.assertEqual(log.energy_level, 2)
         self.assertIsNotNone(log.created_at)
+        self.assertIsNotNone(log.log_date)
+
+    def test_log_mood_upserts_same_day(self):
+        self.client.post(
+            reverse("accounts:profile"),
+            {"action": "log_mood", "mood": "2", "energy_level": "1"},
+        )
+        self.client.post(
+            reverse("accounts:profile"),
+            {"action": "log_mood", "mood": "5", "energy_level": "4"},
+        )
+        logs = MoodLog.objects.filter(user=self.user)
+        self.assertEqual(logs.count(), 1)
+        log = logs.get()
+        self.assertEqual(log.mood, 5)
+        self.assertEqual(log.energy_level, 4)
 
     def test_log_mood_does_not_alter_fixed_profile(self):
         self.client.post(
@@ -417,12 +436,17 @@ class ProfileTests(TestCase):
         self.assertContains(response, "Pick a mood from the list.")
         self.assertFalse(MoodLog.objects.exists())
 
-    def test_mood_history_lists_recent_entries_first(self):
-        for mood in (1, 3, 5):
-            self.client.post(
-                reverse("accounts:profile"),
-                {"action": "log_mood", "mood": str(mood), "energy_level": "3"},
-            )
+    def test_mood_history_lists_recent_days_first(self):
+        today = today_ny()
+        MoodLog.objects.create(
+            user=self.user, mood=1, energy_level=3, log_date=today - timedelta(days=2)
+        )
+        MoodLog.objects.create(
+            user=self.user, mood=3, energy_level=3, log_date=today - timedelta(days=1)
+        )
+        MoodLog.objects.create(
+            user=self.user, mood=5, energy_level=3, log_date=today
+        )
         response = self.client.get(reverse("accounts:profile"))
         history = list(response.context["mood_history"])
         self.assertEqual([log.mood for log in history], [5, 3, 1])
@@ -431,6 +455,33 @@ class ProfileTests(TestCase):
         response = self.client.post(reverse("accounts:logout"))
         self.assertRedirects(response, reverse("search:index"))
         self.assertNotIn("_auth_user_id", self.client.session)
+
+
+class MoodHelperTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("mooder", "m@example.com", VALID_PASSWORD)
+
+    def test_upsert_keys_off_ny_calendar_day(self):
+        # 1am UTC on Nov 15 is still Nov 14 in America/New_York (EDT/EST).
+        late_ny_evening = datetime(2026, 11, 15, 1, 0, tzinfo=ZoneInfo("UTC"))
+        self.assertEqual(today_ny(late_ny_evening).isoformat(), "2026-11-14")
+        first = upsert_today_mood(self.user, 2, 2, when=late_ny_evening)
+        second = upsert_today_mood(self.user, 5, 5, when=late_ny_evening)
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(MoodLog.objects.filter(user=self.user).count(), 1)
+        self.assertEqual(second.log_date.isoformat(), "2026-11-14")
+        self.assertEqual(second.mood, 5)
+
+    def test_latest_check_in_prefers_today_over_stale(self):
+        today = today_ny()
+        MoodLog.objects.create(
+            user=self.user,
+            mood=1,
+            energy_level=1,
+            log_date=today - timedelta(days=3),
+        )
+        today_log = upsert_today_mood(self.user, 4, 3)
+        self.assertEqual(latest_check_in_for(self.user).pk, today_log.pk)
 
 
 class ViewProfileTests(TestCase):

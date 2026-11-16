@@ -5,7 +5,7 @@
 {% block main_class %}restaurant-main{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=14">
+<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=15">
 {% endblock %}
 
 {% block content %}
@@ -14,10 +14,41 @@
 
   {% if top_picks %}
   <section class="top-picks" aria-labelledby="top-picks-title">
+    <div class="mood-checkin" aria-labelledby="mood-checkin-title">
+      <h3 id="mood-checkin-title" class="mood-checkin__title">Today's check-in</h3>
+      {% if user.is_authenticated %}
+        {% if today_mood and not edit_mood %}
+          <p class="mood-checkin__summary">
+            Mood <strong>{{ today_mood.mood_display_label }}</strong>,
+            energy <strong>{{ today_mood.energy_display_label }}</strong>
+          </p>
+          <p class="mood-checkin__actions">
+            <a class="mood-checkin__edit" href="?{% if selected_boro %}boro={{ selected_boro|urlencode }}&amp;{% endif %}edit_mood=1">Update check-in</a>
+          </p>
+        {% else %}
+          <form class="mood-checkin__form" method="post" action="{% url 'search:mood_checkin' %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{% url 'search:home' %}{% if selected_boro %}?boro={{ selected_boro|urlencode }}{% endif %}">
+            {% for field in mood_form %}
+              <fieldset class="mood-checkin__field">
+                <legend>{{ field.label }}</legend>
+                {{ field }}
+              </fieldset>
+            {% endfor %}
+            <button type="submit" class="mood-checkin__submit">Save check-in</button>
+          </form>
+        {% endif %}
+      {% else %}
+        <p class="mood-checkin__guest muted">
+          <a href="{% url 'accounts:login' %}?next={{ request.get_full_path|urlencode }}">Log in</a>
+          to record your mood and energy for today.
+        </p>
+      {% endif %}
+    </div>
     <div class="top-picks__header">
       <div class="top-picks__titles">
       <h2 id="top-picks-title"><span class="top-picks__icon" aria-hidden="true">🏆</span> {% if personalized_picks %}Picked for you{% else %}Today's Top Picks{% if selected_boro %} in {{ selected_boro|title }}{% endif %}{% endif %}</h2>
-      <p class="top-picks__subtitle muted">{% if personalized_picks %}Ranked by AI using your profile. Always confirm allergies with the restaurant.{% else %}Your next unforgettable food experience starts here!{% endif %}</p></div>
+      <p class="top-picks__subtitle muted">{% if personalized_picks %}Ranked by AI using your profile. Always confirm allergies with the restaurant.{% elif today_mood %}Ranked with today's mood and energy check-in.{% else %}Your next unforgettable food experience starts here!{% endif %}</p></div>
       <div class="top-picks__loc"><form class="restaurant-borough-filter" method="get">
       <label for="restaurant-boro">Select your location</label>
       <select id="restaurant-boro" name="boro" onchange="this.form.submit()">

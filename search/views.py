@@ -26,6 +26,9 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from accounts.forms import MoodLogForm
+from accounts.models import MoodLog
+from accounts.mood import today_ny, upsert_today_mood
 from assistant.recommend import personalized_picks
 from community.keys import DOHMH, dohmh_key
 from community.models import (
@@ -50,7 +53,7 @@ from search.forms import (
 )
 from search.locations import resolve
 from search.models import RestaurantInspection
-from search.menustat import calorie_score_for_name, top_low_calorie_meals
+from search.menustat import menu_nutrition_for_name, top_low_calorie_meals
 from search.recommend import (
     FAST_FOOD_PREFIXES,
     HEALTHY_CUISINES,
@@ -229,6 +232,13 @@ def _name_starts_with(prefixes):
     return query
 
 
+def _mood_check_in_for(request):
+    """Today's NY mood/energy log for the signed-in user, else None."""
+    if not request.user.is_authenticated:
+        return None
+    return MoodLog.objects.filter(user=request.user, log_date=today_ny()).first()
+
+
 def _profile_for(request):
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated:
@@ -400,6 +410,7 @@ def _top_picks(request, count=3, boro=""):
     reason tags."""
     profile = _profile_for(request)
     prefs = _feedback_prefs(request)
+    mood_check_in = _mood_check_in_for(request)
     user_id = request.user.pk if request.user.is_authenticated else None
     hidden = prefs.hidden if prefs is not None else set()
     picks = [] if boro else _claude_picks(request, count)
@@ -459,7 +470,8 @@ def _top_picks(request, count=3, boro=""):
         inspection = pick.get("inspection") or {}
         grade = inspection.get("grade") or "A"
         pick_name = pick.get("name") or ""
-        calorie = calorie_score_for_name(pick_name)
+        nutrition = menu_nutrition_for_name(pick_name)
+        calorie = None if nutrition is None else nutrition["score"]
         score, tags, breakdown = score_restaurant(
             name=pick_name,
             cuisine=pick.get("cuisine") or "",
@@ -474,12 +486,19 @@ def _top_picks(request, count=3, boro=""):
             boro=pick.get("boro") or "",
             profile=profile,
             calorie_score=calorie,
+            menu_match_kind=None if nutrition is None else nutrition["match_kind"],
+            menu_year=None if nutrition is None else nutrition["menu_year"],
+            meal_count=None if nutrition is None else nutrition["meal_count"],
             feedback=prefs,
             camis=pick["camis"],
+            mood_check_in=mood_check_in,
         )
         pick["score"] = score
         pick["reason_tags"] = tags
         pick["calorie_score"] = calorie
+        pick["confidence"] = breakdown["confidence"]
+        pick["health_estimate"] = breakdown["health_estimate"]
+        pick["google_rating"] = (google or {}).get("rating")
         pick["like_bonus"] = breakdown["like_bonus"]
         pick["feedback"] = feedback_values.get(pick["camis"], 0)
 
@@ -609,6 +628,13 @@ def home(request):
             row["google"] = lookup.result()
             row["photo_url"] = _photo_url_for(row["google"])
 
+    today_mood = _mood_check_in_for(request)
+    mood_form = None
+    edit_mood = False
+    if request.user.is_authenticated:
+        edit_mood = request.GET.get("edit_mood") == "1" or today_mood is None
+        mood_form = MoodLogForm(instance=today_mood)
+
     return render(
         request,
         "search/home.html",
@@ -619,8 +645,36 @@ def home(request):
             "selected_boro": selected_boro,
             "top_picks": top_picks,
             "personalized_picks": any(pick.get("ai_reason") for pick in top_picks),
+            "today_mood": today_mood,
+            "mood_form": mood_form,
+            "edit_mood": edit_mood,
         },
     )
+
+
+@login_required
+@require_POST
+def mood_checkin(request):
+    """Save today's mood / energy check-in (one row per NY calendar day)."""
+    today_mood = MoodLog.objects.filter(
+        user=request.user, log_date=today_ny()
+    ).first()
+    form = MoodLogForm(request.POST, instance=today_mood)
+    if form.is_valid():
+        upsert_today_mood(
+            request.user,
+            form.cleaned_data["mood"],
+            form.cleaned_data["energy_level"],
+        )
+        messages.success(request, "Check-in saved.")
+    else:
+        messages.error(request, "Please pick a mood and energy level.")
+    next_url = request.POST.get("next", "")
+    if not url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}
+    ):
+        next_url = reverse("search:home")
+    return redirect(next_url)
 
 
 def restaurant_detail(request, camis):
@@ -647,9 +701,10 @@ def restaurant_detail(request, camis):
             {"text": r.text} for r in place.reviews.all() if (r.text or "").strip()
         ][:5]
     app_avg, app_count = _app_rating_stats(camis)
-    calorie = calorie_score_for_name(latest.dba)
+    nutrition = menu_nutrition_for_name(latest.dba)
+    calorie = None if nutrition is None else nutrition["score"]
     grade = (latest.grade or "").strip() or "A"
-    healthiness_score, reason_tags, score_breakdown = score_restaurant(
+    ranking_score, reason_tags, score_breakdown = score_restaurant(
         name=latest.dba or "",
         cuisine=latest.cuisine or "",
         grade=grade,
@@ -663,8 +718,12 @@ def restaurant_detail(request, camis):
         boro=latest.boro or "",
         profile=_profile_for(request),
         calorie_score=calorie,
+        menu_match_kind=None if nutrition is None else nutrition["match_kind"],
+        menu_year=None if nutrition is None else nutrition["menu_year"],
+        meal_count=None if nutrition is None else nutrition["meal_count"],
         feedback=_feedback_prefs(request),
         camis=camis,
+        mood_check_in=_mood_check_in_for(request),
     )
 
     return render(
@@ -681,7 +740,8 @@ def restaurant_detail(request, camis):
             "place": place,
             "menu_picks": menu_picks,
             "menustat_name": menustat_name,
-            "healthiness_score": healthiness_score,
+            "healthiness_score": score_breakdown["health_estimate"],
+            "ranking_score": ranking_score,
             "reason_tags": reason_tags,
             "score_breakdown": score_breakdown,
         },

@@ -8,7 +8,8 @@ from django.contrib.auth.models import User
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
-from accounts.models import UserProfile
+from accounts.models import MoodLog, UserProfile
+from accounts.mood import today_ny
 from community.keys import DOHMH, dohmh_key
 from community.models import CommunitySubject, RecommendationFeedback, UserRating
 from search import views
@@ -192,6 +193,70 @@ class FeedbackViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("accounts:login"), response["Location"])
         self.assertFalse(RecommendationFeedback.objects.exists())
+
+    def test_anonymous_sees_mood_login_prompt(self, _find):
+        response, _names = self.picks()
+        self.assertContains(response, "mood-checkin")
+        self.assertContains(response, "Log in")
+        self.assertContains(response, "mood and energy")
+        self.assertNotContains(response, "mood-checkin__form")
+
+    def test_mood_checkin_requires_login(self, _find):
+        response = self.client.post(
+            reverse("search:mood_checkin"),
+            {"mood": "4", "energy_level": "3"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("accounts:login"), response["Location"])
+        self.assertFalse(MoodLog.objects.exists())
+
+    def test_mood_checkin_upserts_for_today(self, _find):
+        self.client.force_login(self.user)
+        self.client.post(
+            reverse("search:mood_checkin"),
+            {
+                "mood": "2",
+                "energy_level": "1",
+                "next": reverse("search:home"),
+            },
+        )
+        self.client.post(
+            reverse("search:mood_checkin"),
+            {
+                "mood": "5",
+                "energy_level": "4",
+                "next": reverse("search:home"),
+            },
+        )
+        logs = MoodLog.objects.filter(user=self.user)
+        self.assertEqual(logs.count(), 1)
+        log = logs.get()
+        self.assertEqual(log.mood, 5)
+        self.assertEqual(log.energy_level, 4)
+        self.assertEqual(log.log_date, today_ny())
+        response, _names = self.picks()
+        self.assertContains(response, "Great")
+        self.assertContains(response, "Alert")
+        self.assertContains(response, "Update check-in")
+
+    def test_home_and_profile_share_todays_mood(self, _find):
+        self.client.force_login(self.user)
+        self.client.post(
+            reverse("search:mood_checkin"),
+            {
+                "mood": "4",
+                "energy_level": "2",
+                "next": reverse("search:home"),
+            },
+        )
+        self.client.post(
+            reverse("accounts:profile"),
+            {"action": "log_mood", "mood": "3", "energy_level": "5"},
+        )
+        self.assertEqual(MoodLog.objects.filter(user=self.user).count(), 1)
+        log = MoodLog.objects.get(user=self.user)
+        self.assertEqual(log.mood, 3)
+        self.assertEqual(log.energy_level, 5)
 
     def test_like_saves_and_pressing_again_undoes(self, _find):
         self.client.force_login(self.user)
@@ -454,7 +519,7 @@ class CuisineLabelTests(SimpleTestCase):
         self.assertIn("Juice, Smoothies, Fruit Salads", HEALTHY_CUISINES)
         self.assertIn("Soups/Salads/Sandwiches", HEALTHY_CUISINES)
         self.assertNotIn("Juice/Smoothies", HEALTHY_CUISINES)
-        self.assertEqual(health_score("Juice, Smoothies, Fruit Salads", [], "X"), 0.7)
+        self.assertEqual(health_score("Juice, Smoothies, Fruit Salads", [], "X"), 0.6)
 
 
 class DisplayReviewTests(SimpleTestCase):
