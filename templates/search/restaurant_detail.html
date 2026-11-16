@@ -12,12 +12,12 @@
   <div class="healthiness-score__headline">
     <h2 id="healthiness-score-title" class="healthiness-score__title">Healthiness score</h2>
     <p class="healthiness-score__value mono">{{ healthiness_score|floatformat:1 }}</p>
-    <p class="muted healthiness-score__sub">Top Picks formula{% if score_breakdown.mode == "health_focus" %} · personalized weights{% endif %}</p>
+    <p class="muted healthiness-score__sub">Top Picks formula{% if score_breakdown.mode == "personal" %} · includes your Personal fit{% endif %}</p>
   </div>
   {% if reason_tags %}
   <p class="healthiness-score__tags">
     {% for tag in reason_tags %}
-      <span class="healthiness-score__tag">{{ tag }}</span>
+      <span class="healthiness-score__tag{% if tag == "Allergy check" %} healthiness-score__tag--warn{% endif %}">{{ tag }}</span>
     {% endfor %}
   </p>
   {% endif %}
@@ -35,15 +35,20 @@
   <h3 class="healthiness-score__how">How this score is calculated</h3>
   <ul class="healthiness-score__parts">
     {% for part in score_breakdown.parts %}
-      <li>
-        <span class="healthiness-score__part-label">{{ part.label }}</span>
-        <span class="mono muted">{{ part.value_0_1|floatformat:2 }} × {{ part.weight_pct|floatformat:1 }}% = {{ part.points|floatformat:1 }} pts</span>
-      </li>
-    {% endfor %}
-    {% for adj in score_breakdown.adjustments %}
-      <li>
-        <span class="healthiness-score__part-label">{{ adj.label }}</span>
-        <span class="mono muted">{% if adj.delta > 0 %}+{% endif %}{{ adj.delta|floatformat:0 }} pts</span>
+      <li class="healthiness-score__part">
+        <details>
+          <summary>
+            <span class="healthiness-score__part-label">{{ part.label }}</span>
+            <span class="mono muted">{{ part.value_0_1|floatformat:2 }} × {{ part.weight_pct|floatformat:1 }}% = {{ part.points|floatformat:1 }} pts</span>
+          </summary>
+          {% if part.steps %}
+          <dl class="healthiness-score__steps">
+            {% for step_label, step_value in part.steps %}
+              <div{% if forloop.last %} class="is-result"{% endif %}><dt>{{ step_label }}</dt><dd class="mono">{{ step_value }}</dd></div>
+            {% endfor %}
+          </dl>
+          {% endif %}
+        </details>
       </li>
     {% endfor %}
     <li class="healthiness-score__total">
@@ -51,6 +56,9 @@
       <span class="mono">{{ score_breakdown.total|floatformat:1 }}</span>
     </li>
   </ul>
+  {% if score_breakdown.allergy_warnings %}
+  <p class="allergy-note" role="note">{{ score_breakdown.allergy_warnings|join:", " }} {% if score_breakdown.allergy_warnings|length > 1 %}are{% else %}is{% endif %} common in {{ cuisine }} food. Always confirm allergies with the restaurant.</p>
+  {% endif %}
   {% if not score_breakdown.has_calories %}
   <p class="muted healthiness-score__note">No MenuStat menu match — calorie weight omitted.</p>
   {% endif %}

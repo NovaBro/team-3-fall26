@@ -382,7 +382,8 @@ class HomeTopPicksTests(TestCase):
         self.assertEqual(first_pick["review"]["text"], expected_comment)
         self.assertEqual(first_pick["review"]["author_name"], "Alice M.")
         self.assertIn("reason_tags", first_pick)
-        self.assertIn("Grade A", first_pick["reason_tags"])
+        # Every Top pick is grade A, so "Grade A" is not a tag.
+        self.assertNotIn("Grade A", first_pick["reason_tags"])
         self.assertIn(
             "restaurants/photo/?name=places%2FChIJ123%2Fphotos%2Fabc",
             first_pick["photo_url"],
@@ -390,7 +391,6 @@ class HomeTopPicksTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertIn("Best pad thai in Queens! Must try.", content)
         self.assertIn("Alice M.", content)
-        self.assertIn("Grade A", content)
         expected_photo = "restaurants/photo/?name=places%2FChIJ123%2Fphotos%2Fabc"
         self.assertIn(expected_photo, content)
 

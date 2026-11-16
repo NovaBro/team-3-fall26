@@ -117,7 +117,7 @@ class FeedbackPrefsTests(SimpleTestCase):
         prefs = FeedbackPrefs(liked={"Mexican": liked})
         bonus, penalty, tag = feedback_adjustment("Mexican", prefs, "99")
         self.assertEqual(
-            (bonus, penalty, tag), (9.0, 0.0, "Because you liked Taqueria")
+            (bonus, penalty, tag), (0.3, 0.0, "Because you liked Taqueria")
         )
         self.assertEqual(feedback_adjustment("Thai", prefs, "99"), (0.0, 0.0, None))
 
@@ -131,23 +131,21 @@ class FeedbackPrefsTests(SimpleTestCase):
         once = FeedbackPrefs(not_interested={"Pizza": 1})
         twice = FeedbackPrefs(not_interested={"Pizza": 2})
         self.assertEqual(feedback_adjustment("Pizza", once)[1], 0.0)
-        self.assertEqual(feedback_adjustment("Pizza", twice)[1], -5.0)
+        self.assertEqual(feedback_adjustment("Pizza", twice)[1], -0.2)
 
     def test_score_shows_feedback_in_breakdown_and_tags(self):
         prefs = FeedbackPrefs(liked={"Mexican": [("1", "TAQUERIA")]})
-        base, _tags, _ = score_restaurant(name="X", cuisine="Mexican", grade="A")
         score, tags, breakdown = score_restaurant(
             name="X", cuisine="Mexican", grade="A", feedback=prefs
         )
-        self.assertEqual(score - base, 3.0)
+        personal = next(p for p in breakdown["parts"] if p["key"] == "personal")
+        self.assertAlmostEqual(personal["value_0_1"], 0.6)  # 0.5 + one like
+        self.assertAlmostEqual(personal["points"], 12.0)  # 0.6 x 20%
         self.assertEqual(tags[0], "Similar pick")
         self.assertEqual(breakdown["similar_to"], "Taqueria")
         self.assertIn("Similar to Taqueria, which you liked", breakdown["reasons"])
-        self.assertEqual(breakdown["like_bonus"], 3.0)
-        self.assertIn(
-            {"label": "Similar to places you liked", "delta": 3.0},
-            breakdown["adjustments"],
-        )
+        self.assertAlmostEqual(breakdown["like_bonus"], 2.0)
+        self.assertIn(("Similar to places you liked", "+0.10"), personal["steps"])
 
 
 @patch("search.views.find_restaurant_place", return_value=None)
@@ -394,12 +392,14 @@ class BoroughTopPicksTests(TestCase):
         picks = response.context["top_picks"]
         self.assertEqual(len(picks), 3)
         self.assertEqual({pick["boro"] for pick in picks}, {"Brooklyn"})
-        self.assertContains(response, "Top Picks in Brooklyn")
+        self.assertContains(response, '<option value="Brooklyn" selected>')
 
     def test_all_boroughs_title_and_mix(self, _find):
         response = self.client.get(reverse("search:home"))
         self.assertEqual(len(response.context["top_picks"]), 3)
-        self.assertNotContains(response, "Top Picks in")
+        # The title's borough menu shows "New York" (all boroughs) selected.
+        self.assertContains(response, '<option value="">New York</option>')
+        self.assertNotContains(response, "selected>")
 
     def test_no_top_picks_after_page_one(self, _find):
         for n in range(20):
@@ -547,14 +547,16 @@ class HealthyCandidateTests(TestCase):
         return [row["name"] for row in views._build_candidate_pool(profile, None, seed)]
 
     def test_best_db_score_beats_recent_inspection(self):
-        for n in range(12):  # inspected recently, plain cuisine
+        for n in range(30):  # inspected recently, plain cuisine
             inspection(str(9000 + n), f"RECENT {n}", "American", "A", day="2026-10-01")
         for n in range(9):  # inspected a year earlier, healthy cuisine
             inspection(str(9100 + n), f"HEALTHY {n}", "Salads", "A", day="2025-06-01")
         with patch("search.views._today", return_value=date(2026, 11, 9)):
             names = self.pool()
-        self.assertEqual(len(names), 9)
-        self.assertTrue(all(name.startswith("HEALTHY") for name in names))
+        self.assertEqual(len(names), views.POOL_SIZE)
+        cap = views.MAX_PER_CUISINE  # at most this many Salads come first
+        self.assertTrue(all(name.startswith("HEALTHY") for name in names[:cap]))
+        self.assertEqual(sum(name.startswith("HEALTHY") for name in names), 9)
 
     def test_latest_grade_must_be_a(self):
         inspection("9200", "FELL TO C", "Salads", "A", day="2023-01-01")
@@ -620,4 +622,4 @@ class ClaudePicksTests(TestCase):
     def test_selected_borough_uses_daily_picks(self):
         page = self.get(boro="Queens")
         self.assertFalse(page.context["personalized_picks"])
-        self.assertContains(page, "Top Picks in Queens")
+        self.assertContains(page, '<option value="Queens" selected>')

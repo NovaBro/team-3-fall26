@@ -178,6 +178,10 @@ RUNNING_TESTS = sys.argv[1:2] == ["test"]
 GEMINI_API_KEY = "" if RUNNING_TESTS else os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
+# Score a restaurant's reviews with the MiniLM model (search/ai_scores.py) the
+# first time it is shown, and store the result. Off in tests.
+AI_LIVE_SCORING = not RUNNING_TESTS
+
 # Home page Google lookups (Top picks + Explore more cards) are remembered this
 # long, so a reload does not search Google again. Off in tests.
 PLACES_CACHE_SECONDS = 0 if RUNNING_TESTS else 60 * 60

@@ -71,7 +71,7 @@ class SentenceScoreTests(SimpleTestCase):
 class AiInScoreTests(SimpleTestCase):
     def test_ai_score_replaces_keyword_reviews(self):
         reviews = [{"text": "greasy"}] * 5  # keywords alone would say unhealthy
-        self.assertAlmostEqual(health_score("", reviews, "X", ai_score=0.9), 0.74)
+        self.assertAlmostEqual(health_score("", reviews, "X", ai_score=0.9), 0.9)
         self.assertAlmostEqual(health_score("", reviews, "X", ai_score=0.5), 0.5)
         self.assertLess(health_score("", reviews, "X"), 0.5)
 
@@ -123,9 +123,9 @@ class StoredScoreTests(TestCase):
         self.assertAlmostEqual(HealthScore.objects.get(camis="77").score, 0.7, places=3)
 
     def test_views_read_the_stored_score(self):
-        self.assertIsNone(views._ai_health_score("77"))
-        HealthScore.objects.create(camis="77", score=0.9)
-        self.assertEqual(views._ai_health_score("77"), 0.9)
+        self.assertEqual(views._ai_scores("77"), (None, {}))
+        HealthScore.objects.create(camis="77", score=0.9, goal_scores={})
+        self.assertEqual(views._ai_scores("77"), (0.9, {}))
         with patch("search.views.find_restaurant_place", return_value=None):
             page = self.client.get(reverse("search:restaurant_detail", args=["77"]))
         self.assertEqual(page.context["score_breakdown"]["ai_health"], 0.9)

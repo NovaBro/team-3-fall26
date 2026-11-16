@@ -638,3 +638,155 @@
 .top-pick-card__feedback-btn {
   white-space: nowrap;
 }
+
+/* Top picks title: date line, and the borough as a menu inside the title */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.top-picks__date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.top-picks__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+/* theme.css lays the old header out as a row; this one stacks. */
+.top-picks .top-picks__header { display: block; }
+.top-picks__title-form { margin: 0; }
+.top-picks .top-picks__title-form h2 {
+  margin: 0 0 6px;
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
+  line-height: 1.2;
+}
+.top-picks__boro {
+  font: inherit;
+  letter-spacing: inherit;
+}
+/* :root .top-picks ... outranks theme.css's (dark) select rules. */
+:root .top-picks .top-picks__boro {
+  padding: 0 28px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m5 7.5 5 5 5-5' stroke='%23a8873a' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    no-repeat right 2px center / 22px;
+  color: var(--warn);
+  appearance: none;
+  cursor: pointer;
+}
+.top-picks__boro:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.top-picks__boro option { color: var(--ink); background: var(--panel); font-size: 1rem; }
+/* Slot reel built by boro_reel.js (the select above is the no-JS fallback). */
+:root .top-picks .top-picks__boro.is-replaced {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  opacity: 0;
+}
+.boro-reel {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  vertical-align: bottom;
+}
+.boro-reel__window {
+  position: relative;
+  display: inline-block;
+  height: 1.25em;
+  overflow: hidden;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: rgba(138, 115, 64, 0.09); /* faint gold reel window */
+  color: var(--warn);
+  cursor: pointer;
+}
+.boro-reel__window:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.boro-reel__list {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.45s cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+.boro-reel__item {
+  height: 1.25em;
+  line-height: 1.25em;
+  white-space: nowrap;
+  text-align: center;
+}
+.boro-reel__arrows { display: inline-flex; flex-direction: column; gap: 0; }
+/* Plain chevrons in the borough color, like the menu's own arrow. */
+:root .top-picks .boro-reel__arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--warn);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+:root .top-picks .boro-reel__arrow:hover { transform: translateY(-2px); }
+:root .top-picks .boro-reel__arrow--down:hover { transform: translateY(2px); }
+.boro-reel__arrow:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  .boro-reel__list { transition: none; }
+}
+
+/* Night mode only: the home page's yellows become light mode's calm gold
+   (night mode's --warn is a bright yellow). Light mode is unchanged. */
+:root[data-theme="dark"] .restaurant-home { --gold: #8a7340; --warn: var(--gold); }
+:root[data-theme="dark"] .top-picks .top-pick-card__rank {
+  background: var(--gold);
+  color: #fff;
+}
+:root[data-theme="dark"] .top-picks .top-pick-card__star--filled { background: var(--gold); }
+:root[data-theme="dark"] .top-picks .top-pick-card__review-rating { color: var(--gold); }
+:root[data-theme="dark"] .top-picks .top-pick-card__star--half {
+  background: linear-gradient(to right, var(--gold) 50%, var(--border) 50%);
+}
+:root[data-theme="dark"] .top-picks .top-pick-card {
+  border-color: rgba(138, 115, 64, 0.4);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 20%), 0 0 0 1px rgba(138, 115, 64, 0.1);
+}
+:root[data-theme="dark"] .top-picks .top-pick-card:hover {
+  border-color: var(--gold);
+  box-shadow: 0 16px 36px rgb(0 0 0 / 35%), 0 0 24px rgba(138, 115, 64, 0.18);
+}
+:root[data-theme="dark"] .top-picks .top-pick-card__rating-bar {
+  border-color: rgba(138, 115, 64, 0.3);
+  background: rgba(138, 115, 64, 0.07);
+}
+
+/* "Allergy check" tag: a mild allergen is common in this cuisine. */
+.top-picks .top-pick-card__reason--warn {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, var(--raised));
+  color: var(--danger);
+}

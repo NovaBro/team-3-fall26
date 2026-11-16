@@ -6,17 +6,29 @@ from that borough). Scoring is rule-based in
 `search/recommend.py` (`score_restaurant`). MenuStat linking and meal filters
 live in `search/menustat.py`.
 
-## Explore more order
+## One ranking for Top picks and Explore more
 
-Explore more uses the same DB-only score (no Google calls), best first, ties
-shuffled daily. A place with no inspection in the last two years gets −2 (most
-likely closed; new places dated 1900-01-01 are not penalized). For a logged-in
-user, places they marked Not interested are left out, and a place gets +1 for
-a cuisine they liked (Like, heart, or 4–5 stars) and +1 for a favorite food.
+Each viewer gets one ranking per day (and per selected borough): the DB-only
+score below plus their taste, ties shuffled with a seed made of the date, the
+user ID and the borough. Explore more pages through this list; Top picks score
+its first 25 places for a meal (see Setup). Explore more's first page is drawn
+from those same places, so its Google lookups come from the cache: about 25
+Google calls on a first load, none on a reload within the hour.
+
+DB-only score (no Google calls): latest grade A +2 / B +1, healthy cuisine +1,
+unhealthy or non-meal cuisine −1, fast food −2, no inspection in the last two
+years −2 (most likely closed; new places dated 1900-01-01 are not penalized).
+Taste, for a logged-in user: places they marked Not interested are left out.
+Within one score, a place in a cuisine they liked (Like, heart, or 4–5 stars)
+or matching a favorite food tends to come about 3x earlier (its shuffle number
+is divided by 3), so it is mixed in rather than filling the top; taste never
+lifts a place above a better score. Top picks candidates hold at most 5 places
+of one cuisine.
 
 ## Setup (candidate flow)
 
-1. Take the 9 best places by the DB-only health score used by Explore more
+1. Take the 25 best places for a meal in the viewer's ranking (the list
+   Explore more shows; see above), by the DB-only health score
    (latest grade A +2, healthy cuisine +1, fast food −2, no inspection in two
    years −2 since the place has likely closed, ...; no Google calls),
    restricted to places whose latest grade is A. Ties are shuffled with a daily
@@ -109,10 +121,10 @@ all of these.
 
 ## AI health score (reviews + menus)
 
-`python manage.py score_health` (run locally; `pip install -r requirements-ml.txt`)
-reads each restaurant's saved Google reviews and, for MenuStat chains, its meal
-names. A pre-trained sentence-embedding model (`all-MiniLM-L6-v2`, no training)
-compares every sentence with short healthy / unhealthy example sentences:
+Each restaurant's Google reviews and, for MenuStat chains, its meal names are
+read by a pre-trained sentence-embedding model (`all-MiniLM-L6-v2`, no
+training), which compares every sentence with short healthy / unhealthy
+example sentences:
 
 - closer to a healthy example → sentence score near 1, closer to an unhealthy
   one → near 0; sentences about other things (service, parking) are skipped
@@ -120,9 +132,22 @@ compares every sentence with short healthy / unhealthy example sentences:
   "prior" sentences so one review can't decide everything
 
 Scores are stored in `community.HealthScore`. In the health component they
-replace the review keyword count: `+ 0.6 × (ai − 0.5)` (same ±0.3 range).
-Restaurants without a stored score keep the keyword method. The server never
-loads the model. The score breakdown shows "Health (AI)" when it was used.
+replace the review keyword count: `+ 1.0 × (ai − 0.5)` (up to ±0.5; keywords
+stay ±0.3). Real AI scores mostly fall between 0.3 and 0.8, so a factor of 0.6
+moved the score too little; with 1.0 an AI score of 0.73 adds +0.23, and on
+41 tested places the ranking followed the AI score without any place hitting
+the 1.00 health cap.
+
+When the score is worked out: the first time a place is shown (a Top picks
+candidate, using the reviews Google just returned, or a detail page), with
+`AI_LIVE_SCORING` on (always, except under `manage.py test`). The model runs
+with fastembed (ONNX Runtime, from `requirements.txt`, about 90 MB downloaded
+once to `FASTEMBED_CACHE_PATH` or the system temp folder), so the server runs
+it too. `python manage.py score_health` can still fill many places ahead of
+time (`--backend sentence-transformers` uses the PyTorch version).
+
+Restaurants with no text about food health, or when the model can't load,
+keep the keyword method. The breakdown says "Health (AI)" when AI was used.
 
 ## Why this pick (reason sentences)
 
