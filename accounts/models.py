@@ -79,8 +79,11 @@ class MoodLog(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, related_name="mood_logs", on_delete=models.CASCADE
     )
-    mood = models.PositiveSmallIntegerField(choices=MOOD_CHOICES)
-    energy_level = models.PositiveSmallIntegerField(choices=ENERGY_CHOICES)
+    # Either may be empty: the home page saves mood and energy one at a time.
+    mood = models.PositiveSmallIntegerField(choices=MOOD_CHOICES, null=True, blank=True)
+    energy_level = models.PositiveSmallIntegerField(
+        choices=ENERGY_CHOICES, null=True, blank=True
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -92,10 +95,14 @@ class MoodLog(models.Model):
 
     @property
     def mood_display_label(self):
+        if self.mood is None:
+            return "—"
         return dict(self.MOOD_CHOICES).get(self.mood, str(self.mood))
 
     @property
     def energy_display_label(self):
+        if self.energy_level is None:
+            return "—"
         return dict(self.ENERGY_CHOICES).get(self.energy_level, str(self.energy_level))
 
     @property

@@ -5,11 +5,16 @@
 {% block main_class %}restaurant-main{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=26">
+<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=39">
 <script src="{% static 'search/explore_like.js' %}?v=4" defer></script>
+<script src="{% static 'search/mood_checkin.js' %}?v=4" defer></script>
 {% endblock %}
 
 {% block content %}
+<header class="ui-hero home-hero">
+  <h1 id="home-hero-title">{{ hero_title }}</h1>
+  <p class="ui-lede" id="home-hero-lede">{{ hero_lede }}</p>
+</header>
 <section class="restaurant-home" aria-labelledby="restaurant-home-title">
   
 
@@ -17,6 +22,7 @@
   <section class="top-picks" aria-labelledby="top-picks-title">
     <div class="top-picks__header">
       <p class="top-picks__date"><span class="top-picks__dot" aria-hidden="true"></span>{{ picks_date|date:"l, M j" }} · refreshed daily</p>
+      <div class="top-picks__title-row">
       <form class="top-picks__title-form" method="get">
         <h2 id="top-picks-title">{% if personalized_picks %}Picked for you{% else %}Today's Top Picks{% endif %} in
           <label class="sr-only" for="restaurant-boro">Select your location</label><select id="restaurant-boro" name="boro" class="top-picks__boro" onchange="this.form.submit()">
@@ -27,6 +33,13 @@
           </select></h2>
         <noscript><button type="submit" class="btn">Apply</button></noscript>
       </form>
+      {% if show_checkin %}
+      <div class="mood-pick" aria-label="Today's check-in">
+        {% include "search/_checkin_menu.html" with kind="mood" caption="Mood" now=mood_now options=mood_options %}
+        {% include "search/_checkin_menu.html" with kind="energy" caption="Energy" now=energy_now options=energy_options %}
+      </div>
+      {% endif %}
+      </div>
       <p class="top-picks__subtitle muted">{% if personalized_picks %}Ranked by AI using your profile. Always confirm allergies with the restaurant.{% else %}Your next unforgettable food experience starts here!{% endif %}</p>
     </div>
     <div class="top-picks__grid">

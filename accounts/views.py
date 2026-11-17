@@ -7,6 +7,7 @@ from django.core.exceptions import PermissionDenied
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.encoding import force_bytes, force_str
@@ -17,6 +18,8 @@ from django.utils.http import (
 )
 from django.views.decorators.http import require_POST
 
+from accounts.checkin import FIELDS as CHECKIN_FIELDS
+from accounts.checkin import picker_context, save_today
 from accounts.forms import MoodLogForm, SignupForm, UserProfileForm
 from accounts.models import MoodLog, UserProfile
 from accounts.tokens import email_verification_token
@@ -112,6 +115,47 @@ def verify_email(request, uidb64, token):
     )
     messages.success(request, "Email confirmed. Welcome!")
     return redirect("accounts:profile")
+
+
+@require_POST
+@login_required
+def quick_checkin(request):
+    """Save today's mood or energy from the home page dropdowns.
+
+    POST kind=mood|energy and value=1..5. With JavaScript (``Accept:
+    application/json``) the answer is JSON with the new icons and banner text;
+    a plain form post goes back to the page it came from.
+    """
+    kind = request.POST.get("kind", "")
+    try:
+        value = int(request.POST.get("value", ""))
+    except ValueError:
+        value = 0
+    wants_json = "application/json" in request.headers.get("Accept", "")
+    if kind not in CHECKIN_FIELDS or not 1 <= value <= 5:
+        if wants_json:
+            return JsonResponse({"error": "Pick one of the options."}, status=400)
+        return redirect("search:home")
+    save_today(request.user, kind, value)
+    if wants_json:
+        context = picker_context(request.user)
+        current = context["mood_now" if kind == "mood" else "energy_now"]
+        return JsonResponse(
+            {
+                "kind": kind,
+                "value": value,
+                "label": current["label"],
+                "icon": str(current["icon"]),
+                "title": context["hero_title"],
+                "lede": context["hero_lede"],
+            }
+        )
+    back = request.POST.get("next", "")
+    if not url_has_allowed_host_and_scheme(
+        back, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        back = reverse("search:home")
+    return redirect(back)
 
 
 @login_required
