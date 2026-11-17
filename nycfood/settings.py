@@ -185,6 +185,7 @@ AI_LIVE_SCORING = not RUNNING_TESTS
 # Home page Google lookups (Top picks + Explore more cards) are remembered this
 # long, so a reload does not search Google again. Off in tests.
 PLACES_CACHE_SECONDS = 0 if RUNNING_TESTS else 60 * 60
+
 ASSISTANT_MODEL = os.environ.get("ASSISTANT_MODEL", "claude-haiku-5-5")
 ASSISTANT_DAILY_MESSAGES = int(os.environ.get("ASSISTANT_DAILY_MESSAGES", "50"))
 

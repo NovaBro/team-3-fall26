@@ -16,7 +16,6 @@ from django.db.models import (
     Avg,
     BigIntegerField,
     Case,
-    CharField,
     Count,
     F,
     IntegerField,
@@ -24,7 +23,7 @@ from django.db.models import (
     Q,
     When,
 )
-from django.db.models.functions import Cast, Concat, Mod, Right
+from django.db.models.functions import Cast, Mod
 from django.http import Http404, JsonResponse, QueryDict
 from django.shortcuts import redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -56,7 +55,7 @@ from search.forms import (
 )
 from search.goal_fit import menu_nutrients
 from search.locations import resolve
-from search.models import RestaurantInspection
+from search.models import RestaurantInspection, RestaurantSummary
 from search.menustat import calorie_score_for_name, top_low_calorie_meals
 from search.recommend import (
     FAST_FOOD_PREFIXES,
@@ -583,57 +582,42 @@ def _scored_restaurants(multiplier):
     fast_food = _name_starts_with(FAST_FOOD_PREFIXES)
     low_cuisines = UNHEALTHY_CUISINES | NON_MEAL_CUISINES
     non_meal_chain = _name_starts_with(NON_MEAL_PREFIXES) & ~Q(cuisine__in=low_cuisines)
-    # Latest non-blank grade: max of "YYYY-MM-DD" + grade, then its last letter.
-    dated_grade = Max(
-        Case(
+    # One row per restaurant, worked out once (search/summary.py) instead of
+    # grouping every inspection row on each visit.
+    return RestaurantSummary.objects.values(
+        "camis",
+        "name",
+        "boro",
+        "street",
+        "zipcode",
+        "cuisine",
+        "last_date",
+        "latest_grade",
+    ).annotate(
+        explore_score=Case(
+            When(latest_grade="A", then=2),
+            When(latest_grade="B", then=1),
+            default=0,
+            output_field=IntegerField(),
+        )
+        + Case(
+            When(cuisine__in=HEALTHY_CUISINES, then=1),
+            When(cuisine__in=low_cuisines, then=-1),
+            default=0,
+            output_field=IntegerField(),
+        )
+        + Case(When(non_meal_chain, then=-1), default=0, output_field=IntegerField())
+        + Case(When(fast_food, then=-2), default=0, output_field=IntegerField())
+        + Case(
             When(
-                ~Q(grade=""),
-                then=Concat(Cast("inspection_date", CharField()), "grade"),
+                last_date__lt=stale_before,
+                last_date__gt=NOT_YET_INSPECTED,
+                then=-2,
             ),
-            output_field=CharField(),
-        )
-    )
-    return (
-        RestaurantInspection.objects.exclude(dba="")
-        .values("camis")
-        .annotate(
-            name=Max("dba"),
-            boro=Max("boro"),
-            street=Max("street"),
-            zipcode=Max("zipcode"),
-            cuisine=Max("cuisine"),
-            last_date=Max("inspection_date"),
-            dated_grade=dated_grade,
-        )
-        .annotate(latest_grade=Right("dated_grade", 1))
-        .annotate(
-            explore_score=Case(
-                When(latest_grade="A", then=2),
-                When(latest_grade="B", then=1),
-                default=0,
-                output_field=IntegerField(),
-            )
-            + Case(
-                When(cuisine__in=HEALTHY_CUISINES, then=1),
-                When(cuisine__in=low_cuisines, then=-1),
-                default=0,
-                output_field=IntegerField(),
-            )
-            + Case(
-                When(non_meal_chain, then=-1), default=0, output_field=IntegerField()
-            )
-            + Case(When(fast_food, then=-2), default=0, output_field=IntegerField())
-            + Case(
-                When(
-                    last_date__lt=stale_before,
-                    last_date__gt=NOT_YET_INSPECTED,
-                    then=-2,
-                ),
-                default=0,
-                output_field=IntegerField(),
-            ),
-            shuffle=Mod(Cast("camis", BigIntegerField()) * multiplier, SHUFFLE_MODULUS),
-        )
+            default=0,
+            output_field=IntegerField(),
+        ),
+        shuffle=Mod(Cast("camis", BigIntegerField()) * multiplier, SHUFFLE_MODULUS),
     )
 
 
@@ -753,7 +737,8 @@ def home(request):
     # Place searches supplement the CSV fields that are absent, such as a full
     # street address, price level, and Google Maps link. Failed searches leave
     # the underlying CSV card intact.
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    # Up to 8 Google lookups at a time (was 4); a page has 16 cards.
+    with ThreadPoolExecutor(max_workers=8) as executor:
         lookups = [
             executor.submit(
                 find_restaurant_place,
