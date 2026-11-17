@@ -501,7 +501,9 @@ def _top_picks(request, count=3, boro=""):
                     google["address"],
                     _restaurants_in_zip(zipcode),
                 )
-                pick["inspection"] = _latest(camis) if camis else None
+                # No single match for Google's place: keep the restaurant
+                # this pick came from, so its card still links to details.
+                pick["inspection"] = _latest(camis or pick["camis"])
             else:
                 pick["inspection"] = _latest(pick["camis"])
         else:

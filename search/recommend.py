@@ -1069,6 +1069,11 @@ def daily_sample(rows, size, seed):
     return [row for index, row in enumerate(rows) if index in chosen]
 
 
+def _same_place_key(item):
+    """Restaurant name without spaces or punctuation: one key per chain."""
+    return re.sub(r"[^A-Z0-9]", "", (item.get("name") or "").upper())
+
+
 def pick_top(items, count=3):
     """Pick the final *count* items from scored dicts.
 
@@ -1077,9 +1082,11 @@ def pick_top(items, count=3):
        from the skipped items if fewer than *count* remain.
     2. At most one pick may use its like bonus. Other liked items compete with
        their score minus the bonus.
+    3. One branch per chain: two "Just Salad"s never both make the list, even
+       when the city files them under different cuisines.
     """
     pool = sorted(items, key=lambda item: -item["score"])
-    chosen, skipped, cuisines = [], [], set()
+    chosen, skipped, cuisines, names = [], [], set(), set()
     bonus_used = False
     while pool and len(chosen) < count:
         item = pool.pop(0)
@@ -1088,6 +1095,9 @@ def pick_top(items, count=3):
             pool.append(item)
             pool.sort(key=lambda other: -other["score"])
             continue
+        name = _same_place_key(item)
+        if name and name in names:
+            continue
         cuisine = (item.get("cuisine") or "").strip()
         if cuisine and cuisine in cuisines:
             skipped.append(item)
@@ -1095,9 +1105,16 @@ def pick_top(items, count=3):
         chosen.append(item)
         if cuisine:
             cuisines.add(cuisine)
+        if name:
+            names.add(name)
         bonus_used = bonus_used or bool(item.get("like_bonus"))
     for item in skipped:
         if len(chosen) >= count:
             break
+        name = _same_place_key(item)
+        if name and name in names:
+            continue
         chosen.append(item)
+        if name:
+            names.add(name)
     return chosen
