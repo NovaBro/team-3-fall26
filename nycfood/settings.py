@@ -157,7 +157,10 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler"}},
-    "loggers": {"django.request": {"handlers": ["console"], "level": "ERROR"}},
+    "loggers": {
+        "django.request": {"handlers": ["console"], "level": "ERROR"},
+        "search.summary_status": {"handlers": ["console"], "level": "WARNING"},
+    },
 }
 
 # Google Places API (New)
@@ -166,6 +169,10 @@ GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 # Fetch and store a restaurant's Google data the first time its detail page is
 # opened (needs the key above). Always off under `manage.py test`.
 GOOGLE_AUTO_FETCH = sys.argv[1:2] != ["test"]
+# If the RestaurantSummary table is missing or empty (DB replaced without
+# migrate), repair it once in the background (see search/summary_status.py).
+# Off under `manage.py test`; tests turn it on where needed.
+RESTAURANT_SUMMARY_SELF_REPAIR = sys.argv[1:2] != ["test"]
 
 # Auth redirects for the profile tab.
 # The AI assistant stays hidden until ANTHROPIC_API_KEY is set.
