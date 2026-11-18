@@ -83,8 +83,13 @@ class MoodLog(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, related_name="mood_logs", on_delete=models.CASCADE
     )
-    mood = models.PositiveSmallIntegerField(choices=MOOD_CHOICES)
-    energy_level = models.PositiveSmallIntegerField(choices=ENERGY_CHOICES)
+    # Either may be empty: the home page saves mood and energy one at a time.
+    mood = models.PositiveSmallIntegerField(
+        choices=MOOD_CHOICES, null=True, blank=True
+    )
+    energy_level = models.PositiveSmallIntegerField(
+        choices=ENERGY_CHOICES, null=True, blank=True
+    )
     log_date = models.DateField(
         db_index=True,
         help_text="America/New_York calendar day for this check-in.",

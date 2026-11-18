@@ -5,7 +5,7 @@
 {% block main_class %}restaurant-main{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=29">
+<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=39">
 <script src="{% static 'search/explore_like.js' %}?v=4" defer></script>
 <script src="{% static 'search/mood_checkin.js' %}?v=4" defer></script>
 {% endblock %}
@@ -20,37 +20,6 @@
 
   {% if top_picks %}
   <section class="top-picks" aria-labelledby="top-picks-title">
-    <div class="mood-checkin" aria-labelledby="mood-checkin-title">
-      <h3 id="mood-checkin-title" class="mood-checkin__title">Today's check-in</h3>
-      {% if user.is_authenticated %}
-        {% if today_mood and not edit_mood %}
-          <p class="mood-checkin__summary">
-            Mood <strong>{{ today_mood.mood_display_label }}</strong>,
-            energy <strong>{{ today_mood.energy_display_label }}</strong>
-          </p>
-          <p class="mood-checkin__actions">
-            <a class="mood-checkin__edit" href="?{% if selected_boro %}boro={{ selected_boro|urlencode }}&amp;{% endif %}edit_mood=1">Update check-in</a>
-          </p>
-        {% else %}
-          <form class="mood-checkin__form" method="post" action="{% url 'search:mood_checkin' %}">
-            {% csrf_token %}
-            <input type="hidden" name="next" value="{% url 'search:home' %}{% if selected_boro %}?boro={{ selected_boro|urlencode }}{% endif %}">
-            {% for field in mood_form %}
-              <fieldset class="mood-checkin__field">
-                <legend>{{ field.label }}</legend>
-                {{ field }}
-              </fieldset>
-            {% endfor %}
-            <button type="submit" class="mood-checkin__submit">Save check-in</button>
-          </form>
-        {% endif %}
-      {% else %}
-        <p class="mood-checkin__guest muted">
-          <a href="{% url 'accounts:login' %}?next={{ request.get_full_path|urlencode }}">Log in</a>
-          to record your mood and energy for today.
-        </p>
-      {% endif %}
-    </div>
     {# Location minimap UI disabled for now; pin APIs / scoring remain. #}
     {% if cook_at_home.show %}
     <section class="cook-at-home" aria-labelledby="cook-at-home-title">
@@ -106,7 +75,14 @@
           </select></h2>
         <noscript><button type="submit" class="btn">Apply</button></noscript>
       </form>
-      <p class="top-picks__subtitle muted">{% if personalized_picks %}Ranked by AI using your profile. Always confirm allergies with the restaurant.{% elif today_mood %}Ranked with today's mood and energy check-in.{% else %}Your next unforgettable food experience starts here!{% endif %}</p>
+      {% if show_checkin %}
+      <div class="mood-pick" aria-label="Today's check-in">
+        {% include "search/_checkin_menu.html" with kind="mood" caption="Mood" now=mood_now options=mood_options %}
+        {% include "search/_checkin_menu.html" with kind="energy" caption="Energy" now=energy_now options=energy_options %}
+      </div>
+      {% endif %}
+      </div>
+      <p class="top-picks__subtitle muted">{% if personalized_picks %}Ranked by AI using your profile. Always confirm allergies with the restaurant.{% elif today_mood and today_mood.mood and today_mood.energy_level %}Ranked with today's mood and energy check-in.{% else %}Your next unforgettable food experience starts here!{% endif %}</p>
     </div>
     <div class="top-picks__grid">
       {% for pick in top_picks %}

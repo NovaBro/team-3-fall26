@@ -194,39 +194,37 @@ class FeedbackViewTests(TestCase):
         self.assertIn(reverse("accounts:login"), response["Location"])
         self.assertFalse(RecommendationFeedback.objects.exists())
 
-    def test_anonymous_sees_mood_login_prompt(self, _find):
+    def test_anonymous_hides_mood_pickers(self, _find):
         response, _names = self.picks()
-        self.assertContains(response, "mood-checkin")
-        self.assertContains(response, "Log in")
-        self.assertContains(response, "mood and energy")
-        self.assertNotContains(response, "mood-checkin__form")
+        self.assertNotContains(response, "mood-pick__btn")
+        self.assertContains(response, "Down for a healthy bite?")
 
-    def test_mood_checkin_requires_login(self, _find):
+    def test_quick_checkin_requires_login(self, _find):
         response = self.client.post(
-            reverse("search:mood_checkin"),
-            {"mood": "4", "energy_level": "3"},
+            reverse("accounts:quick_checkin"),
+            {"kind": "mood", "value": "4"},
         )
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("accounts:login"), response["Location"])
         self.assertFalse(MoodLog.objects.exists())
 
-    def test_mood_checkin_upserts_for_today(self, _find):
+    def test_quick_checkin_upserts_for_today(self, _find):
         self.client.force_login(self.user)
         self.client.post(
-            reverse("search:mood_checkin"),
-            {
-                "mood": "2",
-                "energy_level": "1",
-                "next": reverse("search:home"),
-            },
+            reverse("accounts:quick_checkin"),
+            {"kind": "mood", "value": "2", "next": reverse("search:home")},
         )
         self.client.post(
-            reverse("search:mood_checkin"),
-            {
-                "mood": "5",
-                "energy_level": "4",
-                "next": reverse("search:home"),
-            },
+            reverse("accounts:quick_checkin"),
+            {"kind": "energy", "value": "1", "next": reverse("search:home")},
+        )
+        self.client.post(
+            reverse("accounts:quick_checkin"),
+            {"kind": "mood", "value": "5", "next": reverse("search:home")},
+        )
+        self.client.post(
+            reverse("accounts:quick_checkin"),
+            {"kind": "energy", "value": "4", "next": reverse("search:home")},
         )
         logs = MoodLog.objects.filter(user=self.user)
         self.assertEqual(logs.count(), 1)
@@ -235,19 +233,18 @@ class FeedbackViewTests(TestCase):
         self.assertEqual(log.energy_level, 4)
         self.assertEqual(log.log_date, today_ny())
         response, _names = self.picks()
-        self.assertContains(response, "Great")
-        self.assertContains(response, "Alert")
-        self.assertContains(response, "Update check-in")
+        self.assertContains(response, "mood-pick__btn")
+        self.assertContains(response, "Ready for something great?")
 
     def test_home_and_profile_share_todays_mood(self, _find):
         self.client.force_login(self.user)
         self.client.post(
-            reverse("search:mood_checkin"),
-            {
-                "mood": "4",
-                "energy_level": "2",
-                "next": reverse("search:home"),
-            },
+            reverse("accounts:quick_checkin"),
+            {"kind": "mood", "value": "4", "next": reverse("search:home")},
+        )
+        self.client.post(
+            reverse("accounts:quick_checkin"),
+            {"kind": "energy", "value": "2", "next": reverse("search:home")},
         )
         self.client.post(
             reverse("accounts:profile"),

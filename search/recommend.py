@@ -1528,6 +1528,11 @@ def _pick_sort_key(item):
     return (-item["score"], confidence, rating_key)
 
 
+def _same_place_key(item):
+    """Restaurant name without spaces or punctuation: one key per chain."""
+    return re.sub(r"[^A-Z0-9]", "", (item.get("name") or "").upper())
+
+
 def pick_top(items, count=3):
     """Pick the final *count* items from scored dicts.
 
@@ -1541,7 +1546,7 @@ def pick_top(items, count=3):
        when the city files them under different cuisines.
     """
     pool = sorted(items, key=_pick_sort_key)
-    chosen, skipped, cuisines = [], [], set()
+    chosen, skipped, cuisines, names = [], [], set(), set()
     bonus_used = False
     while pool and len(chosen) < count:
         item = pool.pop(0)

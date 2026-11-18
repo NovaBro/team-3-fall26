@@ -54,7 +54,8 @@ class QuickCheckinTests(TestCase):
     def test_yesterdays_check_in_is_left_alone(self):
         old = MoodLog.objects.create(user=self.user, mood=1, energy_level=1)
         MoodLog.objects.filter(pk=old.pk).update(
-            created_at=checkin.start_of_today() - timedelta(hours=1)
+            log_date=(checkin.start_of_today() - timedelta(days=1)).date(),
+            created_at=checkin.start_of_today() - timedelta(hours=1),
         )
         self.post("mood", 5)
         self.assertEqual(MoodLog.objects.count(), 2)

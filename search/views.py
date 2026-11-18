@@ -30,11 +30,8 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from accounts.forms import MoodLogForm
-from accounts.models import MoodLog
-from accounts.mood import today_ny, upsert_today_mood
+from accounts.checkin import DEFAULT_HEADLINE, picker_context, todays_log
 from assistant.recommend import personalized_picks
-from accounts.checkin import DEFAULT_HEADLINE, picker_context
 from community.keys import DOHMH, dohmh_key
 from community.models import (
     CommunitySubject,
@@ -71,7 +68,9 @@ from search.forms import (
 )
 from search.goal_fit import menu_nutrients
 from search.locations import resolve
-from search.models import RestaurantInspection
+from search.models import RestaurantInspection, RestaurantSummary
+from search.summary import aggregate_inspections
+from search.summary_status import summary_ready
 from search.menustat import (
     calorie_score_for_name,
     menu_nutrition_for_name,
@@ -276,9 +275,15 @@ def _name_starts_with(prefixes):
 
 def _mood_check_in_for(request):
     """Today's NY mood/energy log for the signed-in user, else None."""
-    if not request.user.is_authenticated:
-        return None
-    return MoodLog.objects.filter(user=request.user, log_date=today_ny()).first()
+    return todays_log(request.user)
+
+
+def _checkin_context(request):
+    """Banner headline plus develop's mood/energy dropdowns when logged in."""
+    if request.user.is_authenticated:
+        return {"show_checkin": True, **picker_context(request.user)}
+    title, lede = DEFAULT_HEADLINE
+    return {"show_checkin": False, "hero_title": title, "hero_lede": lede}
 
 
 def _profile_for(request):
@@ -862,11 +867,6 @@ def home(request):
             row["photo_url"] = _photo_url_for(row["google"])
 
     today_mood = _mood_check_in_for(request)
-    mood_form = None
-    edit_mood = False
-    if request.user.is_authenticated:
-        edit_mood = request.GET.get("edit_mood") == "1" or today_mood is None
-        mood_form = MoodLogForm(instance=today_mood)
 
     cook_at_home = {
         "show": False,
@@ -902,8 +902,6 @@ def home(request):
             "picks_date": _today(),
             "personalized_picks": any(pick.get("ai_reason") for pick in top_picks),
             "today_mood": today_mood,
-            "mood_form": mood_form,
-            "edit_mood": edit_mood,
             "cook_at_home": cook_at_home,
             "location_map": map_bootstrap(
                 request.user if request.user.is_authenticated else None
@@ -911,6 +909,8 @@ def home(request):
             "user_location": user_latlng(request.user)
             if request.user.is_authenticated
             else None,
+            # Banner text, plus today's mood / energy dropdowns when logged in.
+            **_checkin_context(request),
         },
     )
 
@@ -928,31 +928,6 @@ def save_location(request):
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
     save_user_latlng(request.user, lat, lng)
     return JsonResponse({"ok": True, "lat": lat, "lng": lng})
-
-
-@login_required
-@require_POST
-def mood_checkin(request):
-    """Save today's mood / energy check-in (one row per NY calendar day)."""
-    today_mood = MoodLog.objects.filter(
-        user=request.user, log_date=today_ny()
-    ).first()
-    form = MoodLogForm(request.POST, instance=today_mood)
-    if form.is_valid():
-        upsert_today_mood(
-            request.user,
-            form.cleaned_data["mood"],
-            form.cleaned_data["energy_level"],
-        )
-        messages.success(request, "Check-in saved.")
-    else:
-        messages.error(request, "Please pick a mood and energy level.")
-    next_url = request.POST.get("next", "")
-    if not url_has_allowed_host_and_scheme(
-        next_url, allowed_hosts={request.get_host()}
-    ):
-        next_url = reverse("search:home")
-    return redirect(next_url)
 
 
 def score_for_camis(
