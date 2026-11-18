@@ -31,6 +31,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from assistant.recommend import personalized_picks
+from accounts.checkin import DEFAULT_HEADLINE, picker_context
 from community.keys import DOHMH, dohmh_key
 from community.models import (
     CommunitySubject,
@@ -500,7 +501,9 @@ def _top_picks(request, count=3, boro=""):
                     google["address"],
                     _restaurants_in_zip(zipcode),
                 )
-                pick["inspection"] = _latest(camis) if camis else None
+                # No single match for Google's place: keep the restaurant
+                # this pick came from, so its card still links to details.
+                pick["inspection"] = _latest(camis or pick["camis"])
             else:
                 pick["inspection"] = _latest(pick["camis"])
         else:
@@ -763,8 +766,17 @@ def home(request):
             "top_picks": top_picks,
             "picks_date": _today(),
             "personalized_picks": any(pick.get("ai_reason") for pick in top_picks),
+            # Banner text, plus today's mood / energy dropdowns when logged in.
+            **_checkin_context(request),
         },
     )
+
+
+def _checkin_context(request):
+    if request.user.is_authenticated:
+        return {"show_checkin": True, **picker_context(request.user)}
+    title, lede = DEFAULT_HEADLINE
+    return {"show_checkin": False, "hero_title": title, "hero_lede": lede}
 
 
 def score_for_camis(camis, latest, place, profile=None, feedback=None):

@@ -103,6 +103,20 @@ ICON_PATHS = {
         "M13 10l0 4",
         "M16 10l0 4",
     ),
+    # Shown before today's mood / energy is picked on the home page.
+    "mood-plus": (
+        "M20.985 12.528a9 9 0 1 0 -8.45 8.456",
+        "M16 19h6",
+        "M19 16v6",
+        "M9 10h.01",
+        "M15 10h.01",
+        "M9.5 15c.658 .64 1.56 1 2.5 1s1.842 -.36 2.5 -1",
+    ),
+    "battery-charging": (
+        "M16 7h1a2 2 0 0 1 2 2v.5a.5 .5 0 0 0 .5 .5a.5 .5 0 0 1 .5 .5v3a.5 .5 0 0 1 -.5 .5a.5 .5 0 0 0 -.5 .5v.5a2 2 0 0 1 -2 2h-2",  # noqa: E501
+        "M8 7h-2a2 2 0 0 0 -2 2v6a2 2 0 0 0 2 2h1",
+        "M12 8l-2 4h3l-2 4",
+    ),
 }
 
 GOAL_ICONS = {
