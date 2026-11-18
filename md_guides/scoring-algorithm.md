@@ -7,6 +7,9 @@ from that borough). Scoring is rule-based in
 live in `search/menustat.py`. Design rationale:
 `md_guides/ranking-v2-plan.md`.
 
+**Pipeline diagrams** (candidate pool → enrichment → formula → Top 3):
+[`scoring-pipeline.md`](scoring-pipeline.md).
+
 **Nutrition and safety are separate.** The detail page “Health estimate” is
 menu calories (when linked) or a soft prior — not the inspection grade.
 Grade is an **Inspection safety** term in the ranking blend and a badge/filter.
@@ -146,11 +149,29 @@ Health focus: BMI ≥ 25 or `weight-loss` goal. Mood/energy check-in adjusts the
 
 | Check-in | Effect |
 |---|---|
-| Energy ≤ 2 | +5 light/healthy cuisines; −4 heavy/fast-food; MenuStat +3 if menu health ≥ 0.6, −3 if ≤ 0.35 |
-| Energy ≥ 4 | +3 hearty cuisines (steakhouse, BBQ, Korean, …) |
-| Mood ≤ 2 | +5 comfort cuisines (pizza, American, desserts, …) |
-| Mood ≥ 4 | +3 light/healthy cuisines |
+| Energy ≤ 2 | +12 light/healthy cuisines; −10 heavy/fast-food; MenuStat +8 if menu health ≥ 0.6, −8 if ≤ 0.35; plus global tilt `10 × (nutrition − 0.5)` |
+| Energy ≥ 4 | +8 hearty cuisines (steakhouse, BBQ, Korean, …); plus mild global tilt `2 × (nutrition − 0.5)` |
+| Mood ≤ 2 | +12 comfort cuisines (pizza, American, desserts, …) |
+| Mood ≥ 4 | +8 light/healthy cuisines; if energy &gt; 2 also global tilt `4 × (nutrition − 0.5)` |
 | Mood and energy = 3 | No change |
+
+When a mood check-in exists, Claude “Picked for you” shortlists may still
+supply reasons, but **final card order follows** `pick_top` / `score_restaurant`
+(so mood/energy can change rankings).
+
+### Distance × energy (user pin)
+
+When the viewer has a saved location pin (`UserProfile.location_lat/lng`) and a
+mood check-in, and the restaurant has coordinates (Google enrichment), a
+**distance adjustment** is added after mood:
+
+| Energy | Curve (miles) |
+|---|---|
+| ≤ 2 | `12 × exp(−mi / 0.75) − 3` (clipped); tag “Closer for your energy” within 1 mi |
+| 3 | `5 × exp(−mi / 1.2) − 1` |
+| ≥ 4 | `3 × exp(−mi / 2.5)` (flatter — near and far stay closer in score) |
+
+Missing pin, check-in, or place coords → no distance term.
 
 Home ZIP/borough and allergies are parsed heuristically from free-text profile
 fields (no structured ZIP field).
@@ -360,6 +381,7 @@ BMI is never displayed; health-focus mode is noted as “personalized weights.�
 | `search/views.py` | `_top_picks`, `restaurant_detail` wiring |
 | `search/test_recommend.py` / `search/test_menustat.py` | Unit coverage |
 | `search/test_daily_feedback.py` | Rotation, diversity, Like / Not interested |
+| `md_guides/scoring-pipeline.md` | End-to-end pipeline + mermaid diagrams |
 | `md_guides/ranking-v2-plan.md` | Design plan / remaining phases |
 | `search/reason_writer.py` / `write_reasons` command | Gemini reason paragraph (local) |
 | `search/test_reason_writer.py` | Prompt, cleanup, command (fake Gemini) |

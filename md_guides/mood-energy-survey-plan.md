@@ -47,6 +47,15 @@ Mood/energy are **profile-style adjustments** in `score_restaurant()` via
 `md_guides/scoring-algorithm.md` for the delta table. Today's NY `MoodLog` is
 passed as `mood_check_in` from `_top_picks` and restaurant detail.
 
+### Cook at home (high mood + high energy)
+
+When today's check-in has **mood ≥ 4 and energy ≥ 4**, `/home/` also shows a
+**Cook at home today** strip with a small sample of farmers markets and Shop
+Healthy stores (borough from the selected Top Picks area or the user's home
+borough), plus a Find food link filtered to those types. This is a separate UI
+path in `search/cook_at_home.py` — it does **not** change restaurant
+`mood_energy_adjustment` or Top Picks card ranking.
+
 ## Locked decisions
 
 | Decision | Choice |

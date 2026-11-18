@@ -17,6 +17,7 @@ from search.recommend import (
     PERSONAL_WEIGHTS,
     TAG_ALLERGY_CHECK,
     TAG_BUDGET,
+    TAG_CLOSER_ENERGY,
     TAG_COMFORT_MOOD,
     TAG_FITS_ENERGY,
     TAG_HEALTHY_REVIEWS,
@@ -31,6 +32,7 @@ from search.recommend import (
     _weights,
     bmi,
     classify_reviews,
+    distance_energy_adjustment,
     has_personal_inputs,
     health_focus_weights,
     home_zip_boro,
@@ -520,19 +522,25 @@ class MoodEnergyAdjustmentTests(TestCase):
             google_rating=4.0,
             mood_check_in=check_in,
         )
-        salad_base, _, _ = score_restaurant(
+        salad_base, _, salad_base_bd = score_restaurant(
             name="Green Bowl", cuisine="Salads", grade="A", google_rating=4.0
         )
-        burger_base, _, _ = score_restaurant(
+        burger_base, _, burger_base_bd = score_restaurant(
             name="Burger Spot", cuisine="Hamburgers", grade="A", google_rating=4.0
         )
-        self.assertAlmostEqual(salad, salad_base + ENERGY_LIGHT_BONUS, places=1)
+        # Cuisine bonus + global nutrition tilt (healthier prior → positive tilt).
+        salad_tilt = 10.0 * (salad_base_bd["health_estimate"] / 100.0 - 0.5)
+        burger_tilt = 10.0 * (burger_base_bd["health_estimate"] / 100.0 - 0.5)
         self.assertAlmostEqual(
-            burger, burger_base + ENERGY_HEAVY_PENALTY, places=1
+            salad, salad_base + ENERGY_LIGHT_BONUS + salad_tilt, places=1
+        )
+        self.assertAlmostEqual(
+            burger, burger_base + ENERGY_HEAVY_PENALTY + burger_tilt, places=1
         )
         self.assertIn(TAG_FITS_ENERGY, salad_tags)
-        self.assertGreater(salad_bd["mood_delta"], 0)
+        self.assertGreater(salad_bd["mood_delta"], ENERGY_LIGHT_BONUS)
         self.assertLess(burger_bd["mood_delta"], 0)
+        self.assertGreater(salad - burger, salad_base - burger_base)
 
     def test_low_mood_boosts_comfort_food(self):
         check_in = SimpleNamespace(mood=1, energy_level=3)
@@ -549,6 +557,26 @@ class MoodEnergyAdjustmentTests(TestCase):
         self.assertAlmostEqual(pizza, base + MOOD_COMFORT_BONUS, places=1)
         self.assertIn(TAG_COMFORT_MOOD, tags)
         self.assertEqual(breakdown["mood_delta"], MOOD_COMFORT_BONUS)
+
+    def test_global_tilt_moves_equal_places_by_nutrition(self):
+        check_in = SimpleNamespace(mood=3, energy_level=1)
+        light, _, light_bd = score_restaurant(
+            name="Chain Spot",
+            grade="A",
+            calorie_score=0.9,
+            mood_check_in=check_in,
+        )
+        heavy, _, heavy_bd = score_restaurant(
+            name="Chain Spot",
+            grade="A",
+            calorie_score=0.1,
+            mood_check_in=check_in,
+        )
+        self.assertGreater(light, heavy)
+        self.assertGreater(light_bd["mood_delta"], heavy_bd["mood_delta"])
+        self.assertTrue(
+            any("healthier" in row["label"].lower() for row in light_bd["adjustments"])
+        )
 
     def test_low_energy_uses_menu_calorie_signal(self):
         check_in = SimpleNamespace(mood=3, energy_level=2)
@@ -567,6 +595,58 @@ class MoodEnergyAdjustmentTests(TestCase):
         self.assertEqual(delta, 0.0)
         self.assertEqual(tags, [])
         self.assertEqual(rows, [])
+
+
+class DistanceEnergyAdjustmentTests(TestCase):
+    def test_curves_and_tag(self):
+        low_near, tags, _ = distance_energy_adjustment(0.4, 1)
+        low_far, _, _ = distance_energy_adjustment(2.0, 1)
+        high_near, _, _ = distance_energy_adjustment(0.4, 5)
+        high_far, _, _ = distance_energy_adjustment(2.0, 5)
+        self.assertGreater(low_near, low_far)
+        self.assertGreater(low_near - low_far, 2 * (high_near - high_far))
+        self.assertIn(TAG_CLOSER_ENERGY, tags)
+        self.assertEqual(distance_energy_adjustment(None, 1)[0], 0.0)
+        self.assertEqual(distance_energy_adjustment(0.5, None)[0], 0.0)
+
+    def test_score_restaurant_applies_distance_when_pin_and_check_in(self):
+        check_in = SimpleNamespace(mood=3, energy_level=1)
+        kwargs = dict(
+            name="Same Spot",
+            cuisine="American",
+            grade="A",
+            google_rating=4.0,
+            mood_check_in=check_in,
+            user_lat=40.7128,
+            user_lng=-74.0060,
+        )
+        # ~0.5 mi north of City Hall
+        near, _, near_bd = score_restaurant(
+            place_lat=40.7200, place_lng=-74.0060, **kwargs
+        )
+        # ~2.5 mi north
+        far, _, far_bd = score_restaurant(
+            place_lat=40.7490, place_lng=-74.0060, **kwargs
+        )
+        self.assertGreater(near, far)
+        self.assertGreater(near_bd["distance_delta"], far_bd["distance_delta"])
+        near_score, near_tags, _ = score_restaurant(
+            place_lat=40.7200, place_lng=-74.0060, **kwargs
+        )
+        self.assertIn(TAG_CLOSER_ENERGY, near_tags)
+        self.assertGreater(near_score, far)
+
+    def test_no_distance_without_check_in(self):
+        near, _, near_bd = score_restaurant(
+            name="X",
+            grade="A",
+            user_lat=40.71,
+            user_lng=-74.0,
+            place_lat=40.72,
+            place_lng=-74.0,
+        )
+        self.assertIsNone(near_bd["distance_mi"])
+        self.assertEqual(near_bd["distance_delta"], 0.0)
 
 
 class RatingAndTagTests(TestCase):

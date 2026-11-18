@@ -28,7 +28,7 @@ Then open http://127.0.0.1:8000/.
   from NYC inspection records by default, or live from Google Places, which
   adds price, minimum rating, and open-now filters. Clicking a pin or result
   opens community ratings, comments, and photos.
-- `/home/` — card view of NYC restaurants, filterable by borough, with a Google Places lookup on each card and scored **Today's Top Picks** on page 1 (see [`md_guides/scoring-algorithm.md`](md_guides/scoring-algorithm.md)).
+- `/home/` — card view of NYC restaurants, filterable by borough, with a Google Places lookup on each card and scored **Today's Top Picks** on page 1 (pipeline diagrams: [`md_guides/scoring-pipeline.md`](md_guides/scoring-pipeline.md); full rules: [`md_guides/scoring-algorithm.md`](md_guides/scoring-algorithm.md)).
 - `/restaurant/<camis>/` — full inspection/violation history for one restaurant; when MenuStat name-matches, a top-5 lower-calorie meal table.
 - The old `/restaurants/`, `/combined-map/`, `/farmers-markets/`, and `/explore/`
   tabs were merged into `/` (issue #109) and now redirect there.
@@ -132,9 +132,10 @@ any time with `import_datasets`; the command is idempotent.
 today’s offerings. Linking inspections to MenuStat is **fuzzy name match**, not
 CAMIS — there is no shared restaurant ID across the two datasets. Wrong or missing
 links are possible (renames, food halls, similar chain names). When a match has
-enough qualifying meals, Top Picks may use a 10% calorie weight and the detail
-page may show a top-5 lower-calorie menu. Full rules:
-[`md_guides/scoring-algorithm.md`](md_guides/scoring-algorithm.md).
+enough qualifying meals, Top Picks may use menu nutrition as the dominant
+weight and the detail page may show a top-5 lower-calorie menu. Pipeline
+diagrams: [`md_guides/scoring-pipeline.md`](md_guides/scoring-pipeline.md).
+Full rules: [`md_guides/scoring-algorithm.md`](md_guides/scoring-algorithm.md).
 
 `restaurant_cuisines_*.csv` is a small CAMIS → cuisine lookup from NYC Open Data
 ("DOHMH New York City Restaurant Inspection Results", dataset `43nn-pn8j`). It is kept

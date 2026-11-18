@@ -5,7 +5,7 @@
 {% block main_class %}restaurant-main{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=26">
+<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=29">
 <script src="{% static 'search/explore_like.js' %}?v=4" defer></script>
 {% endblock %}
 
@@ -46,6 +46,48 @@
         </p>
       {% endif %}
     </div>
+    {# Location minimap UI disabled for now; pin APIs / scoring remain. #}
+    {% if cook_at_home.show %}
+    <section class="cook-at-home" aria-labelledby="cook-at-home-title">
+      <div class="cook-at-home__header">
+        <h3 id="cook-at-home-title" class="cook-at-home__title">Cook at home today</h3>
+        <p class="cook-at-home__subtitle muted">
+          High mood and energy — farmers markets and Shop Healthy stores make home cooking the healthier pick.
+        </p>
+      </div>
+      {% if cook_at_home.markets or cook_at_home.stores %}
+      <ul class="cook-at-home__list">
+        {% for place in cook_at_home.markets %}
+        <li class="cook-at-home__item">
+          <span class="cook-at-home__kind">Farmers market</span>
+          <strong class="cook-at-home__name">{{ place.name }}</strong>
+          <span class="cook-at-home__meta muted">
+            {% if place.borough %}{{ place.borough }}{% endif %}{% if place.borough and place.address %} · {% endif %}{{ place.address }}
+          </span>
+          {% if place.days or place.hours %}
+          <span class="cook-at-home__hours muted">{{ place.days }}{% if place.days and place.hours %} · {% endif %}{{ place.hours }}</span>
+          {% endif %}
+        </li>
+        {% endfor %}
+        {% for place in cook_at_home.stores %}
+        <li class="cook-at-home__item">
+          <span class="cook-at-home__kind">Shop Healthy</span>
+          <strong class="cook-at-home__name">{{ place.name }}</strong>
+          <span class="cook-at-home__meta muted">
+            {% if place.borough %}{{ place.borough }}{% endif %}{% if place.borough and place.address %} · {% endif %}{{ place.address }}
+          </span>
+          {% if place.year_awarded %}
+          <span class="cook-at-home__hours muted">Recognized {{ place.year_awarded }}</span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      <p class="cook-at-home__cta">
+        <a class="cook-at-home__link" href="{{ cook_at_home.find_food_url }}">Browse markets and healthy stores</a>
+      </p>
+    </section>
+    {% endif %}
     <div class="top-picks__header">
       <p class="top-picks__date"><span class="top-picks__dot" aria-hidden="true"></span>{{ picks_date|date:"l, M j" }} · refreshed daily</p>
       <form class="top-picks__title-form" method="get">

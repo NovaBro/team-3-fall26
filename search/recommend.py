@@ -19,11 +19,13 @@ of the weighted total (not part of the nutrition estimate).
 
 from __future__ import annotations
 
+import math
 import random
 import re
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from restaurants.places import METERS_PER_MILE, distance_m
 from search.goal_fit import MENU_NUTRIENTS, goal_fit, goals_fit
 from search.profile_options import (
     ALLERGY_LABELS,
@@ -106,15 +108,31 @@ MOOD_LOW = 2
 MOOD_HIGH = 4
 ENERGY_LOW = 2
 ENERGY_HIGH = 4
-ENERGY_LIGHT_BONUS = 5.0
-ENERGY_HEAVY_PENALTY = -4.0
-ENERGY_HEARTY_BONUS = 3.0
-ENERGY_MENU_LIGHT_BONUS = 3.0
-ENERGY_MENU_HEAVY_PENALTY = -3.0
-MOOD_COMFORT_BONUS = 5.0
-MOOD_FRESH_BONUS = 3.0
+ENERGY_LIGHT_BONUS = 12.0
+ENERGY_HEAVY_PENALTY = -10.0
+ENERGY_HEARTY_BONUS = 8.0
+ENERGY_MENU_LIGHT_BONUS = 8.0
+ENERGY_MENU_HEAVY_PENALTY = -8.0
+MOOD_COMFORT_BONUS = 12.0
+MOOD_FRESH_BONUS = 8.0
 MENU_LIGHT_THRESHOLD = 0.6
 MENU_HEAVY_THRESHOLD = 0.35
+# Global tilt: every place moves a little with a check-in (nutrition 0..1).
+ENERGY_LOW_NUTRITION_TILT = 10.0  # ±5 at extremes when energy <= 2
+ENERGY_HIGH_NUTRITION_TILT = 2.0  # ±1 when energy >= 4
+MOOD_HIGH_NUTRITION_TILT = 4.0  # ±2 when mood >= 4 and energy > 2
+# Distance × energy (points). Only when user pin + place coords + check-in exist.
+DISTANCE_LOW_SCALE = 12.0
+DISTANCE_LOW_DECAY_MI = 0.75
+DISTANCE_LOW_OFFSET = 3.0
+DISTANCE_HIGH_SCALE = 3.0
+DISTANCE_HIGH_DECAY_MI = 2.5
+DISTANCE_MID_SCALE = 5.0
+DISTANCE_MID_DECAY_MI = 1.2
+DISTANCE_MID_OFFSET = 1.0
+DISTANCE_DELTA_MIN = -8.0
+DISTANCE_DELTA_MAX = 12.0
+DISTANCE_CLOSE_TAG_MI = 1.0
 
 COMFORT_MOOD_CUISINES = {
     "Pizza",
@@ -305,6 +323,7 @@ BOROUGHS = (
 TAG_YOUR_FAVORITE = "Your favorite"
 TAG_NEARBY = "Nearby"
 TAG_FITS_ENERGY = "Fits your energy"
+TAG_CLOSER_ENERGY = "Closer for your energy"
 TAG_COMFORT_MOOD = "Comfort for your mood"
 TAG_HEALTHY_REVIEWS = "Healthy reviews"
 TAG_LOWER_CALORIE = "Lower-calorie menu"
@@ -344,6 +363,7 @@ TAG_ORDER = (
     TAG_YOUR_FAVORITE,
     *GOAL_TAGS.values(),
     TAG_FITS_ENERGY,
+    TAG_CLOSER_ENERGY,
     TAG_COMFORT_MOOD,
     TAG_NEARBY,
     TAG_MENU_BASED,
@@ -790,6 +810,85 @@ def mood_energy_adjustment(cuisine, name, check_in, calorie_score=None):
     return delta, tags, rows
 
 
+def distance_energy_adjustment(distance_mi, energy):
+    """Point delta from distance × energy. No check-in energy → no change.
+
+    Low energy strongly prefers nearby places; high energy flattens the curve.
+    Returns ``(delta, tags, adjustment_rows)``.
+    """
+    if distance_mi is None or energy is None:
+        return 0.0, [], []
+    try:
+        miles = max(0.0, float(distance_mi))
+        energy_level = int(energy)
+    except (TypeError, ValueError):
+        return 0.0, [], []
+
+    if energy_level <= ENERGY_LOW:
+        delta = DISTANCE_LOW_SCALE * math.exp(-miles / DISTANCE_LOW_DECAY_MI) - (
+            DISTANCE_LOW_OFFSET
+        )
+        label = "Closer for low energy"
+    elif energy_level >= ENERGY_HIGH:
+        delta = DISTANCE_HIGH_SCALE * math.exp(-miles / DISTANCE_HIGH_DECAY_MI)
+        label = "Distance (high energy)"
+    else:
+        delta = DISTANCE_MID_SCALE * math.exp(-miles / DISTANCE_MID_DECAY_MI) - (
+            DISTANCE_MID_OFFSET
+        )
+        label = "Distance (moderate energy)"
+    delta = max(DISTANCE_DELTA_MIN, min(DISTANCE_DELTA_MAX, delta))
+    tags = []
+    if energy_level <= ENERGY_LOW and miles <= DISTANCE_CLOSE_TAG_MI and delta > 0:
+        tags.append(TAG_CLOSER_ENERGY)
+    rows = [{"label": f"{label} ({miles:.1f} mi)", "delta": delta}]
+    return delta, tags, rows
+
+
+def energy_nutrition_tilt(check_in, nutrition):
+    """Global sort-score tilt from check-in × nutrition estimate (0..1).
+
+    Cuisine-list bonuses in ``mood_energy_adjustment`` only move matching
+    places; this term moves every scored restaurant so rankings visibly change.
+    Returns ``(delta, tags, adjustment_rows)``.
+    """
+    if check_in is None:
+        return 0.0, [], []
+    mood = getattr(check_in, "mood", None)
+    energy = getattr(check_in, "energy_level", None)
+    if mood is None or energy is None:
+        return 0.0, [], []
+    try:
+        n = max(0.0, min(1.0, float(nutrition)))
+    except (TypeError, ValueError):
+        return 0.0, [], []
+
+    delta = 0.0
+    tags = []
+    rows = []
+    centered = n - 0.5
+    if energy <= ENERGY_LOW:
+        tilt = ENERGY_LOW_NUTRITION_TILT * centered
+        delta += tilt
+        rows.append(
+            {"label": "Low energy prefers healthier picks", "delta": tilt}
+        )
+    elif energy >= ENERGY_HIGH:
+        tilt = ENERGY_HIGH_NUTRITION_TILT * centered
+        delta += tilt
+        if abs(tilt) >= 0.5:
+            rows.append(
+                {"label": "High energy nutrition tilt", "delta": tilt}
+            )
+    if mood >= MOOD_HIGH and energy > ENERGY_LOW:
+        tilt = MOOD_HIGH_NUTRITION_TILT * centered
+        delta += tilt
+        rows.append({"label": "Good mood prefers healthier picks", "delta": tilt})
+    if abs(delta) >= 1.0:
+        tags.append(TAG_FITS_ENERGY)
+    return delta, tags, rows
+
+
 def _signed(value):
     return f"{value:+.2f}" if round(value, 2) else "0"
 
@@ -1029,6 +1128,10 @@ def score_restaurant(
     ai_goals=None,
     nutrients=None,
     mood_check_in=None,
+    user_lat=None,
+    user_lng=None,
+    place_lat=None,
+    place_lng=None,
 ):
     """Return (sort_score, reason tags, breakdown) for one restaurant.
 
@@ -1041,8 +1144,9 @@ def score_restaurant(
     own Like from boosting itself. ``ai_health`` is the stored AI health score
     (0–1; None falls back to review keywords); ``ai_goals`` ({goal: 0-1}) and
     ``nutrients`` (MenuStat medians) feed the health-goal fit. ``mood_check_in``
-    is today's mood/energy log (optional). Breakdown includes
-    ``health_estimate`` and ``confidence``.
+    is today's mood/energy log (optional). ``user_lat``/``user_lng`` and
+    ``place_lat``/``place_lng`` enable distance × energy adjustments when a
+    check-in exists. Breakdown includes ``health_estimate`` and ``confidence``.
     """
     goal_words = _goal_words(profile)
     h_parts = health_parts(cuisine, reviews, name, goal_words, ai_score=ai_health)
@@ -1089,12 +1193,41 @@ def score_restaurant(
     if personal:
         base_points += 100.0 * p * w_p
 
-    # Daily mood / energy check-in: point adjustments on top of the weights.
+    # Daily mood / energy check-in: cuisine/menu bonuses + global nutrition tilt.
     mood_delta, mood_tags, mood_rows = mood_energy_adjustment(
         cuisine, name, mood_check_in, calorie_score=calorie_score
     )
-    adjustments = list(mood_rows)
+    tilt_delta, tilt_tags, tilt_rows = energy_nutrition_tilt(
+        mood_check_in, nutrition
+    )
+    mood_delta = mood_delta + tilt_delta
+    mood_tags = list(dict.fromkeys([*mood_tags, *tilt_tags]))
+    adjustments = list(mood_rows) + list(tilt_rows)
     score = base_points + mood_delta
+
+    distance_mi = None
+    distance_delta = 0.0
+    if (
+        mood_check_in is not None
+        and user_lat is not None
+        and user_lng is not None
+        and place_lat is not None
+        and place_lng is not None
+    ):
+        try:
+            distance_mi = distance_m(
+                float(user_lat), float(user_lng), float(place_lat), float(place_lng)
+            ) / METERS_PER_MILE
+        except (TypeError, ValueError):
+            distance_mi = None
+        dist_delta, dist_tags, dist_rows = distance_energy_adjustment(
+            distance_mi, getattr(mood_check_in, "energy_level", None)
+        )
+        distance_delta = dist_delta
+        mood_delta = mood_delta + dist_delta
+        mood_tags = list(dict.fromkeys([*mood_tags, *dist_tags]))
+        adjustments = adjustments + list(dist_rows)
+        score = score + dist_delta
 
     favorite = info.get("favorite")
     is_favorite = favorite is not None
@@ -1260,7 +1393,7 @@ def score_restaurant(
         contributions.append(
             (like_bonus, f"Similar to {similar_to}, which you liked", False)
         )
-    for row in mood_rows:
+    for row in adjustments:
         if row["delta"] > 0:
             contributions.append((row["delta"], row["label"], False))
     if (grade or "").strip().upper() == "A":
@@ -1287,6 +1420,8 @@ def score_restaurant(
         "reason_text": " · ".join(reasons),
         "parts": parts,
         "adjustments": adjustments,
+        "distance_mi": distance_mi,
+        "distance_delta": distance_delta,
         "base_points": base_points,
         "allergy_warnings": info.get("allergy_warnings", []),
         "total": score,

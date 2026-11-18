@@ -650,6 +650,51 @@ class HealthyCandidateTests(TestCase):
         self.assertEqual(self.pool(profile), ["TAQUERIA"])
 
 
+class MoodPoolExtraTests(TestCase):
+    databases = {"default", "community"}
+
+    def test_mood_boost_cuisines_by_check_in(self):
+        self.assertEqual(views._mood_boost_cuisines(None), set())
+        low = SimpleNamespace(mood=1, energy_level=1)
+        high = SimpleNamespace(mood=5, energy_level=5)
+        self.assertTrue(views._mood_boost_cuisines(low) & views.LIGHT_ENERGY_CUISINES)
+        self.assertTrue(views._mood_boost_cuisines(low) & views.COMFORT_MOOD_CUISINES)
+        self.assertTrue(views._mood_boost_cuisines(high) & views.HEARTY_ENERGY_CUISINES)
+
+    def test_high_energy_injects_hearty_into_healthy_pool(self):
+        # Fill the cuisine-capped pool with healthy places so BBQ is crowded out
+        # unless mood extras pull it in.
+        healthy = [
+            "Salads",
+            "Vegetarian",
+            "Vegan",
+            "Mediterranean",
+            "Japanese",
+        ]
+        n = 0
+        for cuisine in healthy:
+            for _ in range(views.MAX_PER_CUISINE):
+                inspection(str(9400 + n), f"{cuisine} {n}", cuisine, "A")
+                n += 1
+        inspection("9499", "RIB HOUSE", "BBQ", "A")
+        seed = "2026-11-10:0:"
+        without = {
+            row["name"]
+            for row in views._build_candidate_pool(None, None, seed, mood_check_in=None)
+        }
+        with_mood = {
+            row["name"]
+            for row in views._build_candidate_pool(
+                None,
+                None,
+                seed,
+                mood_check_in=SimpleNamespace(mood=5, energy_level=5),
+            )
+        }
+        self.assertNotIn("RIB HOUSE", without)
+        self.assertIn("RIB HOUSE", with_mood)
+
+
 class ClaudePicksTests(TestCase):
     databases = {"default", "community"}
 
@@ -674,6 +719,21 @@ class ClaudePicksTests(TestCase):
         page = self.get()
         self.assertEqual([p["camis"] for p in page.context["top_picks"]], ["50", "51"])
         self.assertContains(page, "Picked for you")
+
+    def test_claude_order_yields_to_scores_when_mood_check_in(self):
+        MoodLog.objects.create(
+            user=self.user, mood=1, energy_level=1, log_date=today_ny()
+        )
+        # Salad (52) should outrank Italian under low energy after scoring.
+        self.ai = [
+            {"camis": "50", "reason": "Your favorite cuisine."},
+            {"camis": "52", "reason": "A salad spot."},
+            {"camis": "51", "reason": "Also Italian."},
+        ]
+        page = self.get()
+        camis = [p["camis"] for p in page.context["top_picks"]]
+        self.assertIn("52", camis)
+        self.assertLess(camis.index("52"), camis.index("50"))
 
     def test_not_interested_drops_a_claude_pick(self):
         RecommendationFeedback.objects.create(

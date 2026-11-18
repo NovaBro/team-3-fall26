@@ -48,6 +48,18 @@ from restaurants.diet_filters import ALLERGY_CHOICES
 from restaurants.inspections import _latest, _match, _restaurants_in_zip, google_zip
 from restaurants.places import PlacesError, find_restaurant_place
 from search import ai_scores, find_food, reason_writer
+from search.cook_at_home import (
+    cook_at_home_picks,
+    find_food_cook_url,
+    is_cook_at_home_check_in,
+)
+from search.user_location import (
+    clear_user_latlng,
+    map_bootstrap,
+    parse_latlng,
+    save_user_latlng,
+    user_latlng,
+)
 from search.forms import (
     FARMERS_MARKET,
     GOOGLE,
@@ -66,8 +78,15 @@ from search.menustat import (
     top_low_calorie_meals,
 )
 from search.recommend import (
+    COMFORT_MOOD_CUISINES,
+    ENERGY_HIGH,
+    ENERGY_LOW,
     FAST_FOOD_PREFIXES,
     HEALTHY_CUISINES,
+    HEARTY_ENERGY_CUISINES,
+    LIGHT_ENERGY_CUISINES,
+    MOOD_HIGH,
+    MOOD_LOW,
     NON_MEAL_CUISINES,
     NON_MEAL_PREFIXES,
     UNHEALTHY_CUISINES,
@@ -98,6 +117,9 @@ PICKS_TIME_ZONE = ZoneInfo("America/New_York")
 MAX_CANDIDATES = 31  # POOL_SIZE + favorite and nearby extras
 FAVORITE_EXTRA = 3
 NEARBY_EXTRA = 3
+# Extra grade-A meal places matched to today's mood/energy so scoring can
+# actually flip Top 3 (the default pool is already "healthy" and too uniform).
+MOOD_POOL_EXTRA = 8
 
 
 def index(request):
@@ -333,17 +355,46 @@ def _feedback_prefs(request):
 NOT_A_RESTAURANT_NAME = r"\b(FITNESS|GYM|YOGA|PILATES)\b"
 
 
-def _build_candidate_pool(profile, prefs=None, seed="", boro=""):
+def _mood_boost_cuisines(mood_check_in):
+    """Cuisines to force into the Top Picks pool for today's check-in.
+
+    The default pool is already skewed healthy/grade-A, so low-mood comfort and
+    high-energy hearty places rarely appear — mood deltas then cannot change
+    the Top 3. Injecting these cuisines gives scoring something to differentiate.
+    """
+    if mood_check_in is None:
+        return set()
+    mood = getattr(mood_check_in, "mood", None)
+    energy = getattr(mood_check_in, "energy_level", None)
+    if mood is None or energy is None:
+        return set()
+    wanted = set()
+    if energy <= ENERGY_LOW:
+        wanted |= LIGHT_ENERGY_CUISINES
+    elif energy >= ENERGY_HIGH:
+        wanted |= HEARTY_ENERGY_CUISINES
+    if mood <= MOOD_LOW:
+        wanted |= COMFORT_MOOD_CUISINES
+    elif mood >= MOOD_HIGH:
+        wanted |= LIGHT_ENERGY_CUISINES
+    return wanted
+
+
+def _build_candidate_pool(profile, prefs=None, seed="", boro="", mood_check_in=None):
     """Top picks candidates: the first POOL_SIZE places for a meal (latest
     grade A, with a ZIP code so Google data can be matched) in the viewer's
     ranking, the same list Explore more shows, plus
-    favorites/nearby extras. Places marked not interested and cuisines risky
-    for the user's allergies are skipped. With *boro*, every candidate comes
-    from that borough."""
+    favorites/nearby extras and mood/energy cuisine extras. Places marked not
+    interested and cuisines risky for the user's allergies are skipped. With
+    *boro*, every candidate comes from that borough."""
     allergies = parse_allergies(getattr(profile, "allergies", "") if profile else "")
     excluded = strong_allergy_cuisines(allergies)
     hidden = prefs.hidden if prefs is not None else set()
     multiplier = _shuffle_multiplier(seed)
+    # Room for mood extras beyond the usual favorite/nearby bump.
+    pool_cap = MAX_CANDIDATES + (
+        MOOD_POOL_EXTRA if mood_check_in is not None else 0
+    )
 
     def meal_places(in_boro=boro):
         # The viewer's ranking (as in Explore more), keeping places for a meal
@@ -375,34 +426,47 @@ def _build_candidate_pool(profile, prefs=None, seed="", boro=""):
     base += extra[: POOL_SIZE - len(base)]
     by_camis = {row["camis"]: row for row in base}
 
-    if profile is not None and len(by_camis) < MAX_CANDIDATES:
+    if profile is not None and len(by_camis) < pool_cap:
         favorites = parse_foods(getattr(profile, "favorite_foods", ""))[0]
         added = 0
         for food in favorites:
-            if added >= FAVORITE_EXTRA or len(by_camis) >= MAX_CANDIDATES:
+            if added >= FAVORITE_EXTRA or len(by_camis) >= pool_cap:
                 break
             for row in meal_places().filter(_food_q(food))[: FAVORITE_EXTRA * 3]:
                 if row["camis"] in by_camis or row["camis"] in hidden:
                     continue
                 by_camis[row["camis"]] = row
                 added += 1
-                if added >= FAVORITE_EXTRA or len(by_camis) >= MAX_CANDIDATES:
+                if added >= FAVORITE_EXTRA or len(by_camis) >= pool_cap:
                     break
 
         _home_zip, home_boro = home_zip_boro(getattr(profile, "home_address", ""))
         if boro and home_boro.casefold() != boro.casefold():
             home_boro = ""  # another borough is selected; home extras don't apply
-        if home_boro and len(by_camis) < MAX_CANDIDATES:
+        if home_boro and len(by_camis) < pool_cap:
             nearby_added = 0
             for row in meal_places(home_boro)[: NEARBY_EXTRA * 3]:
                 if row["camis"] in by_camis or row["camis"] in hidden:
                     continue
                 by_camis[row["camis"]] = row
                 nearby_added += 1
-                if nearby_added >= NEARBY_EXTRA or len(by_camis) >= MAX_CANDIDATES:
+                if nearby_added >= NEARBY_EXTRA or len(by_camis) >= pool_cap:
                     break
 
-    return list(by_camis.values())[:MAX_CANDIDATES]
+    boost_cuisines = _mood_boost_cuisines(mood_check_in) - set(excluded)
+    if boost_cuisines and len(by_camis) < pool_cap:
+        mood_added = 0
+        for row in meal_places().filter(cuisine__in=boost_cuisines)[
+            : MOOD_POOL_EXTRA * 4
+        ]:
+            if row["camis"] in by_camis or row["camis"] in hidden:
+                continue
+            by_camis[row["camis"]] = row
+            mood_added += 1
+            if mood_added >= MOOD_POOL_EXTRA or len(by_camis) >= pool_cap:
+                break
+
+    return list(by_camis.values())[:pool_cap]
 
 
 def _app_rating_stats(camis):
@@ -465,13 +529,20 @@ def _top_picks(request, count=3, boro=""):
     prefs = _feedback_prefs(request)
     mood_check_in = _mood_check_in_for(request)
     user_id = request.user.pk if request.user.is_authenticated else None
+    user_coords = user_latlng(request.user) if user_id is not None else None
+    user_lat = user_coords[0] if user_coords else None
+    user_lng = user_coords[1] if user_coords else None
     hidden = prefs.hidden if prefs is not None else set()
     picks = [] if boro else _claude_picks(request, count)
     picks = [pick for pick in picks if pick["camis"] not in hidden]
     ranked_by_claude = bool(picks)
     if not ranked_by_claude:
         picks = _build_candidate_pool(
-            profile, prefs, _ranking_seed(request, boro), boro
+            profile,
+            prefs,
+            _ranking_seed(request, boro),
+            boro,
+            mood_check_in=mood_check_in,
         )
     if not picks:
         return []
@@ -560,6 +631,10 @@ def _top_picks(request, count=3, boro=""):
             ai_health=ai_health,
             ai_goals=ai_goals,
             nutrients=_goal_nutrients(profile, pick_name),
+            user_lat=user_lat,
+            user_lng=user_lng,
+            place_lat=(google or {}).get("lat"),
+            place_lng=(google or {}).get("lng"),
         )
         pick["score"] = score
         pick["reason_tags"] = tags
@@ -573,8 +648,10 @@ def _top_picks(request, count=3, boro=""):
         pick["allergy_warnings"] = breakdown["allergy_warnings"]
         pick["feedback"] = feedback_values.get(pick["camis"], 0)
 
-    if ranked_by_claude:
-        return picks[:count]  # keep Claude's order
+    # With a mood check-in, rule-based scores (including mood/energy) win the
+    # final order; Claude may still have shortlisted and attached ai_reason.
+    if ranked_by_claude and mood_check_in is None:
+        return picks[:count]
     return pick_top(picks, count)
 
 
@@ -797,6 +874,28 @@ def home(request):
         edit_mood = request.GET.get("edit_mood") == "1" or today_mood is None
         mood_form = MoodLogForm(instance=today_mood)
 
+    cook_at_home = {
+        "show": False,
+        "markets": [],
+        "stores": [],
+        "find_food_url": "",
+        "area": "",
+    }
+    if is_cook_at_home_check_in(today_mood):
+        profile = _profile_for(request)
+        area = selected_boro
+        if not area and profile is not None:
+            _zip, area = home_zip_boro(getattr(profile, "home_address", ""))
+        user_id = request.user.pk if request.user.is_authenticated else None
+        picks = cook_at_home_picks(area, day=_today(), user_id=user_id)
+        cook_at_home = {
+            "show": True,
+            "markets": picks["markets"],
+            "stores": picks["stores"],
+            "find_food_url": find_food_cook_url(area),
+            "area": area,
+        }
+
     return render(
         request,
         "search/home.html",
@@ -811,8 +910,30 @@ def home(request):
             "today_mood": today_mood,
             "mood_form": mood_form,
             "edit_mood": edit_mood,
+            "cook_at_home": cook_at_home,
+            "location_map": map_bootstrap(
+                request.user if request.user.is_authenticated else None
+            ),
+            "user_location": user_latlng(request.user)
+            if request.user.is_authenticated
+            else None,
         },
     )
+
+
+@login_required
+@require_POST
+def save_location(request):
+    """Save or clear the user's ranking pin (NYC lat/lng on the profile)."""
+    if request.POST.get("clear"):
+        clear_user_latlng(request.user)
+        return JsonResponse({"ok": True, "cleared": True})
+    try:
+        lat, lng = parse_latlng(request.POST.get("lat"), request.POST.get("lng"))
+    except ValueError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    save_user_latlng(request.user, lat, lng)
+    return JsonResponse({"ok": True, "lat": lat, "lng": lng})
 
 
 @login_required
@@ -841,7 +962,14 @@ def mood_checkin(request):
 
 
 def score_for_camis(
-    camis, latest, place, profile=None, feedback=None, mood_check_in=None
+    camis,
+    latest,
+    place,
+    profile=None,
+    feedback=None,
+    mood_check_in=None,
+    user_lat=None,
+    user_lng=None,
 ):
     """Score one restaurant the way the detail page does.
 
@@ -852,10 +980,13 @@ def score_for_camis(
     google_rating = None
     google_count = 0
     price = ""
+    place_lat = place_lng = None
     if place is not None:
         google_rating = place.rating
         google_count = place.user_rating_count or 0
         price = place.price_level_display or ""
+        place_lat = place.latitude
+        place_lng = place.longitude
         reviews = [
             {"text": r.text} for r in place.reviews.all() if (r.text or "").strip()
         ][:5]
@@ -896,6 +1027,10 @@ def score_for_camis(
         feedback=feedback,
         camis=camis,
         mood_check_in=mood_check_in,
+        user_lat=user_lat,
+        user_lng=user_lng,
+        place_lat=place_lat,
+        place_lng=place_lng,
     )
 
 
@@ -1010,6 +1145,9 @@ def restaurant_detail(request, camis):
     place = _place_for_detail(camis)
     menu_picks, menustat_name = top_low_calorie_meals(latest.dba, limit=5)
     back_url, back_label, from_top_picks = _back_link(request)
+    viewer_coords = (
+        user_latlng(request.user) if request.user.is_authenticated else None
+    )
     healthiness_score, reason_tags, score_breakdown = score_for_camis(
         camis,
         latest,
@@ -1017,6 +1155,8 @@ def restaurant_detail(request, camis):
         profile=_profile_for(request),
         feedback=_feedback_prefs(request),
         mood_check_in=_mood_check_in_for(request),
+        user_lat=viewer_coords[0] if viewer_coords else None,
+        user_lng=viewer_coords[1] if viewer_coords else None,
     )
 
     return render(

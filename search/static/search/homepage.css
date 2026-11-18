@@ -303,6 +303,135 @@
   background: rgba(242, 193, 78, 0.28);
 }
 
+/* Ranking pin minimap */
+.location-pin {
+  margin: 0 0 18px;
+  padding: 14px 16px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.22);
+}
+.location-pin__title {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.location-pin__subtitle {
+  margin: 0 0 10px;
+  font-size: 0.88rem;
+}
+.location-pin__map {
+  width: 100%;
+  height: 220px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.location-pin__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 0;
+}
+.location-pin__btn {
+  padding: 8px 12px;
+  border: 1px solid rgba(90, 169, 255, 0.45);
+  border-radius: 10px;
+  background: rgba(90, 169, 255, 0.16);
+  color: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.location-pin__btn:hover {
+  background: rgba(90, 169, 255, 0.28);
+}
+.location-pin__btn--quiet {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: transparent;
+  font-weight: 600;
+}
+.location-pin__status {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  min-height: 1.2em;
+}
+.location-pin__guest { margin: 0; font-size: 0.9rem; }
+
+/* High mood + energy: farmers markets and Shop Healthy stores */
+.cook-at-home {
+  margin: 0 0 20px;
+  padding: 14px 16px 16px;
+  border: 1px solid rgba(90, 169, 255, 0.28);
+  border-radius: 14px;
+  background: rgba(90, 169, 255, 0.08);
+}
+.cook-at-home__header { margin: 0 0 10px; }
+.cook-at-home__title {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.cook-at-home__subtitle {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+.cook-at-home__list {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+@media (min-width: 720px) {
+  .cook-at-home__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.cook-at-home__item {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.cook-at-home__kind {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+.cook-at-home__name {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.cook-at-home__meta,
+.cook-at-home__hours {
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+.cook-at-home__cta { margin: 0; }
+.cook-at-home__link {
+  display: inline-block;
+  padding: 8px 14px;
+  border: 1px solid rgba(90, 169, 255, 0.45);
+  border-radius: 10px;
+  background: rgba(90, 169, 255, 0.16);
+  color: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.cook-at-home__link:hover {
+  background: rgba(90, 169, 255, 0.28);
+}
+
 .top-picks__header {
   margin: 0 0 20px;
 }

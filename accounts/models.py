@@ -38,6 +38,9 @@ class UserProfile(models.Model):
         default=False, verbose_name="Send me promotions and updates"
     )
     home_address = models.CharField(max_length=255, blank=True)
+    location_lat = models.FloatField(null=True, blank=True)
+    location_lng = models.FloatField(null=True, blank=True)
+    location_updated_at = models.DateTimeField(null=True, blank=True)
     age = models.PositiveIntegerField(null=True, blank=True)
     gender = models.CharField(max_length=32, blank=True, choices=GENDER_CHOICES)
     weight_lbs = models.FloatField(null=True, blank=True)

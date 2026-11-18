@@ -4,6 +4,7 @@ Plan for replacing the current blended “healthiness” score with a
 **menu-first nutrition estimate** that separates food *safety* from *nutrition*
 and reports **confidence**. Current behavior is documented in
 `md_guides/scoring-algorithm.md` (`search/recommend.py`, `search/menustat.py`).
+Pipeline diagrams: `md_guides/scoring-pipeline.md`.
 
 ## Problem with v1
 
