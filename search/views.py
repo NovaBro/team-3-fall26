@@ -57,6 +57,8 @@ from search.forms import (
 from search.goal_fit import menu_nutrients
 from search.locations import resolve
 from search.models import RestaurantInspection, RestaurantSummary
+from search.summary import aggregate_inspections
+from search.summary_status import summary_ready
 from search.menustat import calorie_score_for_name, top_low_calorie_meals
 from search.recommend import (
     FAST_FOOD_PREFIXES,
@@ -586,17 +588,23 @@ def _scored_restaurants(multiplier):
     low_cuisines = UNHEALTHY_CUISINES | NON_MEAL_CUISINES
     non_meal_chain = _name_starts_with(NON_MEAL_PREFIXES) & ~Q(cuisine__in=low_cuisines)
     # One row per restaurant, worked out once (search/summary.py) instead of
-    # grouping every inspection row on each visit.
-    return RestaurantSummary.objects.values(
-        "camis",
-        "name",
-        "boro",
-        "street",
-        "zipcode",
-        "cuisine",
-        "last_date",
-        "latest_grade",
-    ).annotate(
+    # grouping every inspection row on each visit. If that table is missing or
+    # empty (e.g. the DB was replaced without migrate), group the inspection
+    # rows as before: slower, but the page works (see search/summary_status.py).
+    if summary_ready():
+        rows = RestaurantSummary.objects.values(
+            "camis",
+            "name",
+            "boro",
+            "street",
+            "zipcode",
+            "cuisine",
+            "last_date",
+            "latest_grade",
+        )
+    else:
+        rows = aggregate_inspections(RestaurantInspection)
+    return rows.annotate(
         explore_score=Case(
             When(latest_grade="A", then=2),
             When(latest_grade="B", then=1),
