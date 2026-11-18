@@ -114,10 +114,14 @@ class MoodLog(models.Model):
 
     @property
     def mood_display_label(self):
+        if self.mood is None:
+            return "—"
         return dict(self.MOOD_CHOICES).get(self.mood, str(self.mood))
 
     @property
     def energy_display_label(self):
+        if self.energy_level is None:
+            return "—"
         return dict(self.ENERGY_CHOICES).get(self.energy_level, str(self.energy_level))
 
     @property

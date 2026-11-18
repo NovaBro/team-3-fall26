@@ -31,6 +31,7 @@ urlpatterns = [
         name="admin_delete_comment",
     ),
     path("profile/", views.profile, name="profile"),
+    path("checkin/", views.quick_checkin, name="quick_checkin"),
     path(
         "profile/liked/delete/",
         views.delete_liked_places,

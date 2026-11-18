@@ -212,3 +212,13 @@ main.wrap:has(.auth-form) .auth-form input:not([type=checkbox]):not([type=radio]
 .site-header nav a[aria-current="page"] { font-weight: 500; }
 :root:not([data-theme="dark"]) .nav-link-button, :root:not([data-theme="dark"]) .theme-toggle { background: transparent; border: 0; color: #1f2a28; }
 :root:not([data-theme="dark"]) .theme-toggle:hover { background: var(--raised); }
+
+/* Banner size shared by Top picks and Search: it grows with the screen width,
+   sits on a low arch, and leaves only a small gap before the content. */
+.ui-hero {
+  box-sizing: border-box;
+  min-height: clamp(240px, 24vw, 620px);
+  margin-bottom: 12px;
+}
+.ui-hero::after { height: 36px; }
+.ui-hero + .finder { margin-top: 8px; }

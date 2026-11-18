@@ -1537,6 +1537,8 @@ def pick_top(items, count=3):
        than *count* remain.
     2. At most one pick may use its like bonus. Other liked items compete with
        their score minus the bonus.
+    3. One branch per chain: two "Just Salad"s never both make the list, even
+       when the city files them under different cuisines.
     """
     pool = sorted(items, key=_pick_sort_key)
     chosen, skipped, cuisines = [], [], set()
@@ -1548,6 +1550,9 @@ def pick_top(items, count=3):
             pool.append(item)
             pool.sort(key=_pick_sort_key)
             continue
+        name = _same_place_key(item)
+        if name and name in names:
+            continue
         cuisine = (item.get("cuisine") or "").strip()
         if cuisine and cuisine in cuisines:
             skipped.append(item)
@@ -1555,9 +1560,16 @@ def pick_top(items, count=3):
         chosen.append(item)
         if cuisine:
             cuisines.add(cuisine)
+        if name:
+            names.add(name)
         bonus_used = bonus_used or bool(item.get("like_bonus"))
     for item in skipped:
         if len(chosen) >= count:
             break
+        name = _same_place_key(item)
+        if name and name in names:
+            continue
         chosen.append(item)
+        if name:
+            names.add(name)
     return chosen

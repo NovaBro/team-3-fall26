@@ -1,0 +1,21 @@
+{% comment %}One check-in dropdown (mood or energy) next to the Top picks title.
+Without JavaScript the menu is a plain form; mood_checkin.js opens it as a
+dropdown and saves without reloading.{% endcomment %}
+<div class="mood-pick__dd">
+  <button type="button" class="mood-pick__btn{% if now.value %} is-set{% endif %}" data-kind="{{ kind }}"
+          aria-haspopup="true" aria-expanded="false" aria-controls="checkin-menu-{{ kind }}"
+          title="{% if now.value %}{{ caption }}: {{ now.label }}{% else %}Log today's {{ caption|lower }}{% endif %}"
+          aria-label="{% if now.value %}Today's {{ caption|lower }}: {{ now.label }}{% else %}Log today's {{ caption|lower }}{% endif %}">
+    <span class="mood-pick__now">{{ now.icon }}</span>
+    <svg class="mood-pick__chev" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6l6 -6"/></svg>
+  </button>
+  <form class="mood-pick__menu" id="checkin-menu-{{ kind }}" method="post" action="{% url 'accounts:quick_checkin' %}" data-kind="{{ kind }}">
+    {% csrf_token %}
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <p class="mood-pick__head">{{ caption }}</p>
+    {% for opt in options %}
+      <button type="submit" name="value" value="{{ opt.value }}" class="mood-pick__opt{% if opt.value == now.value %} is-on{% endif %}">{{ opt.icon }}<span>{{ opt.label }}</span></button>
+    {% endfor %}
+  </form>
+</div>

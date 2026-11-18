@@ -94,17 +94,24 @@ def _match(name, address, candidates):
     wanted = normalize_name(name, drop_places=True)
     street = google_street(address)
     exact, loose = set(), set()
+    exact_on_street = set()
     for camis, dba, nyc_street in candidates:
         nyc_name = normalize_name(dba, drop_places=True)
         if len(nyc_name) < 3:
             continue
         if nyc_name == wanted:
             exact.add(camis)
+            if street and normalize_street(nyc_street) == street:
+                exact_on_street.add(camis)
         elif (nyc_name in wanted or wanted in nyc_name) and min(
             len(nyc_name), len(wanted)
         ) >= MIN_LOOSE_LEN:
             if street and normalize_street(nyc_street) == street:
                 loose.add(camis)
+    # Chains: several branches with the same name in one ZIP code (e.g. three
+    # "JUST SALAD"s in 10016) - the street picks the right one.
+    if len(exact) > 1 and len(exact_on_street) == 1:
+        exact = exact_on_street
     found = exact or loose
     return next(iter(found)) if len(found) == 1 else None
 
