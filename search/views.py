@@ -44,7 +44,7 @@ from community.models import (
 from restaurants.diet_filters import ALLERGY_CHOICES
 from restaurants.inspections import _latest, _match, _restaurants_in_zip, google_zip
 from restaurants.places import PlacesError, find_restaurant_place
-from search import ai_scores, find_food, reason_writer
+from search import ai_scores, find_food, reason_writer, what_to_order
 from search.forms import (
     FARMERS_MARKET,
     GOOGLE,
@@ -1036,6 +1036,31 @@ def pick_feedback(request, camis):
     ):
         next_url = reverse("search:home")
     return redirect(next_url)
+
+
+def restaurant_what_to_order(request, camis):
+    """The Menu box of the detail page (loaded after the page).
+
+    Returns an HTML fragment. The menu comes from MenuStat or is read from the
+    restaurant's Google photos; nothing read from Google is stored.
+    """
+    latest = (
+        RestaurantInspection.objects.filter(camis=camis)
+        .order_by("-inspection_date")
+        .first()
+    )
+    if latest is None:
+        raise Http404("Restaurant not found")
+    place = PlaceEnrichment.objects.filter(camis=camis).only("place_id").first()
+    query = f"{latest.dba}, {latest.street}, {latest.boro}, NY {latest.zipcode}"
+    result = what_to_order.build(
+        latest.dba,
+        place,
+        _profile_for(request),
+        query,
+        ai_scores.shared_encoder,
+    )
+    return render(request, "search/_what_to_order.html", {"result": result})
 
 
 @require_POST

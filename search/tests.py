@@ -308,12 +308,17 @@ class RestaurantDetailGoogleTests(TestCase):
             text="Great slice.",
         )
         response = self.client.get(reverse("search:restaurant_detail", args=["1"]))
-        self.assertContains(response, "4.5")
-        self.assertContains(response, "Great slice.")
+        # Google data (rating, reviews) is stored and feeds the score, but the
+        # page no longer shows a Google data panel; the Menu box instead.
+        self.assertEqual(response.context["place"], place)
+        self.assertNotContains(response, "Google data")
+        self.assertNotContains(response, "Great slice.")
+        self.assertContains(response, 'id="what-to-order"')
 
-    def test_detail_without_google_data_prompts(self):
+    def test_detail_without_google_data_has_no_panel(self):
         response = self.client.get(reverse("search:restaurant_detail", args=["1"]))
-        self.assertContains(response, "No Google data stored yet")
+        self.assertNotContains(response, "No Google data stored yet")
+        self.assertNotContains(response, "Get Google data")
 
     @patch("search.views.enrich_camis")
     def test_refresh_post_enriches_and_redirects(self, enrich):
