@@ -316,6 +316,12 @@ def parse_allergies(text):
     ]
 
 
+def allergens_in(keys, text):
+    """Allergy keys whose allergen word appears in *text* (a dish name)."""
+    text = (text or "").casefold()
+    return [key for key in keys if re.search(rf"\b({_ALLERGY_WORDS[key]})\b", text)]
+
+
 def strong_allergy_cuisines(keys):
     return set().union(*(STRONG_ALLERGY_CUISINES.get(k, set()) for k in keys))
 

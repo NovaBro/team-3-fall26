@@ -14,6 +14,11 @@ urlpatterns = [
         name="pick_feedback",
     ),
     path(
+        "restaurant/<str:camis>/what-to-order/",
+        views.restaurant_what_to_order,
+        name="what_to_order",
+    ),
+    path(
         "restaurant/<str:camis>/refresh-google/",
         views.refresh_place,
         name="refresh_place",
