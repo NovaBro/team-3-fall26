@@ -83,18 +83,12 @@ class DetailPageSummaryTests(TestCase):
             url = reverse("search:restaurant_detail", args=["1"])
             return self.client.get(url).content.decode()
 
-    def test_summary_replaces_the_review_list(self):
+    def test_reviews_and_summary_are_not_shown(self):
+        # The detail page shows the Menu box instead of Google reviews.
         self.place.raw_json = {"reviewSummary": SUMMARY}
         self.place.save()
         html = self.html()
-        self.assertIn("Review summary", html)
-        self.assertIn(SUMMARY["text"]["text"], html)
-        self.assertIn("Summarized with Gemini", html)
-        self.assertIn(SUMMARY["reviewsUri"], html)
-        self.assertIn("Report this summary", html)
-        self.assertNotIn("Raw review text.", html)
-
-    def test_without_summary_the_reviews_stay(self):
-        html = self.html()
         self.assertNotIn("Review summary", html)
-        self.assertIn("Raw review text.", html)
+        self.assertNotIn(SUMMARY["text"]["text"], html)
+        self.assertNotIn("Raw review text.", html)
+        self.assertIn('id="what-to-order"', html)

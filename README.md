@@ -66,9 +66,10 @@ Cloud project). Copy `.env.example` to `.env` and fill in `GOOGLE_API_KEY`; add
 ## Google Places enrichment
 
 Set a Google Maps Platform API key (with the **Places API (New)** enabled) as an
-environment variable, then either click **Get Google data** on a restaurant page
-or seed in bulk. Enrichment is stored by pin `(kind, key)` for DOHMH restaurants,
-farmers markets, and Shop Healthy stores:
+environment variable. The first visit to a restaurant page fetches its data
+(it feeds the score; the page doesn't show it), or seed in bulk. Enrichment is
+stored by pin `(kind, key)` for DOHMH restaurants, farmers markets, and Shop
+Healthy stores:
 
 ```bash
 export GOOGLE_PLACES_API_KEY="your-key"
@@ -82,6 +83,26 @@ overwrite. Restaurant targets prefer CAMIS that still lack coordinates. Each
 place costs two API calls (Text Search + Place Details); results go to
 `PlaceEnrichment`/`PlaceReview` in `community.db` and show in the Find food
 Reviews panel.
+
+### Menu (detail page)
+
+The restaurant page loads a Menu box after the page itself
+(`/restaurant/<camis>/what-to-order/`). The menu comes from MenuStat for
+chains; otherwise up to 10 Google photos are downloaded and one Gemini call
+(`GEMINI_API_KEY`) reads the items on the menu photos. Items are shown grouped
+into food, drinks and desserts. Menus read from Google photos are never
+stored. Cost per page view without a MenuStat match: one Place Details
+(photos) call, up to 10 photo calls, and one small Gemini call. Dish scoring
+and picks (`score_dishes`, `pick` in `search/what_to_order.py`) are written but
+not shown yet.
+
+### Known limitation: stored Google data
+
+Google's Places terms only allow storing place IDs. This class project still
+stores Places data (ratings, reviews) in `PlaceEnrichment`/`PlaceReview`,
+because the AI health score is computed from the reviews. A production
+version would keep only place IDs and fetch the rest when needed. The
+restaurant page no longer shows a Google data panel (rating, reviews).
 
 ## Diet and allergy filters
 

@@ -63,7 +63,6 @@ class AutoFetchTests(TestCase):
         with self.assertLogs("search.views", level="WARNING"):
             page = self.visit(broken)
         self.assertIsNone(page.context["place"])
-        self.assertContains(page, "No Google data stored yet")
         self.visit(broken)  # remembered for 10 minutes -> no second call
         self.assertEqual(self.calls, ["7"])
 

@@ -1,0 +1,35 @@
+{% if result.groups %}
+  {% for group in result.groups %}
+    <h3 class="what-to-order__group">{{ group.label }} <span class="muted">({{ group.dishes|length }})</span></h3>
+    <ul class="what-to-order__list">
+      {% for dish in group.preview %}
+        <li class="what-to-order__dish">
+          <span class="what-to-order__name">{{ dish.name }}</span>
+          {% if dish.description %}<span class="what-to-order__note">{{ dish.description }}</span>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+    {% if group.rest %}
+      <details class="what-to-order__more">
+        <summary>Show all {{ group.dishes|length }}</summary>
+        <ul class="what-to-order__list">
+          {% for dish in group.rest %}
+            <li class="what-to-order__dish">
+              <span class="what-to-order__name">{{ dish.name }}</span>
+              {% if dish.description %}<span class="what-to-order__note">{{ dish.description }}</span>{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </details>
+    {% endif %}
+  {% endfor %}
+  <p class="what-to-order__source">
+    {% if result.source == "menustat" %}
+      Source: MenuStat (NYC Health Department menu data in our database). May be out of date.
+    {% else %}
+      Source: Google Maps photos, read by AI (Gemini). May be incomplete or out of date.
+    {% endif %}
+  </p>
+{% else %}
+  <p class="muted what-to-order__empty">{{ result.message }}</p>
+{% endif %}

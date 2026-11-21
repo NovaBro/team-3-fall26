@@ -1325,6 +1325,24 @@ button.panel-edge-tab:focus-visible {
   color: var(--muted);
 }
 
+/* Detail page: "What to order" (filled by what_to_order.js). */
+.what-to-order {
+  margin: 10px 0 18px;
+  padding: 16px 20px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.what-to-order__head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 0.9rem; }
+.what-to-order__share { font-weight: 600; }
+.what-to-order__list { list-style: none; margin: 0; padding: 0; }
+.what-to-order__dish { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.what-to-order__note { color: var(--muted); font-size: 0.85rem; }
+.what-to-order__group { margin: 14px 0 4px; font-size: 1rem; }
+.what-to-order__group:first-child { margin-top: 0; }
+.what-to-order__more summary { cursor: pointer; padding: 8px 0; color: var(--accent, inherit); font-size: 0.9rem; }
+.what-to-order__source, .what-to-order__empty { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); }
+
 /* Profile page: the user's own liked places. */
 .liked-places { margin-top: 24px; }
 .liked-places h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
