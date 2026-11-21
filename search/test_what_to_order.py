@@ -440,6 +440,13 @@ class ViewTests(TestCase):
         self.assertNotIn("Picked for you", html)
         self.assertIn("Fresh kale salad", html)
 
+    def test_no_encoder_shows_the_menu_without_picks(self):
+        menu = [wto.Dish(f"Fresh salad {n}") for n in range(6)]
+        with patch.object(wto, "menustat_dishes", return_value=menu):
+            result = wto.build("LEAF BAR", None, None, "q", lambda: None)
+        self.assertEqual(result.picks, [])
+        self.assertEqual(len(result.groups[0].dishes), 6)
+
     def test_picks_failure_still_shows_the_menu(self):
         def broken():
             raise RuntimeError("model down")
