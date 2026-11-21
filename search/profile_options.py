@@ -322,6 +322,17 @@ def allergens_in(keys, text):
     return [key for key in keys if re.search(rf"\b({_ALLERGY_WORDS[key]})\b", text)]
 
 
+def allergen_words_in(keys, text):
+    """The allergen words in *text* for these allergy keys, as written there
+    (e.g. "walnuts"), first match per key."""
+    words = []
+    for key in keys:
+        match = re.search(rf"\b({_ALLERGY_WORDS[key]})\b", text or "", re.IGNORECASE)
+        if match:
+            words.append(match.group(0).lower())
+    return words
+
+
 def strong_allergy_cuisines(keys):
     return set().union(*(STRONG_ALLERGY_CUISINES.get(k, set()) for k in keys))
 
