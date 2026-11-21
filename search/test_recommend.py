@@ -10,10 +10,12 @@ from search.profile_options import (
 )
 from search.recommend import (
     DEFAULT_WEIGHTS,
-    ENERGY_HEAVY_PENALTY,
-    ENERGY_LIGHT_BONUS,
+    HIGH_HEAVY_PENALTY,
+    HIGH_LIGHT_BONUS,
+    HIGH_NUTRITION_TILT,
     LINKED_WEIGHTS,
-    MOOD_COMFORT_BONUS,
+    LOW_COMFORT_BONUS,
+    LOW_NUTRITION_TILT,
     PERSONAL_WEIGHTS,
     TAG_ALLERGY_CHECK,
     TAG_BUDGET,
@@ -31,13 +33,14 @@ from search.recommend import (
     UNLINKED_WEIGHTS,
     _weights,
     bmi,
+    check_in_strictness,
     classify_reviews,
     distance_energy_adjustment,
     has_personal_inputs,
     health_focus_weights,
     home_zip_boro,
     is_fast_food,
-    mood_energy_adjustment,
+    mood_overlay,
     nutrition_confidence,
     prior_health_score,
     rating_score,
@@ -506,8 +509,16 @@ class MoodEnergyAdjustmentTests(TestCase):
         self.assertAlmostEqual(base, same, places=5)
         self.assertEqual(same_bd["mood_delta"], 0.0)
 
-    def test_low_energy_boosts_light_and_penalizes_heavy(self):
-        check_in = SimpleNamespace(mood=3, energy_level=1)
+    def test_strictness_treats_missing_side_as_three(self):
+        self.assertEqual(
+            check_in_strictness(SimpleNamespace(mood=5, energy_level=None)), 4.0
+        )
+        self.assertEqual(
+            check_in_strictness(SimpleNamespace(mood=None, energy_level=1)), 2.0
+        )
+
+    def test_high_strictness_prefers_healthier(self):
+        check_in = SimpleNamespace(mood=5, energy_level=5)
         salad, salad_tags, salad_bd = score_restaurant(
             name="Green Bowl",
             cuisine="Salads",
@@ -528,22 +539,24 @@ class MoodEnergyAdjustmentTests(TestCase):
         burger_base, _, burger_base_bd = score_restaurant(
             name="Burger Spot", cuisine="Hamburgers", grade="A", google_rating=4.0
         )
-        # Cuisine bonus + global nutrition tilt (healthier prior → positive tilt).
-        salad_tilt = 10.0 * (salad_base_bd["health_estimate"] / 100.0 - 0.5)
-        burger_tilt = 10.0 * (burger_base_bd["health_estimate"] / 100.0 - 0.5)
-        self.assertAlmostEqual(
-            salad, salad_base + ENERGY_LIGHT_BONUS + salad_tilt, places=1
+        salad_tilt = HIGH_NUTRITION_TILT * (
+            salad_base_bd["health_estimate"] / 100.0 - 0.5
+        )
+        burger_tilt = HIGH_NUTRITION_TILT * (
+            burger_base_bd["health_estimate"] / 100.0 - 0.5
         )
         self.assertAlmostEqual(
-            burger, burger_base + ENERGY_HEAVY_PENALTY + burger_tilt, places=1
+            salad, salad_base + HIGH_LIGHT_BONUS + salad_tilt, places=1
+        )
+        self.assertAlmostEqual(
+            burger, burger_base + HIGH_HEAVY_PENALTY + burger_tilt, places=1
         )
         self.assertIn(TAG_FITS_ENERGY, salad_tags)
-        self.assertGreater(salad_bd["mood_delta"], ENERGY_LIGHT_BONUS)
-        self.assertLess(burger_bd["mood_delta"], 0)
         self.assertGreater(salad - burger, salad_base - burger_base)
+        self.assertGreater(salad_bd["mood_delta"], burger_bd["mood_delta"])
 
-    def test_low_mood_boosts_comfort_food(self):
-        check_in = SimpleNamespace(mood=1, energy_level=3)
+    def test_low_strictness_boosts_comfort_and_is_laxer(self):
+        check_in = SimpleNamespace(mood=1, energy_level=1)
         pizza, tags, breakdown = score_restaurant(
             name="Slice House",
             cuisine="Pizza",
@@ -551,15 +564,16 @@ class MoodEnergyAdjustmentTests(TestCase):
             google_rating=4.0,
             mood_check_in=check_in,
         )
-        base, _, _ = score_restaurant(
+        base, _, base_bd = score_restaurant(
             name="Slice House", cuisine="Pizza", grade="A", google_rating=4.0
         )
-        self.assertAlmostEqual(pizza, base + MOOD_COMFORT_BONUS, places=1)
+        tilt = LOW_NUTRITION_TILT * (base_bd["health_estimate"] / 100.0 - 0.5)
+        self.assertAlmostEqual(pizza, base + LOW_COMFORT_BONUS + tilt, places=1)
         self.assertIn(TAG_COMFORT_MOOD, tags)
-        self.assertEqual(breakdown["mood_delta"], MOOD_COMFORT_BONUS)
+        self.assertAlmostEqual(breakdown["mood_delta"], LOW_COMFORT_BONUS + tilt, places=1)
 
-    def test_global_tilt_moves_equal_places_by_nutrition(self):
-        check_in = SimpleNamespace(mood=3, energy_level=1)
+    def test_high_strictness_tilt_prefers_high_nutrition(self):
+        check_in = SimpleNamespace(mood=5, energy_level=4)
         light, _, light_bd = score_restaurant(
             name="Chain Spot",
             grade="A",
@@ -578,19 +592,21 @@ class MoodEnergyAdjustmentTests(TestCase):
             any("healthier" in row["label"].lower() for row in light_bd["adjustments"])
         )
 
-    def test_low_energy_uses_menu_calorie_signal(self):
-        check_in = SimpleNamespace(mood=3, energy_level=2)
-        delta, tags, rows = mood_energy_adjustment(
-            "American", "Local Diner", check_in, calorie_score=0.9
+    def test_low_strictness_tilt_is_laxer_on_nutrition(self):
+        check_in = SimpleNamespace(mood=1, energy_level=2)
+        delta_light, *_ = mood_overlay(
+            check_in, cuisine="American", name="Diner", nutrition=0.9
         )
-        self.assertGreater(delta, 0)
-        self.assertIn(TAG_FITS_ENERGY, tags)
-        self.assertTrue(any("Lower-calorie" in row["label"] for row in rows))
+        delta_heavy, *_ = mood_overlay(
+            check_in, cuisine="American", name="Diner", nutrition=0.1
+        )
+        # Laxer: high nutrition is not preferred (tilt is negative × centered).
+        self.assertLess(delta_light, delta_heavy)
 
     def test_neutral_check_in_is_noop(self):
         check_in = SimpleNamespace(mood=3, energy_level=3)
-        delta, tags, rows = mood_energy_adjustment(
-            "Salads", "Green Bowl", check_in
+        delta, tags, rows, _mi, _dd = mood_overlay(
+            check_in, cuisine="Salads", name="Green Bowl", nutrition=0.7
         )
         self.assertEqual(delta, 0.0)
         self.assertEqual(tags, [])

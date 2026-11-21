@@ -104,23 +104,30 @@ TAG_SIMILAR_PICK = "Similar pick"
 
 # Daily mood / energy check-in adjustments (accounts.MoodLog). Points added to
 # the weighted total after Personal fit.
+# Policy 2H: high mood+energy → healthier; low → laxer (comfort/hearty).
 MOOD_LOW = 2
 MOOD_HIGH = 4
 ENERGY_LOW = 2
 ENERGY_HIGH = 4
-ENERGY_LIGHT_BONUS = 12.0
-ENERGY_HEAVY_PENALTY = -10.0
-ENERGY_HEARTY_BONUS = 8.0
-ENERGY_MENU_LIGHT_BONUS = 8.0
-ENERGY_MENU_HEAVY_PENALTY = -8.0
-MOOD_COMFORT_BONUS = 12.0
-MOOD_FRESH_BONUS = 8.0
+STRICTNESS_DEFAULT = 3  # missing mood or energy side
+STRICTNESS_HIGH = 4.0  # avg(mood, energy) >= this
+STRICTNESS_LOW = 2.0  # avg <= this
+# High strictness: prefer healthier nutrition + light cuisines.
+HIGH_NUTRITION_TILT = 12.0  # ±6 at nutrition extremes
+HIGH_LIGHT_BONUS = 8.0
+HIGH_HEAVY_PENALTY = -6.0
+# Low strictness: laxer on health — comfort/hearty up; mild anti-health tilt.
+LOW_NUTRITION_TILT = -6.0  # healthier nutrition scores slightly down
+LOW_COMFORT_BONUS = 12.0
+LOW_HEARTY_BONUS = 8.0
+# Kept for cook-at-home / callers that gate on mood+energy thresholds.
+MOOD_COMFORT_BONUS = LOW_COMFORT_BONUS
+MOOD_FRESH_BONUS = HIGH_LIGHT_BONUS
+ENERGY_HEARTY_BONUS = LOW_HEARTY_BONUS
+ENERGY_LIGHT_BONUS = HIGH_LIGHT_BONUS
+ENERGY_HEAVY_PENALTY = HIGH_HEAVY_PENALTY
 MENU_LIGHT_THRESHOLD = 0.6
 MENU_HEAVY_THRESHOLD = 0.35
-# Global tilt: every place moves a little with a check-in (nutrition 0..1).
-ENERGY_LOW_NUTRITION_TILT = 10.0  # ±5 at extremes when energy <= 2
-ENERGY_HIGH_NUTRITION_TILT = 2.0  # ±1 when energy >= 4
-MOOD_HIGH_NUTRITION_TILT = 4.0  # ±2 when mood >= 4 and energy > 2
 # Distance × energy (points). Only when user pin + place coords + check-in exist.
 DISTANCE_LOW_SCALE = 12.0
 DISTANCE_LOW_DECAY_MI = 0.75
@@ -723,90 +730,37 @@ def rating_score(google_rating, google_count, app_avg, app_count):
     return max(0.0, min(1.0, (blended - 3.0) / 2.0))
 
 
-def mood_energy_adjustment(cuisine, name, check_in, calorie_score=None):
-    """Score deltas from today's mood / energy check-in.
-
-    Returns ``(delta, reason_tags, adjustment_rows)``. ``check_in`` needs
-    ``mood`` and ``energy_level`` (1–5), e.g. a MoodLog or SimpleNamespace.
-    Neutral (3) values and a missing check-in apply no change. Adjustments are
-    profile-style points, not part of the nutrition estimate.
-    """
+def check_in_strictness(check_in):
+    """Average mood/energy on 1–5; missing side counts as 3. None if no check-in."""
     if check_in is None:
-        return 0.0, [], []
-
+        return None
     mood = getattr(check_in, "mood", None)
     energy = getattr(check_in, "energy_level", None)
-    if mood is None or energy is None:
-        return 0.0, [], []
+    if mood is None and energy is None:
+        return None
+    try:
+        m = STRICTNESS_DEFAULT if mood is None else int(mood)
+        e = STRICTNESS_DEFAULT if energy is None else int(energy)
+    except (TypeError, ValueError):
+        return None
+    return (m + e) / 2.0
 
-    cuisine_label = (cuisine or "").strip()
-    is_light = cuisine_label in LIGHT_ENERGY_CUISINES
-    is_comfort = cuisine_label in COMFORT_MOOD_CUISINES
-    is_hearty = cuisine_label in HEARTY_ENERGY_CUISINES
-    is_heavy = cuisine_label in UNHEALTHY_CUISINES or is_fast_food(name)
-    menu_health = (
-        None if calorie_score is None else max(0.0, min(1.0, float(calorie_score)))
+
+def mood_energy_adjustment(cuisine, name, check_in, calorie_score=None):
+    """Cuisine/menu deltas from today's check-in (legacy wrapper around overlay)."""
+    nutrition = 0.5
+    if calorie_score is not None:
+        try:
+            nutrition = max(0.0, min(1.0, float(calorie_score)))
+        except (TypeError, ValueError):
+            nutrition = 0.5
+    delta, tags, rows, _mi, _dd = mood_overlay(
+        check_in,
+        cuisine=cuisine,
+        name=name,
+        nutrition=nutrition,
+        calorie_score=calorie_score,
     )
-
-    delta = 0.0
-    tags = []
-    rows = []
-
-    if energy <= ENERGY_LOW:
-        if is_light:
-            delta += ENERGY_LIGHT_BONUS
-            rows.append(
-                {"label": "Lighter pick for low energy", "delta": ENERGY_LIGHT_BONUS}
-            )
-            tags.append(TAG_FITS_ENERGY)
-        if is_heavy:
-            delta += ENERGY_HEAVY_PENALTY
-            rows.append(
-                {
-                    "label": "Heavier when energy is low",
-                    "delta": ENERGY_HEAVY_PENALTY,
-                }
-            )
-        if menu_health is not None:
-            if menu_health >= MENU_LIGHT_THRESHOLD:
-                delta += ENERGY_MENU_LIGHT_BONUS
-                rows.append(
-                    {
-                        "label": "Lower-calorie menu for low energy",
-                        "delta": ENERGY_MENU_LIGHT_BONUS,
-                    }
-                )
-                if TAG_FITS_ENERGY not in tags:
-                    tags.append(TAG_FITS_ENERGY)
-            elif menu_health <= MENU_HEAVY_THRESHOLD:
-                delta += ENERGY_MENU_HEAVY_PENALTY
-                rows.append(
-                    {
-                        "label": "Higher-calorie when energy is low",
-                        "delta": ENERGY_MENU_HEAVY_PENALTY,
-                    }
-                )
-    elif energy >= ENERGY_HIGH and is_hearty:
-        delta += ENERGY_HEARTY_BONUS
-        rows.append(
-            {"label": "Hearty pick for high energy", "delta": ENERGY_HEARTY_BONUS}
-        )
-        tags.append(TAG_FITS_ENERGY)
-
-    if mood <= MOOD_LOW and is_comfort:
-        delta += MOOD_COMFORT_BONUS
-        rows.append(
-            {"label": "Comfort food for your mood", "delta": MOOD_COMFORT_BONUS}
-        )
-        tags.append(TAG_COMFORT_MOOD)
-    elif mood >= MOOD_HIGH and is_light:
-        delta += MOOD_FRESH_BONUS
-        rows.append(
-            {"label": "Fresh pick for a good mood", "delta": MOOD_FRESH_BONUS}
-        )
-        if TAG_FITS_ENERGY not in tags:
-            tags.append(TAG_FITS_ENERGY)
-
     return delta, tags, rows
 
 
@@ -846,47 +800,128 @@ def distance_energy_adjustment(distance_mi, energy):
 
 
 def energy_nutrition_tilt(check_in, nutrition):
-    """Global sort-score tilt from check-in × nutrition estimate (0..1).
+    """Nutrition tilt only (legacy); prefer ``mood_overlay`` for full deltas."""
+    delta, tags, rows, _mi, _dd = mood_overlay(
+        check_in, cuisine="", name="", nutrition=nutrition
+    )
+    # Strip cuisine-only rows by re-running tilt logic via strictness bands.
+    # mood_overlay with blank cuisine still applies nutrition tilt — good enough.
+    return delta, tags, rows
 
-    Cuisine-list bonuses in ``mood_energy_adjustment`` only move matching
-    places; this term moves every scored restaurant so rankings visibly change.
-    Returns ``(delta, tags, adjustment_rows)``.
+
+def mood_overlay(
+    check_in,
+    *,
+    cuisine="",
+    name="",
+    nutrition=0.5,
+    calorie_score=None,
+    user_lat=None,
+    user_lng=None,
+    place_lat=None,
+    place_lng=None,
+):
+    """Mood/energy score overlay on a base score (cheap; no I/O).
+
+    Policy 2H: high strictness (avg mood+energy) prefers healthier picks;
+    low strictness is laxer (comfort/hearty up, mild anti-health tilt).
+    Missing mood or energy counts as 3. Distance × energy is included when
+    pin + place coords exist.
+
+    Returns ``(total_delta, tags, adjustment_rows, distance_mi, distance_delta)``.
     """
-    if check_in is None:
-        return 0.0, [], []
-    mood = getattr(check_in, "mood", None)
-    energy = getattr(check_in, "energy_level", None)
-    if mood is None or energy is None:
-        return 0.0, [], []
+    strictness = check_in_strictness(check_in)
+    if strictness is None:
+        return 0.0, [], [], None, 0.0
+
     try:
         n = max(0.0, min(1.0, float(nutrition)))
     except (TypeError, ValueError):
-        return 0.0, [], []
+        n = 0.5
+    if calorie_score is not None:
+        try:
+            n = max(0.0, min(1.0, float(calorie_score)))
+        except (TypeError, ValueError):
+            pass
+
+    cuisine_label = (cuisine or "").strip()
+    is_light = cuisine_label in LIGHT_ENERGY_CUISINES
+    is_comfort = cuisine_label in COMFORT_MOOD_CUISINES
+    is_hearty = cuisine_label in HEARTY_ENERGY_CUISINES
+    is_heavy = cuisine_label in UNHEALTHY_CUISINES or is_fast_food(name)
 
     delta = 0.0
     tags = []
     rows = []
     centered = n - 0.5
-    if energy <= ENERGY_LOW:
-        tilt = ENERGY_LOW_NUTRITION_TILT * centered
+
+    if strictness >= STRICTNESS_HIGH:
+        tilt = HIGH_NUTRITION_TILT * centered
+        delta += tilt
+        rows.append({"label": "High mood/energy prefers healthier picks", "delta": tilt})
+        if is_light:
+            delta += HIGH_LIGHT_BONUS
+            rows.append(
+                {"label": "Fresh pick for a good day", "delta": HIGH_LIGHT_BONUS}
+            )
+            tags.append(TAG_FITS_ENERGY)
+        if is_heavy:
+            delta += HIGH_HEAVY_PENALTY
+            rows.append(
+                {
+                    "label": "Heavier when aiming healthier",
+                    "delta": HIGH_HEAVY_PENALTY,
+                }
+            )
+        if abs(tilt) >= 1.0 and TAG_FITS_ENERGY not in tags:
+            tags.append(TAG_FITS_ENERGY)
+    elif strictness <= STRICTNESS_LOW:
+        tilt = LOW_NUTRITION_TILT * centered
         delta += tilt
         rows.append(
-            {"label": "Low energy prefers healthier picks", "delta": tilt}
+            {"label": "Low mood/energy is laxer on healthiness", "delta": tilt}
         )
-    elif energy >= ENERGY_HIGH:
-        tilt = ENERGY_HIGH_NUTRITION_TILT * centered
-        delta += tilt
-        if abs(tilt) >= 0.5:
+        if is_comfort:
+            delta += LOW_COMFORT_BONUS
             rows.append(
-                {"label": "High energy nutrition tilt", "delta": tilt}
+                {"label": "Comfort food for your mood", "delta": LOW_COMFORT_BONUS}
             )
-    if mood >= MOOD_HIGH and energy > ENERGY_LOW:
-        tilt = MOOD_HIGH_NUTRITION_TILT * centered
-        delta += tilt
-        rows.append({"label": "Good mood prefers healthier picks", "delta": tilt})
-    if abs(delta) >= 1.0:
-        tags.append(TAG_FITS_ENERGY)
-    return delta, tags, rows
+            tags.append(TAG_COMFORT_MOOD)
+        if is_hearty:
+            delta += LOW_HEARTY_BONUS
+            rows.append(
+                {"label": "Hearty pick when taking it easy", "delta": LOW_HEARTY_BONUS}
+            )
+            if TAG_FITS_ENERGY not in tags:
+                tags.append(TAG_FITS_ENERGY)
+    # Mid strictness (~3): no cuisine/nutrition overlay.
+
+    distance_mi = None
+    distance_delta = 0.0
+    energy = getattr(check_in, "energy_level", None)
+    if energy is None:
+        energy = STRICTNESS_DEFAULT
+    if (
+        user_lat is not None
+        and user_lng is not None
+        and place_lat is not None
+        and place_lng is not None
+    ):
+        try:
+            distance_mi = distance_m(
+                float(user_lat), float(user_lng), float(place_lat), float(place_lng)
+            ) / METERS_PER_MILE
+        except (TypeError, ValueError):
+            distance_mi = None
+        dist_delta, dist_tags, dist_rows = distance_energy_adjustment(
+            distance_mi, energy
+        )
+        distance_delta = dist_delta
+        delta += dist_delta
+        tags = list(dict.fromkeys([*tags, *dist_tags]))
+        rows = rows + list(dist_rows)
+
+    return delta, tags, rows, distance_mi, distance_delta
 
 
 def _signed(value):
@@ -1193,41 +1228,19 @@ def score_restaurant(
     if personal:
         base_points += 100.0 * p * w_p
 
-    # Daily mood / energy check-in: cuisine/menu bonuses + global nutrition tilt.
-    mood_delta, mood_tags, mood_rows = mood_energy_adjustment(
-        cuisine, name, mood_check_in, calorie_score=calorie_score
+    # Daily mood / energy overlay (2H) + optional distance × energy.
+    mood_delta, mood_tags, adjustments, distance_mi, distance_delta = mood_overlay(
+        mood_check_in,
+        cuisine=cuisine,
+        name=name,
+        nutrition=nutrition,
+        calorie_score=calorie_score,
+        user_lat=user_lat,
+        user_lng=user_lng,
+        place_lat=place_lat,
+        place_lng=place_lng,
     )
-    tilt_delta, tilt_tags, tilt_rows = energy_nutrition_tilt(
-        mood_check_in, nutrition
-    )
-    mood_delta = mood_delta + tilt_delta
-    mood_tags = list(dict.fromkeys([*mood_tags, *tilt_tags]))
-    adjustments = list(mood_rows) + list(tilt_rows)
     score = base_points + mood_delta
-
-    distance_mi = None
-    distance_delta = 0.0
-    if (
-        mood_check_in is not None
-        and user_lat is not None
-        and user_lng is not None
-        and place_lat is not None
-        and place_lng is not None
-    ):
-        try:
-            distance_mi = distance_m(
-                float(user_lat), float(user_lng), float(place_lat), float(place_lng)
-            ) / METERS_PER_MILE
-        except (TypeError, ValueError):
-            distance_mi = None
-        dist_delta, dist_tags, dist_rows = distance_energy_adjustment(
-            distance_mi, getattr(mood_check_in, "energy_level", None)
-        )
-        distance_delta = dist_delta
-        mood_delta = mood_delta + dist_delta
-        mood_tags = list(dict.fromkeys([*mood_tags, *dist_tags]))
-        adjustments = adjustments + list(dist_rows)
-        score = score + dist_delta
 
     favorite = info.get("favorite")
     is_favorite = favorite is not None

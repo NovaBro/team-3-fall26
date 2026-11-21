@@ -95,7 +95,7 @@ flowchart TD
 ```text
 sort_score =
   100 × (nutrition × w_n + safety × w_s + rating × w_r [+ personal × w_p])
-  + mood_energy_adjustment
+  + mood_overlay (2H: high→healthier, low→laxer)
 ```
 
 | Mode | Nutrition / prior | Safety | Rating | Personal |

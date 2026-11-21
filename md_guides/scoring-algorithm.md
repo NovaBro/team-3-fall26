@@ -147,17 +147,20 @@ Health focus: BMI ≥ 25 or `weight-loss` goal. Mood/energy check-in adjusts the
 
 ### Mood / energy adjustments (today's NY check-in only)
 
-| Check-in | Effect |
+Strictness = average of mood and energy (1–5). A missing side counts as **3**
+so a partial check-in still moves rankings. Implemented in `mood_overlay()`.
+
+| Strictness | Effect |
 |---|---|
-| Energy ≤ 2 | +12 light/healthy cuisines; −10 heavy/fast-food; MenuStat +8 if menu health ≥ 0.6, −8 if ≤ 0.35; plus global tilt `10 × (nutrition − 0.5)` |
-| Energy ≥ 4 | +8 hearty cuisines (steakhouse, BBQ, Korean, …); plus mild global tilt `2 × (nutrition − 0.5)` |
-| Mood ≤ 2 | +12 comfort cuisines (pizza, American, desserts, …) |
-| Mood ≥ 4 | +8 light/healthy cuisines; if energy &gt; 2 also global tilt `4 × (nutrition − 0.5)` |
-| Mood and energy = 3 | No change |
+| High (avg ≥ 4) | Global tilt `12 × (nutrition − 0.5)`; +8 light/healthy cuisines; −6 heavy/fast-food |
+| Low (avg ≤ 2) | Laxer tilt `−6 × (nutrition − 0.5)`; +12 comfort cuisines; +8 hearty cuisines |
+| Mid (~3) | No cuisine/nutrition overlay |
 
 When a mood check-in exists, Claude “Picked for you” shortlists may still
 supply reasons, but **final card order follows** `pick_top` / `score_restaurant`
-(so mood/energy can change rankings).
+(so mood/energy can change rankings). After check-in, the home page calls a
+cheap rerank endpoint that reapplies `mood_overlay` on a cached base pool
+(no Google / MenuStat / AI).
 
 ### Distance × energy (user pin)
 

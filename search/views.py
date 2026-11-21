@@ -76,16 +76,13 @@ from search.menustat import (
     menu_nutrition_for_name,
     top_low_calorie_meals,
 )
+from accounts.mood import today_ny
 from search.recommend import (
     COMFORT_MOOD_CUISINES,
-    ENERGY_HIGH,
-    ENERGY_LOW,
     FAST_FOOD_PREFIXES,
     HEALTHY_CUISINES,
     HEARTY_ENERGY_CUISINES,
     LIGHT_ENERGY_CUISINES,
-    MOOD_HIGH,
-    MOOD_LOW,
     NON_MEAL_CUISINES,
     NON_MEAL_PREFIXES,
     UNHEALTHY_CUISINES,
@@ -93,6 +90,7 @@ from search.recommend import (
     build_feedback_prefs,
     daily_seed,
     home_zip_boro,
+    mood_overlay,
     pick_display_review,
     pick_top,
     score_restaurant,
@@ -119,6 +117,25 @@ NEARBY_EXTRA = 3
 # Extra grade-A meal places matched to today's mood/energy so scoring can
 # actually flip Top 3 (the default pool is already "healthy" and too uniform).
 MOOD_POOL_EXTRA = 8
+# Enriched Top Picks candidates (base_score, no mood) for cheap rerank after check-in.
+TOP_PICKS_POOL_CACHE_PREFIX = "top_picks_pool:"
+TOP_PICKS_POOL_CACHE_TTL = 60 * 60 * 24  # seconds
+
+
+def _top_picks_pool_cache_key(user_id, boro, seed):
+    day = today_ny().isoformat()
+    return f"{TOP_PICKS_POOL_CACHE_PREFIX}{user_id or 'anon'}:{day}:{boro}:{seed}"
+
+
+def _store_top_picks_pool(user_id, boro, seed, picks):
+    """Cache enriched candidates so mood changes can rerank without Google I/O."""
+    key = _top_picks_pool_cache_key(user_id, boro, seed)
+    cache.set(key, picks, TOP_PICKS_POOL_CACHE_TTL)
+    return key
+
+
+def _load_top_picks_pool(user_id, boro, seed):
+    return cache.get(_top_picks_pool_cache_key(user_id, boro, seed))
 
 
 def index(request):
@@ -363,26 +380,19 @@ NOT_A_RESTAURANT_NAME = r"\b(FITNESS|GYM|YOGA|PILATES)\b"
 def _mood_boost_cuisines(mood_check_in):
     """Cuisines to force into the Top Picks pool for today's check-in.
 
-    The default pool is already skewed healthy/grade-A, so low-mood comfort and
-    high-energy hearty places rarely appear — mood deltas then cannot change
-    the Top 3. Injecting these cuisines gives scoring something to differentiate.
+    Aligns with scoring policy 2H: high mood+energy needs light/healthy variety
+    in the pool; low needs comfort/hearty so laxer deltas can change Top 3.
     """
-    if mood_check_in is None:
+    from search.recommend import check_in_strictness, STRICTNESS_HIGH, STRICTNESS_LOW
+
+    strictness = check_in_strictness(mood_check_in)
+    if strictness is None:
         return set()
-    mood = getattr(mood_check_in, "mood", None)
-    energy = getattr(mood_check_in, "energy_level", None)
-    if mood is None or energy is None:
-        return set()
-    wanted = set()
-    if energy <= ENERGY_LOW:
-        wanted |= LIGHT_ENERGY_CUISINES
-    elif energy >= ENERGY_HIGH:
-        wanted |= HEARTY_ENERGY_CUISINES
-    if mood <= MOOD_LOW:
-        wanted |= COMFORT_MOOD_CUISINES
-    elif mood >= MOOD_HIGH:
-        wanted |= LIGHT_ENERGY_CUISINES
-    return wanted
+    if strictness >= STRICTNESS_HIGH:
+        return set(LIGHT_ENERGY_CUISINES)
+    if strictness <= STRICTNESS_LOW:
+        return set(COMFORT_MOOD_CUISINES) | set(HEARTY_ENERGY_CUISINES)
+    return set()
 
 
 def _build_candidate_pool(profile, prefs=None, seed="", boro="", mood_check_in=None):
@@ -615,7 +625,7 @@ def _top_picks(request, count=3, boro=""):
         ai_health, ai_goals = _ai_scores(
             camis_id or pick["camis"], pick.get("name") or "", reviews
         )
-        score, tags, breakdown = score_restaurant(
+        score_kwargs = dict(
             name=pick_name,
             cuisine=pick.get("cuisine") or "",
             grade=grade,
@@ -634,15 +644,33 @@ def _top_picks(request, count=3, boro=""):
             meal_count=None if nutrition is None else nutrition["meal_count"],
             feedback=prefs,
             camis=pick["camis"],
-            mood_check_in=mood_check_in,
             ai_health=ai_health,
             ai_goals=ai_goals,
             nutrients=_goal_nutrients(profile, pick_name),
+        )
+        base_score, base_tags, base_bd = score_restaurant(
+            **score_kwargs, mood_check_in=None
+        )
+        place_lat = (google or {}).get("lat")
+        place_lng = (google or {}).get("lng")
+        score, tags, breakdown = score_restaurant(
+            **score_kwargs,
+            mood_check_in=mood_check_in,
             user_lat=user_lat,
             user_lng=user_lng,
-            place_lat=(google or {}).get("lat"),
-            place_lng=(google or {}).get("lng"),
+            place_lat=place_lat,
+            place_lng=place_lng,
         )
+        nutrition_0_1 = (
+            float(calorie)
+            if calorie is not None
+            else base_bd["health_estimate"] / 100.0
+        )
+        pick["base_score"] = base_score
+        pick["base_reason_tags"] = base_tags
+        pick["nutrition"] = nutrition_0_1
+        pick["place_lat"] = place_lat
+        pick["place_lng"] = place_lng
         pick["score"] = score
         pick["reason_tags"] = tags
         pick["calorie_score"] = calorie
@@ -654,6 +682,9 @@ def _top_picks(request, count=3, boro=""):
         pick["reasons"] = breakdown["reasons"]
         pick["allergy_warnings"] = breakdown["allergy_warnings"]
         pick["feedback"] = feedback_values.get(pick["camis"], 0)
+
+    seed = _ranking_seed(request, boro)
+    _store_top_picks_pool(user_id, boro, seed, picks)
 
     # With a mood check-in, rule-based scores (including mood/energy) win the
     # final order; Claude may still have shortlisted and attached ai_reason.
@@ -867,28 +898,8 @@ def home(request):
             row["photo_url"] = _photo_url_for(row["google"])
 
     today_mood = _mood_check_in_for(request)
-
-    cook_at_home = {
-        "show": False,
-        "markets": [],
-        "stores": [],
-        "find_food_url": "",
-        "area": "",
-    }
-    if is_cook_at_home_check_in(today_mood):
-        profile = _profile_for(request)
-        area = selected_boro
-        if not area and profile is not None:
-            _zip, area = home_zip_boro(getattr(profile, "home_address", ""))
-        user_id = request.user.pk if request.user.is_authenticated else None
-        picks = cook_at_home_picks(area, day=_today(), user_id=user_id)
-        cook_at_home = {
-            "show": True,
-            "markets": picks["markets"],
-            "stores": picks["stores"],
-            "find_food_url": find_food_cook_url(area),
-            "area": area,
-        }
+    cook_at_home = _cook_at_home_context(request, selected_boro, today_mood)
+    personalized_picks = any(pick.get("ai_reason") for pick in top_picks)
 
     return render(
         request,
@@ -900,7 +911,8 @@ def home(request):
             "selected_boro": selected_boro,
             "top_picks": top_picks,
             "picks_date": _today(),
-            "personalized_picks": any(pick.get("ai_reason") for pick in top_picks),
+            "personalized_picks": personalized_picks,
+            "top_picks_subtitle": _top_picks_subtitle(personalized_picks, today_mood),
             "today_mood": today_mood,
             "cook_at_home": cook_at_home,
             "location_map": map_bootstrap(
@@ -912,6 +924,118 @@ def home(request):
             # Banner text, plus today's mood / energy dropdowns when logged in.
             **_checkin_context(request),
         },
+    )
+
+
+def _apply_mood_overlay_to_pool(pool, mood_check_in, user_lat=None, user_lng=None):
+    """Return copies of cached picks with score/tags refreshed via mood_overlay."""
+    refreshed = []
+    for raw in pool:
+        pick = dict(raw)
+        delta, mood_tags, _rows, _mi, _dd = mood_overlay(
+            mood_check_in,
+            cuisine=pick.get("cuisine") or "",
+            name=pick.get("name") or "",
+            nutrition=pick.get("nutrition", 0.5),
+            calorie_score=pick.get("calorie_score"),
+            user_lat=user_lat,
+            user_lng=user_lng,
+            place_lat=pick.get("place_lat"),
+            place_lng=pick.get("place_lng"),
+        )
+        base = float(pick.get("base_score") or 0.0)
+        pick["score"] = base + delta
+        base_tags = list(pick.get("base_reason_tags") or [])
+        pick["reason_tags"] = list(dict.fromkeys([*base_tags, *mood_tags]))
+        refreshed.append(pick)
+    return refreshed
+
+
+def _cook_at_home_context(request, selected_boro, today_mood):
+    cook_at_home = {
+        "show": False,
+        "markets": [],
+        "stores": [],
+        "find_food_url": "",
+        "area": "",
+    }
+    if not is_cook_at_home_check_in(today_mood):
+        return cook_at_home
+    profile = _profile_for(request)
+    area = selected_boro
+    if not area and profile is not None:
+        _zip, area = home_zip_boro(getattr(profile, "home_address", ""))
+    user_id = request.user.pk if request.user.is_authenticated else None
+    picks = cook_at_home_picks(area, day=_today(), user_id=user_id)
+    return {
+        "show": True,
+        "markets": picks["markets"],
+        "stores": picks["stores"],
+        "find_food_url": find_food_cook_url(area),
+        "area": area,
+    }
+
+
+def _top_picks_subtitle(personalized_picks, today_mood):
+    if personalized_picks:
+        return (
+            "Ranked by AI using your profile. "
+            "Always confirm allergies with the restaurant."
+        )
+    if today_mood and today_mood.mood is not None and today_mood.energy_level is not None:
+        return "Ranked with today's mood and energy check-in."
+    if today_mood and (today_mood.mood is not None or today_mood.energy_level is not None):
+        return "Ranked with today's check-in."
+    return "Your next unforgettable food experience starts here!"
+
+
+@login_required
+def rerank_top_picks(request):
+    """Cheap Top Picks reorder after mood/energy check-in (cached base pool)."""
+    selected_boro = request.GET.get("boro", "").strip()
+    seed = _ranking_seed(request, selected_boro)
+    user_id = request.user.pk
+    pool = _load_top_picks_pool(user_id, selected_boro, seed)
+    if not pool:
+        # Cold cache: rebuild once via the full path, then reload.
+        _top_picks(request, count=3, boro=selected_boro)
+        pool = _load_top_picks_pool(user_id, selected_boro, seed)
+    today_mood = _mood_check_in_for(request)
+    user_coords = user_latlng(request.user)
+    user_lat = user_coords[0] if user_coords else None
+    user_lng = user_coords[1] if user_coords else None
+    if pool:
+        scored = _apply_mood_overlay_to_pool(pool, today_mood, user_lat, user_lng)
+        top_picks = pick_top(scored, 3)
+    else:
+        top_picks = []
+    request.session[TOP_PICKS_SESSION_KEY] = {
+        "seed": seed,
+        "camis": [pick["camis"] for pick in top_picks],
+    }
+    personalized = any(pick.get("ai_reason") for pick in top_picks)
+    cook_at_home = _cook_at_home_context(request, selected_boro, today_mood)
+    html = render(
+        request,
+        "search/_top_picks_grid.html",
+        {
+            "top_picks": top_picks,
+            "selected_boro": selected_boro,
+            "page_obj": None,
+        },
+    ).content.decode("utf-8")
+    cook_html = render(
+        request,
+        "search/_cook_at_home.html",
+        {"cook_at_home": cook_at_home},
+    ).content.decode("utf-8")
+    return JsonResponse(
+        {
+            "html": html,
+            "subtitle": _top_picks_subtitle(personalized, today_mood),
+            "cook_at_home_html": cook_html,
+            "cook_at_home_show": cook_at_home["show"],
+        }
     )
 
 

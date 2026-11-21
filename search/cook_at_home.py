@@ -1,6 +1,6 @@
 """Cook-at-home suggestions when mood and energy are both high.
 
-Separate from restaurant ``score_restaurant`` / ``mood_energy_adjustment``:
+Separate from restaurant ``score_restaurant`` / ``mood_overlay``:
 high mood + high energy unlocks farmers markets and Shop Healthy stores on
 the home page so users can cook healthier meals at home.
 

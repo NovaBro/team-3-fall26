@@ -654,11 +654,16 @@ class MoodPoolExtraTests(TestCase):
         self.assertEqual(views._mood_boost_cuisines(None), set())
         low = SimpleNamespace(mood=1, energy_level=1)
         high = SimpleNamespace(mood=5, energy_level=5)
-        self.assertTrue(views._mood_boost_cuisines(low) & views.LIGHT_ENERGY_CUISINES)
+        # 2H: low → comfort/hearty; high → light/healthy.
         self.assertTrue(views._mood_boost_cuisines(low) & views.COMFORT_MOOD_CUISINES)
-        self.assertTrue(views._mood_boost_cuisines(high) & views.HEARTY_ENERGY_CUISINES)
+        self.assertTrue(views._mood_boost_cuisines(low) & views.HEARTY_ENERGY_CUISINES)
+        self.assertEqual(
+            views._mood_boost_cuisines(high), set(views.LIGHT_ENERGY_CUISINES)
+        )
+        self.assertIn("BBQ", views._mood_boost_cuisines(low))
+        self.assertNotIn("BBQ", views._mood_boost_cuisines(high))
 
-    def test_high_energy_injects_hearty_into_healthy_pool(self):
+    def test_low_strictness_injects_hearty_into_healthy_pool(self):
         # Fill the cuisine-capped pool with healthy places so BBQ is crowded out
         # unless mood extras pull it in.
         healthy = [
@@ -685,7 +690,7 @@ class MoodPoolExtraTests(TestCase):
                 None,
                 None,
                 seed,
-                mood_check_in=SimpleNamespace(mood=5, energy_level=5),
+                mood_check_in=SimpleNamespace(mood=1, energy_level=1),
             )
         }
         self.assertNotIn("RIB HOUSE", without)
@@ -719,9 +724,9 @@ class ClaudePicksTests(TestCase):
 
     def test_claude_order_yields_to_scores_when_mood_check_in(self):
         MoodLog.objects.create(
-            user=self.user, mood=1, energy_level=1, log_date=today_ny()
+            user=self.user, mood=5, energy_level=5, log_date=today_ny()
         )
-        # Salad (52) should outrank Italian under low energy after scoring.
+        # Salad (52) should outrank Italian under high mood/energy (2H healthier).
         self.ai = [
             {"camis": "50", "reason": "Your favorite cuisine."},
             {"camis": "52", "reason": "A salad spot."},
