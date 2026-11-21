@@ -14,14 +14,21 @@ Now the home page never fails for that reason:
 
 Only one process repairs at a time (an OS file lock that is released even if
 the process dies). Once a process sees the table ready it stops checking.
+
+fcntl exists only on Linux/macOS. On Windows (local development) it is None
+and the repair runs without the file lock; the server runs Linux.
 """
 
-import fcntl
 import logging
 import os
 import tempfile
 import threading
 import time
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
 
 from django.conf import settings
 from django.core.management import call_command
@@ -98,10 +105,11 @@ def repair(using="default"):
 
     try:
         with open(LOCK_PATH, "a") as handle:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                return  # another process is repairing right now
+            if fcntl is not None:
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    return  # another process is repairing right now
             status = table_status(using)
             if status == MISSING:
                 call_command(
