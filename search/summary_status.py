@@ -27,7 +27,7 @@ import time
 
 try:
     import fcntl
-except ImportError:  # Windows
+except ImportError:  # pragma: no cover  (Windows)
     fcntl = None
 
 from django.conf import settings
