@@ -1248,10 +1248,11 @@ def _place_for_detail(camis):
 
 
 def restaurant_detail(request, camis):
-    inspections = RestaurantInspection.objects.filter(camis=camis).order_by(
-        "-inspection_date"
+    latest = (
+        RestaurantInspection.objects.filter(camis=camis)
+        .order_by("-inspection_date")
+        .first()
     )
-    latest = inspections.first()
     if latest is None:
         raise Http404("Restaurant not found")
     place = _place_for_detail(camis)
@@ -1279,7 +1280,6 @@ def restaurant_detail(request, camis):
             "street": latest.street,
             "zipcode": latest.zipcode,
             "cuisine": latest.cuisine,
-            "inspections": inspections,
             "place": place,
             "menu_picks": menu_picks,
             "menustat_name": menustat_name,

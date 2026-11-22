@@ -153,11 +153,12 @@ class RestaurantSearchTests(TestCase):
     def test_results_show_cuisine(self):
         self.assertContains(self.get({"q": "thai"}), "Thai · Inspected Jul 2024")
 
-    def test_detail_renders_history(self):
+    def test_detail_has_no_inspection_history(self):
         response = self.client.get(reverse("search:restaurant_detail", args=["1"]))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["dba"], "Joe's Pizza")
-        self.assertEqual(len(response.context["inspections"]), 2)
+        self.assertNotIn("inspections", response.context)
+        self.assertNotContains(response, "Inspection history")
 
     def test_detail_shows_healthiness_score_breakdown(self):
         response = self.client.get(reverse("search:restaurant_detail", args=["1"]))

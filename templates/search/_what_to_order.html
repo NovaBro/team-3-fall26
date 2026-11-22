@@ -1,24 +1,44 @@
 {% if result.groups %}
+  {% if result.picks %}
+    <section class="menu-picks" aria-labelledby="menu-picks-title">
+      <div class="menu-picks__head">
+        <h3 class="menu-picks__title" id="menu-picks-title">Picked for you</h3>
+        {% if result.goal_labels %}
+          <span class="menu-picks__basis">Based on your goal{{ result.goal_labels|pluralize }}: {{ result.goal_labels|join:", "|lower }}</span>
+        {% else %}
+          <a class="menu-picks__basis" href="{% url 'accounts:profile' %}">Add a health goal for picks that fit you</a>
+        {% endif %}
+      </div>
+      <ul class="menu-picks__list">
+        {% for dish in result.picks %}
+          <li class="menu-picks__card">
+            <span class="menu-dish__top">
+              <span class="menu-dish__name">{{ dish.name }}</span>
+              {% include "search/_menu_price.html" %}
+            </span>
+            <span class="menu-picks__tags">
+              {% for note in dish.notes %}
+                <span class="menu-tag{% if forloop.first %} menu-tag--fit{% endif %}">{{ note }}</span>
+              {% endfor %}
+            </span>
+          </li>
+        {% endfor %}
+      </ul>
+      {% for name, words in result.skipped %}
+        <p class="menu-picks__skipped">Not suggested: {{ name }} lists {{ words|join:", " }} (your allergy). It is still in the menu below.</p>
+      {% endfor %}
+    </section>
+  {% endif %}
   {% for group in result.groups %}
     <h3 class="what-to-order__group">{{ group.label }} <span class="muted">({{ group.dishes|length }})</span></h3>
     <ul class="what-to-order__list">
-      {% for dish in group.preview %}
-        <li class="what-to-order__dish">
-          <span class="what-to-order__name">{{ dish.name }}</span>
-          {% if dish.description %}<span class="what-to-order__note">{{ dish.description }}</span>{% endif %}{% if dish.calories %}<span class="what-to-order__note mono">~{{ dish.calories }} kcal</span>{% endif %}
-        </li>
-      {% endfor %}
+      {% for dish in group.preview %}{% include "search/_menu_dish.html" %}{% endfor %}
     </ul>
     {% if group.rest %}
       <details class="what-to-order__more">
         <summary>Show all {{ group.dishes|length }}</summary>
         <ul class="what-to-order__list">
-          {% for dish in group.rest %}
-            <li class="what-to-order__dish">
-              <span class="what-to-order__name">{{ dish.name }}</span>
-              {% if dish.description %}<span class="what-to-order__note">{{ dish.description }}</span>{% endif %}{% if dish.calories %}<span class="what-to-order__note mono">~{{ dish.calories }} kcal</span>{% endif %}
-            </li>
-          {% endfor %}
+          {% for dish in group.rest %}{% include "search/_menu_dish.html" %}{% endfor %}
         </ul>
       </details>
     {% endif %}
@@ -31,6 +51,7 @@
     {% else %}
       Source: Google Maps photos, read by AI (Gemini). May be incomplete or out of date.
     {% endif %}
+    {% if result.picks %}Picks are a guide; check allergens with staff.{% endif %}
   </p>
 {% else %}
   <p class="muted what-to-order__empty">{{ result.message }}</p>

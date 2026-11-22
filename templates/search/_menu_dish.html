@@ -1,0 +1,7 @@
+<li class="what-to-order__dish{% if dish.picked %} what-to-order__dish--picked{% endif %}">
+  <span class="menu-dish__top">
+    <span class="menu-dish__name">{{ dish.name }}{% if dish.picked %} <span class="menu-tag menu-tag--fit menu-tag--small">Pick</span>{% endif %}</span>
+    {% include "search/_menu_price.html" %}
+  </span>
+  {% if dish.description %}<span class="what-to-order__note">{{ dish.description }}</span>{% endif %}
+</li>
