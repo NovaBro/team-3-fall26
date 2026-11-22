@@ -132,10 +132,10 @@ def _quality_stores(stores: list[HealthyStore]) -> list[HealthyStore]:
 
 
 def _sample_markets(boro: str, count: int, seed: str, day: date) -> list[dict]:
-    latest_year = FarmersMarket.objects.aggregate(latest=Max("year"))["latest"]
+    latest_year = FarmersMarket.pool.aggregate(latest=Max("year"))["latest"]
     if latest_year is None or count <= 0:
         return []
-    qs = FarmersMarket.objects.filter(year=latest_year).order_by(
+    qs = FarmersMarket.pool.filter(year=latest_year).order_by(
         "market_name", "borough", "street_address"
     )
     boroughs = _boroughs(boro)
@@ -162,7 +162,7 @@ def _sample_markets(boro: str, count: int, seed: str, day: date) -> list[dict]:
 def _sample_stores(boro: str, count: int, seed: str) -> list[dict]:
     if count <= 0:
         return []
-    qs = HealthyStore.objects.order_by("store_name", "street_address")
+    qs = HealthyStore.pool.order_by("store_name", "street_address")
     boroughs = _boroughs(boro)
     if boroughs:
         qs = qs.filter(borough__in=boroughs)

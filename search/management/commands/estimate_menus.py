@@ -51,7 +51,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         model = options["model"] or settings.GEMINI_MODEL
         rows = list(
-            Restaurant.objects.filter(business_status__in=(Restaurant.OPERATIONAL, ""))
+            Restaurant.pool.filter(business_status__in=(Restaurant.OPERATIONAL, ""))
             .order_by("place_id")
             .values("place_id", "name", "cuisine", "boro", "street")
         )

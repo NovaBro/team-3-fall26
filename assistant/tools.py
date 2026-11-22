@@ -208,7 +208,7 @@ def add_google_fields(summary, enrichment):
 
 def available_cuisines():
     return list(
-        Restaurant.objects.exclude(cuisine="")
+        Restaurant.pool.exclude(cuisine="")
         .values_list("cuisine", flat=True)
         .distinct()
         .order_by("cuisine")

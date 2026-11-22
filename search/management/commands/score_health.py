@@ -39,6 +39,7 @@ class Command(BaseCommand):
         places = (
             PlaceEnrichment.objects.filter(kind=GOOGLE)
             .exclude(place_id="")
+            .filter(place_id__in=Restaurant.pool.values("place_id"))
             .prefetch_related("reviews")
             .order_by("key")
         )

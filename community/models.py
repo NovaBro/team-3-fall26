@@ -3,6 +3,8 @@ import zlib
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
+from nycfood.managers import ActiveManager
+
 PRICE_LEVEL_LABELS = {
     "PRICE_LEVEL_FREE": "Free",
     "PRICE_LEVEL_INEXPENSIVE": "$",
@@ -51,7 +53,14 @@ class Restaurant(models.Model):
     maps_url = models.CharField(max_length=512, blank=True)
     photo_name = models.CharField(max_length=512, blank=True)
     shuffle_seed = models.BigIntegerField(default=0)
+    # In the ranked pool. ``manage.py curate_pool`` keeps the best rated
+    # places per borough active; the rest stay stored (their Google data cost
+    # money) but are hidden from ranking, search and refresh.
+    active = models.BooleanField(default=True, db_index=True)
     fetched_at = models.DateTimeField(auto_now=True)
+
+    objects = models.Manager()
+    pool = ActiveManager()
 
     class Meta:
         verbose_name = "restaurant"

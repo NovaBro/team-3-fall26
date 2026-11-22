@@ -1,5 +1,7 @@
 from django.db import models
 
+from nycfood.managers import ActiveManager
+
 
 class MenuItem(models.Model):
     """One menu item per restaurant per year (DOHMH MenuStat)."""
@@ -56,6 +58,12 @@ class FarmersMarket(models.Model):
     open_year_round = models.CharField(max_length=32, blank=True)
     stellar_cooking_demonstrations = models.CharField(max_length=64, blank=True)
 
+    # Kept in the pool by ``manage.py curate_pool`` (best rated per borough).
+    active = models.BooleanField(default=True, db_index=True)
+
+    objects = models.Manager()
+    pool = ActiveManager()
+
     class Meta:
         verbose_name = "farmers market"
 
@@ -80,6 +88,12 @@ class HealthyStore(models.Model):
     bbl = models.CharField(max_length=32, blank=True)
     census_tract = models.CharField(max_length=64, blank=True)
     nta = models.CharField(max_length=128, blank=True)
+
+    # Kept in the pool by ``manage.py curate_pool`` (best rated per borough).
+    active = models.BooleanField(default=True, db_index=True)
+
+    objects = models.Manager()
+    pool = ActiveManager()
 
     class Meta:
         verbose_name = "healthy store"

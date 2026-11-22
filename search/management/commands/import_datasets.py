@@ -7,6 +7,13 @@ Usage:
     python manage.py import_datasets
 
 The command is idempotent: each target table is cleared before it is reloaded.
+
+Farmers markets keep only the latest season (the CSV repeats every market
+once per year), and Shop Healthy's "New York" borough is stored as Manhattan.
+Afterwards markets and stores are curated (see search/curation.py), and
+every database is ANALYZEd so SQLite has statistics to pick indexes with.
+Without them it looks up reviews by the low-selectivity ``kind`` index
+instead of ``place_id``, which made the home page ~3x slower.
 """
 
 import math
@@ -15,8 +22,9 @@ from pathlib import Path
 import pandas as pd
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.db import connections, transaction
 
+from search.curation import MARKETS, STORES, curate
 from search.models import FarmersMarket, HealthyStore, MenuItem
 
 DATASETS_DIR = Path(settings.BASE_DIR) / "database" / "datasets"
@@ -54,11 +62,29 @@ def _int(value):
     return int(number) if number is not None else None
 
 
+def _borough(value):
+    text = _text(value)
+    # Shop Healthy lists some Manhattan stores under the borough "New York".
+    return "Manhattan" if text == "New York" else text
+
+
 def _bool(value):
     try:
         return bool(int(float(_text(value))))
     except (TypeError, ValueError):
         return False
+
+
+def analyze_databases():
+    """Refresh SQLite's query-planner statistics on every database."""
+    analyzed = []
+    for connection in connections.all():
+        if connection.vendor != "sqlite":
+            continue
+        with connection.cursor() as cursor:
+            cursor.execute("ANALYZE")
+        analyzed.append(connection.alias)
+    return analyzed
 
 
 class Command(BaseCommand):
@@ -79,6 +105,15 @@ class Command(BaseCommand):
             model.objects.all().delete()
             count = importer()
             self.stdout.write(self.style.SUCCESS(f"Imported {count:,} {label}"))
+
+        # Re-imported rows start active; keep only the curated pool.
+        report = curate(kinds=(MARKETS, STORES))
+        for kind, boroughs in report.items():
+            kept = sum(k for k, _ in boroughs.values())
+            self.stdout.write(f"{kept:,} {kind} active after curation")
+
+        analyzed = analyze_databases()
+        self.stdout.write(f"Analyzed {', '.join(analyzed)}")
 
     def _find(self, pattern):
         matches = sorted(DATASETS_DIR.glob(pattern))
@@ -130,6 +165,9 @@ class Command(BaseCommand):
         return self._bulk(MenuItem, records)
 
     def _import_markets(self):
+        rows = self._read_csv("NYC_Farmers_Markets_*.csv")
+        years = [year for year in (_int(row["Year"]) for row in rows) if year]
+        latest = max(years, default=None)
         records = [
             FarmersMarket(
                 year=_int(row["Year"]),
@@ -148,7 +186,8 @@ class Command(BaseCommand):
                     row["Stellar Cooking Demonstrations"]
                 ),
             )
-            for row in self._read_csv("NYC_Farmers_Markets_*.csv")
+            for row in rows
+            if _int(row["Year"]) == latest
         ]
         return self._bulk(FarmersMarket, records)
 
@@ -157,7 +196,7 @@ class Command(BaseCommand):
             HealthyStore(
                 store_name=_text(row["Store Name"]),
                 street_address=_text(row["Street Address"]),
-                borough=_text(row["Borough"]),
+                borough=_borough(row["Borough"]),
                 zip_code=_zipcode(row["Zip Code"]),
                 year_awarded=_int(row["Year Awarded"]),
                 program_wave=_text(row["Program Wave"]),

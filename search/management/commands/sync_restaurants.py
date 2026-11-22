@@ -2,12 +2,16 @@
 
 Two jobs, both on by default:
 
-- **Refresh**: re-fetch restaurants whose data is older than ``--max-age-days``
-  (default 30, the longest Google lets coordinates be cached). One Place
-  Details request each; also refreshes their reviews.
+- **Refresh**: re-fetch active restaurants (the curated pool) whose data is
+  older than ``--max-age-days`` (default 30, the longest Google lets
+  coordinates be cached). One Place Details request each; also refreshes
+  their reviews. Inactive places are not refreshed, which saves requests.
 - **Discover**: Text Search for every borough x cuisine pair (e.g. "thai
   restaurants in Queens, NY"), following up to ``--pages`` result pages of 20.
   New places are added; known ones are updated. No reviews (cheaper).
+
+After a real run the pool is re-curated (``curate_pool``), so new places only
+stay active if they rank in their borough's top 500.
 
 ``--limit`` caps the total number of Google requests, so a run never costs
 more than expected. Every request is billed; check your Google Cloud budget.
@@ -28,6 +32,7 @@ from django.utils import timezone
 
 from community.models import Restaurant
 from restaurants.boroughs import BOROUGHS
+from search.curation import RESTAURANTS, curate
 from search.services.places import (
     PlacesAPIError,
     enrich_place_id,
@@ -112,10 +117,13 @@ class Command(BaseCommand):
                 self._refresh(self._stale_place_ids())
             if not options["refresh_only"]:
                 self._discover()
+        if not options["dry_run"]:
+            curate(kinds=(RESTAURANTS,))
         self.stdout.write(
             self.style.SUCCESS(
                 f"Done. {self.budget.used} Google requests; "
-                f"{Restaurant.objects.count()} restaurants stored."
+                f"{Restaurant.objects.count()} restaurants stored, "
+                f"{Restaurant.pool.count()} active."
             )
         )
 
@@ -126,7 +134,7 @@ class Command(BaseCommand):
     def _stale_place_ids(self):
         cutoff = timezone.now() - timedelta(days=self.options["max_age_days"])
         return list(
-            Restaurant.objects.filter(fetched_at__lt=cutoff)
+            Restaurant.pool.filter(fetched_at__lt=cutoff)
             .order_by("fetched_at")
             .values_list("place_id", flat=True)
         )

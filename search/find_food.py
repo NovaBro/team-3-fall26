@@ -137,10 +137,10 @@ def _boroughs(area):
 
 
 def farmers_market_items(data):
-    latest_year = FarmersMarket.objects.aggregate(latest=Max("year"))["latest"]
+    latest_year = FarmersMarket.pool.aggregate(latest=Max("year"))["latest"]
     if latest_year is None:
         return []
-    markets = FarmersMarket.objects.filter(year=latest_year).order_by(
+    markets = FarmersMarket.pool.filter(year=latest_year).order_by(
         "market_name", "borough", "street_address"
     )
     if data.get("area"):
@@ -195,7 +195,7 @@ def farmers_market_items(data):
 
 
 def grocery_items(data):
-    stores = HealthyStore.objects.order_by("store_name", "street_address")
+    stores = HealthyStore.pool.order_by("store_name", "street_address")
     if data.get("area"):
         stores = stores.filter(borough__in=_boroughs(data["area"]))
     if data.get("q"):
@@ -249,7 +249,7 @@ def restaurant_rows(data):
 
     Places Google lists as closed are left out.
     """
-    qs = Restaurant.objects.exclude(name="").filter(
+    qs = Restaurant.pool.exclude(name="").filter(
         business_status__in=(Restaurant.OPERATIONAL, "")
     )
     if data.get("q"):

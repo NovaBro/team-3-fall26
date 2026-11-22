@@ -723,7 +723,7 @@ def _scored_restaurants(multiplier):
     low_cuisines = UNHEALTHY_CUISINES | NON_MEAL_CUISINES
     non_meal_chain = _name_starts_with(NON_MEAL_PREFIXES) & ~Q(cuisine__in=low_cuisines)
     (top_stars, top_points), (good_stars, good_points) = EXPLORE_RATING_POINTS
-    rows = Restaurant.objects.filter(
+    rows = Restaurant.pool.filter(
         business_status__in=(Restaurant.OPERATIONAL, "")
     ).values(*RESTAURANT_FIELDS)
     return rows.annotate(
@@ -820,7 +820,7 @@ def _is_first_page(page):
 def home(request):
     selected_boro = request.GET.get("boro", "").strip()
     borough_options = list(
-        Restaurant.objects.exclude(boro="")
+        Restaurant.pool.exclude(boro="")
         .values_list("boro", flat=True)
         .distinct()
         .order_by("boro")
