@@ -163,9 +163,7 @@ def quick_checkin(request):
 def profile(request):
     instance, _created = UserProfile.objects.get_or_create(user=request.user)
     mood_history = MoodLog.objects.filter(user=request.user)[:MOOD_HISTORY_LIMIT]
-    today_mood = MoodLog.objects.filter(
-        user=request.user, log_date=today_ny()
-    ).first()
+    today_mood = MoodLog.objects.filter(user=request.user, log_date=today_ny()).first()
 
     if request.method == "POST":
         if request.POST.get("action") == "log_mood":

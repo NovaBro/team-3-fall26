@@ -455,9 +455,7 @@ class ProfileTests(TestCase):
         MoodLog.objects.create(
             user=self.user, mood=3, energy_level=3, log_date=today - timedelta(days=1)
         )
-        MoodLog.objects.create(
-            user=self.user, mood=5, energy_level=3, log_date=today
-        )
+        MoodLog.objects.create(user=self.user, mood=5, energy_level=3, log_date=today)
         response = self.client.get(reverse("accounts:profile"))
         history = list(response.context["mood_history"])
         self.assertEqual([log.mood for log in history], [5, 3, 1])
