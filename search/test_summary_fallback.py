@@ -4,6 +4,7 @@ GOOGLE_MAPS_JS_KEY=dummy python manage.py test search.test_summary_fallback
 """
 
 from datetime import date
+from unittest import skipIf
 from unittest.mock import patch
 
 from django.db import connection
@@ -127,8 +128,9 @@ class SummaryRepairTests(TestCase):
         self.assertEqual(calls, [("migrate", "search")])
         rebuild.assert_called_once()
 
+    @skipIf(summary_status.fcntl is None, "fcntl is not available on Windows")
     def test_only_one_process_repairs(self):
-        import fcntl
+        fcntl = summary_status.fcntl
 
         with open(summary_status.LOCK_PATH, "a") as held:
             fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -138,6 +140,16 @@ class SummaryRepairTests(TestCase):
             ):
                 summary_status.repair()
             status.assert_not_called()
+
+    def test_repair_runs_without_fcntl(self):
+        # Windows has no fcntl: repair still works, just without the lock
+        with patch.object(summary_status, "fcntl", None), patch.object(
+            summary_status, "table_status", side_effect=["empty", "ready"]
+        ), patch("search.summary.rebuild_all", return_value=1) as rebuild, patch.object(
+            summary_status.connections["default"], "close"
+        ):
+            summary_status.repair()
+        rebuild.assert_called_once()
 
     def test_repair_errors_are_logged_not_raised(self):
         with patch.object(
