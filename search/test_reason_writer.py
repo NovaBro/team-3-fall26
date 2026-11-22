@@ -16,10 +16,10 @@ from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
-from community.keys import DOHMH
+from community.keys import GOOGLE
 from community.models import HealthScore, PlaceEnrichment, PlaceReview, ReasonBlurb
 from search import reason_writer, views
-from search.models import RestaurantInspection
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 GOOD = "A salad bar where reviewers praise the crisp greens and grilled chicken."
 
@@ -103,24 +103,22 @@ class GeminiWrapperTests(SimpleTestCase):
 
 
 class WriteReasonsCommandTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
-        RestaurantInspection.objects.create(
-            camis="88",
-            dba="GREEN LEAF",
+        make_restaurant(
+            "88",
+            "GREEN LEAF",
             boro="Queens",
             street="1 Main St",
             zipcode="11101",
             cuisine="Salads",
-            inspection_date="2024-07-01",
-            grade="A",
         )
         place = PlaceEnrichment.objects.create(
-            kind=DOHMH, key="camis:88", camis="88", display_name="Green Leaf"
+            kind=GOOGLE, key="google:88", place_id="88", display_name="Green Leaf"
         )
         PlaceReview.objects.create(place=place, text="Great kale bowl.", rating=5)
-        HealthScore.objects.create(camis="88", score=0.8)
+        HealthScore.objects.create(place_id="88", score=0.8)
         self.prompts = []
 
     def fake(self, prompt):
@@ -141,7 +139,7 @@ class WriteReasonsCommandTests(TestCase):
 
     def test_saves_once_then_skips_until_refresh(self):
         self.run_command()
-        row = ReasonBlurb.objects.get(camis="88")
+        row = ReasonBlurb.objects.get(place_id="88")
         self.assertEqual(row.text, GOOD)
         self.assertIn("Healthy cuisine (Salads)", row.facts)
         self.assertNotIn("Great kale bowl.", self.prompts[0])  # no Google text
@@ -165,21 +163,19 @@ class WriteReasonsCommandTests(TestCase):
         self.assertFalse(ReasonBlurb.objects.exists())
 
     def test_detail_page_gets_the_paragraph(self):
-        with patch("search.views.find_restaurant_place", return_value=None):
-            url = reverse("search:restaurant_detail", args=["88"])
-            self.assertEqual(self.client.get(url).context["reason_blurb"], "")
-            ReasonBlurb.objects.create(
-                camis="88", text=GOOD, model_name=reason_writer.model_tag("m")
-            )
-            self.assertEqual(self.client.get(url).context["reason_blurb"], GOOD)
+        url = reverse("search:restaurant_detail", args=["88"])
+        self.assertEqual(self.client.get(url).context["reason_blurb"], "")
+        ReasonBlurb.objects.create(
+            place_id="88", text=GOOD, model_name=reason_writer.model_tag("m")
+        )
+        self.assertEqual(self.client.get(url).context["reason_blurb"], GOOD)
         self.assertEqual(views._reason_blurb("88"), GOOD)
 
     def test_detail_page_shows_the_paragraph_above_the_list(self):
         ReasonBlurb.objects.create(
-            camis="88", text=GOOD, model_name=reason_writer.model_tag("m")
+            place_id="88", text=GOOD, model_name=reason_writer.model_tag("m")
         )
-        with patch("search.views.find_restaurant_place", return_value=None):
-            page = self.client.get(reverse("search:restaurant_detail", args=["88"]))
+        page = self.client.get(reverse("search:restaurant_detail", args=["88"]))
         html = page.content.decode()
         self.assertIn(f'<p class="healthiness-score__blurb">{GOOD}</p>', html)
         self.assertLess(
@@ -191,27 +187,23 @@ class WriteReasonsCommandTests(TestCase):
 class OnDemandTests(TestCase):
     """The detail page writes the paragraph on the first visit, then reuses it."""
 
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         cache.clear()
-        RestaurantInspection.objects.create(
-            camis="99",
-            dba="LEAF BAR",
+        make_restaurant(
+            "99",
+            "LEAF BAR",
             boro="Queens",
             street="2 Main St",
             zipcode="11101",
             cuisine="Salads",
-            inspection_date="2024-07-01",
-            grade="A",
         )
         self.calls = []
         self.url = reverse("search:restaurant_detail", args=["99"])
 
     def visit(self, generate):
-        with patch("search.views.find_restaurant_place", return_value=None), patch(
-            "search.reason_writer.live_generate", return_value=generate
-        ):
+        with patch("search.reason_writer.live_generate", return_value=generate):
             return self.client.get(self.url).context["reason_blurb"]
 
     def fake(self, prompt):
@@ -220,7 +212,7 @@ class OnDemandTests(TestCase):
 
     def test_first_visit_writes_and_stores_then_reuses(self):
         self.assertEqual(self.visit(self.fake), GOOD)
-        self.assertEqual(ReasonBlurb.objects.get(camis="99").text, GOOD)
+        self.assertEqual(ReasonBlurb.objects.get(place_id="99").text, GOOD)
         self.assertEqual(self.visit(self.fake), GOOD)
         self.assertEqual(len(self.calls), 1)
 
@@ -230,11 +222,11 @@ class OnDemandTests(TestCase):
         self.assertEqual(self.calls, [])
 
     def test_old_prompt_paragraph_is_rewritten(self):
-        ReasonBlurb.objects.create(camis="99", text="Old text.", model_name="m")
+        ReasonBlurb.objects.create(place_id="99", text="Old text.", model_name="m")
         self.assertEqual(self.visit(self.fake), GOOD)
-        self.assertEqual(ReasonBlurb.objects.get(camis="99").text, GOOD)
+        self.assertEqual(ReasonBlurb.objects.get(place_id="99").text, GOOD)
         with override_settings(GEMINI_API_KEY=""):
-            ReasonBlurb.objects.filter(camis="99").update(model_name="m")
+            ReasonBlurb.objects.filter(place_id="99").update(model_name="m")
             self.assertEqual(self.visit(self.fake), "")  # old text is not shown
 
     def test_quota_error_pauses_calls(self):
@@ -266,8 +258,8 @@ class OnDemandTests(TestCase):
             allergies="",
         )
         with patch("search.views._profile_for", return_value=profile), patch(
-            "search.views.find_restaurant_place", return_value=None
-        ), patch("search.reason_writer.live_generate", return_value=self.fake):
+            "search.reason_writer.live_generate", return_value=self.fake
+        ):
             page = self.client.get(self.url)
         shown = page.context["score_breakdown"]["reasons"]
         self.assertIn("Matches your favorite food (Salad)", shown)

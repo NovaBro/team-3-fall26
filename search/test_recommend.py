@@ -73,12 +73,14 @@ class WeightsTests(TestCase):
         self.assertAlmostEqual(sum(UNLINKED_HEALTH_FOCUS_WEIGHTS), 1.0)
         self.assertAlmostEqual(sum(DEFAULT_WEIGHTS), 1.0)
         self.assertAlmostEqual(sum(PERSONAL_WEIGHTS), 1.0)
-        self.assertEqual(len(PERSONAL_WEIGHTS), 4)
+        self.assertEqual(len(PERSONAL_WEIGHTS), 3)
         self.assertAlmostEqual(PERSONAL_WEIGHTS[-1], 0.20)
 
-    def test_no_price_weight(self):
-        self.assertEqual(len(LINKED_WEIGHTS), 3)
-        self.assertEqual(len(UNLINKED_WEIGHTS), 3)
+    def test_only_nutrition_and_rating(self):
+        # No price weight, and no inspection-grade weight since restaurants
+        # come from Google.
+        self.assertEqual(len(LINKED_WEIGHTS), 2)
+        self.assertEqual(len(UNLINKED_WEIGHTS), 2)
 
     def test_weights_switch_on_menu_and_health_focus(self):
         self.assertEqual(_weights(has_calories=False), UNLINKED_WEIGHTS)
@@ -93,10 +95,10 @@ class WeightsTests(TestCase):
         )
         self.assertAlmostEqual(sum(_weights(heavy, has_calories=True)), 1.0)
         personal = _weights(personal=True, has_calories=False)
-        self.assertEqual(len(personal), 4)
+        self.assertEqual(len(personal), 3)
         self.assertAlmostEqual(sum(personal), 1.0)
         linked_personal = _weights(personal=True, has_calories=True)
-        self.assertEqual(len(linked_personal), 4)
+        self.assertEqual(len(linked_personal), 3)
         self.assertAlmostEqual(sum(linked_personal), 1.0)
 
 
@@ -158,7 +160,6 @@ class CalorieScoreTests(TestCase):
         kwargs = dict(
             name="Chain Spot",
             cuisine="American",
-            grade="A",
             google_rating=4.0,
             google_count=100,
             reviews=[],
@@ -168,9 +169,7 @@ class CalorieScoreTests(TestCase):
         )
         low, tags_low, bd_low = score_restaurant(calorie_score=1.0, **kwargs)
         high, tags_high, _ = score_restaurant(calorie_score=0.0, **kwargs)
-        none, _, bd_none = score_restaurant(
-            calorie_score=None, name="Chain Spot", grade="A"
-        )
+        _none, _, bd_none = score_restaurant(calorie_score=None, name="Chain Spot")
         self.assertGreater(low - high, 60)  # ~70 pts from menu nutrition weight
         self.assertIn(TAG_LOWER_CALORIE, tags_low)
         self.assertIn(TAG_MENU_BASED, tags_low)
@@ -178,8 +177,7 @@ class CalorieScoreTests(TestCase):
         self.assertEqual(bd_low["confidence"], "high")
         self.assertEqual(bd_none["confidence"], "low")
         self.assertAlmostEqual(bd_low["health_estimate"], 100.0)
-        mid, _, _ = score_restaurant(calorie_score=0.5, **kwargs)
-        self.assertNotAlmostEqual(none, mid, places=1)
+        self.assertFalse(bd_none["has_menu"])
 
 
 class BreakdownTests(TestCase):
@@ -187,7 +185,6 @@ class BreakdownTests(TestCase):
         score, tags, breakdown = score_restaurant(
             name="Slice House",
             cuisine="Pizza",
-            grade="A",
             google_rating=4.0,
             google_count=100,
             zipcode="11201",
@@ -200,10 +197,10 @@ class BreakdownTests(TestCase):
         self.assertFalse(breakdown["has_calories"])
         self.assertEqual(breakdown["confidence"], "low")
         keys = [p["key"] for p in breakdown["parts"]]
-        self.assertEqual(keys, ["health", "grade", "rating", "personal"])
+        self.assertEqual(keys, ["health", "rating", "personal"])
         self.assertEqual(
             [p["section"] for p in breakdown["parts"]],
-            ["nutrition", "safety", "rating", "personal"],
+            ["nutrition", "rating", "personal"],
         )
         parts_sum = sum(p["points"] for p in breakdown["parts"])
         self.assertAlmostEqual(parts_sum, score, places=5)
@@ -219,7 +216,6 @@ class BreakdownTests(TestCase):
         _score, _tags, breakdown = score_restaurant(
             name="Green Spot",
             cuisine="Salads",
-            grade="A",
             google_rating=4.0,
             google_count=50,
             profile=user,
@@ -233,23 +229,23 @@ class BreakdownTests(TestCase):
         self.assertTrue(breakdown["has_menu"])
         self.assertEqual(breakdown["confidence"], "medium")  # stale year
         keys = [p["key"] for p in breakdown["parts"]]
-        self.assertEqual(keys, ["nutrition", "grade", "rating", "personal"])
+        self.assertEqual(keys, ["nutrition", "rating", "personal"])
         self.assertAlmostEqual(sum(p["weight"] for p in breakdown["parts"]), 1.0)
         self.assertAlmostEqual(breakdown["health_estimate"], 80.0)
 
-    def test_no_profile_keeps_three_parts(self):
+    def test_no_profile_keeps_two_parts(self):
         _score, _tags, breakdown = score_restaurant(
-            name="Green Spot", cuisine="Salads", grade="A", calorie_score=0.8
+            name="Green Spot", cuisine="Salads", calorie_score=0.8
         )
         self.assertEqual(breakdown["mode"], "default")
         keys = [p["key"] for p in breakdown["parts"]]
-        self.assertEqual(keys, ["nutrition", "grade", "rating"])
+        self.assertEqual(keys, ["nutrition", "rating"])
         self.assertAlmostEqual(sum(p["weight"] for p in breakdown["parts"]), 1.0)
         self.assertAlmostEqual(breakdown["health_estimate"], 80.0)
 
     def test_bmi_25_leans_to_lighter_meals_at_half_strength(self):
         heavy = profile(weight_lbs=200, height_in=68)  # BMI 30.4
-        kwargs = dict(name="Leaf", cuisine="American", grade="A", profile=heavy)
+        kwargs = dict(name="Leaf", cuisine="American", profile=heavy)
         _s, _t, light = score_restaurant(ai_goals={"weight-loss": 0.9}, **kwargs)
         part = personal_part(light)
         self.assertAlmostEqual(part["value_0_1"], 0.74)  # 0.5 + 1.2 x 0.5 x 0.4
@@ -266,7 +262,6 @@ class BreakdownTests(TestCase):
             _s, _t, breakdown = score_restaurant(
                 name="Leaf",
                 cuisine="American",
-                grade="A",
                 profile=user,
                 ai_goals={"weight-loss": 0.9, "muscle-gain": 0.5},
             )
@@ -278,7 +273,6 @@ class BreakdownTests(TestCase):
         _s, _t, breakdown = score_restaurant(
             name="Leaf",
             cuisine="American",
-            grade="A",
             profile=user,
             ai_goals={"weight-loss": 0.9},
         )
@@ -325,7 +319,6 @@ class ScoreOrderingTests(TestCase):
         sweet, _, _ = score_restaurant(
             name="Sweetgreen",
             cuisine="Salads",
-            grade="A",
             google_rating=4.0,
             google_count=200,
             reviews=reviews,
@@ -333,7 +326,6 @@ class ScoreOrderingTests(TestCase):
         mcd, _, _ = score_restaurant(
             name="McDonald's",
             cuisine="Hamburgers",
-            grade="A",
             google_rating=4.0,
             google_count=200,
             reviews=[{"text": "greasy fried salty"}] * 3,
@@ -344,7 +336,6 @@ class ScoreOrderingTests(TestCase):
         kwargs = dict(
             name="Chain",
             cuisine="American",
-            grade="A",
             google_rating=4.0,
             google_count=50,
             menu_match_kind="exact",
@@ -359,7 +350,6 @@ class ScoreOrderingTests(TestCase):
         green_kwargs = dict(
             name="Green Bowl",
             cuisine="Salads",
-            grade="A",
             google_rating=3.2,
             google_count=100,
             reviews=[
@@ -371,7 +361,6 @@ class ScoreOrderingTests(TestCase):
         taco_kwargs = dict(
             name="Taqueria",
             cuisine="Mexican",
-            grade="A",
             google_rating=4.6,
             google_count=400,
             reviews=[
@@ -449,7 +438,6 @@ class ProfileHeuristicTests(TestCase):
         _s, fav_tags, fav = score_restaurant(
             name="Slice House",
             cuisine="Pizza",
-            grade="A",
             zipcode="11201",
             boro="Brooklyn",
             profile=user,
@@ -460,13 +448,13 @@ class ProfileHeuristicTests(TestCase):
         self.assertIn(TAG_NEARBY, fav_tags)
 
         _s, _t, disliked = score_restaurant(
-            name="Thai Garden", cuisine="Thai", grade="A", profile=user
+            name="Thai Garden", cuisine="Thai", profile=user
         )
         self.assertAlmostEqual(personal_part(disliked)["value_0_1"], 0.1)
 
     def test_health_goals_use_ai_goal_scores(self):
         user = profile(health_goals=["muscle-gain"])
-        kwargs = dict(name="Grill", cuisine="American", grade="A", profile=user)
+        kwargs = dict(name="Grill", cuisine="American", profile=user)
         _s, _t, fits = score_restaurant(ai_goals={"muscle-gain": 0.9}, **kwargs)
         _s, _t, misses = score_restaurant(ai_goals={"muscle-gain": 0.1}, **kwargs)
         self.assertAlmostEqual(personal_part(fits)["value_0_1"], 0.98)
@@ -478,7 +466,6 @@ class ProfileHeuristicTests(TestCase):
         _s, _t, breakdown = score_restaurant(
             name="Bowl",
             cuisine="Mediterranean",
-            grade="A",
             profile=user,
             ai_goals={"balanced-diet": 0.5},
         )
@@ -488,7 +475,7 @@ class ProfileHeuristicTests(TestCase):
     def test_mild_allergy_lowers_fit_and_warns(self):
         user = profile(allergies="Dairy")
         _s, _t, breakdown = score_restaurant(
-            name="Slice", cuisine="Pizza", grade="A", profile=user
+            name="Slice", cuisine="Pizza", profile=user
         )
         self.assertAlmostEqual(personal_part(breakdown)["value_0_1"], 0.3)
         self.assertEqual(breakdown["allergy_warnings"], ["Dairy"])
@@ -497,12 +484,11 @@ class ProfileHeuristicTests(TestCase):
 class MoodEnergyAdjustmentTests(TestCase):
     def test_no_check_in_leaves_score_unchanged(self):
         base, _, bd = score_restaurant(
-            name="Green Bowl", cuisine="Salads", grade="A", google_rating=4.0
+            name="Green Bowl", cuisine="Salads", google_rating=4.0
         )
         same, _, same_bd = score_restaurant(
             name="Green Bowl",
             cuisine="Salads",
-            grade="A",
             google_rating=4.0,
             mood_check_in=None,
         )
@@ -522,22 +508,20 @@ class MoodEnergyAdjustmentTests(TestCase):
         salad, salad_tags, salad_bd = score_restaurant(
             name="Green Bowl",
             cuisine="Salads",
-            grade="A",
             google_rating=4.0,
             mood_check_in=check_in,
         )
         burger, _, burger_bd = score_restaurant(
             name="Burger Spot",
             cuisine="Hamburgers",
-            grade="A",
             google_rating=4.0,
             mood_check_in=check_in,
         )
         salad_base, _, salad_base_bd = score_restaurant(
-            name="Green Bowl", cuisine="Salads", grade="A", google_rating=4.0
+            name="Green Bowl", cuisine="Salads", google_rating=4.0
         )
         burger_base, _, burger_base_bd = score_restaurant(
-            name="Burger Spot", cuisine="Hamburgers", grade="A", google_rating=4.0
+            name="Burger Spot", cuisine="Hamburgers", google_rating=4.0
         )
         salad_tilt = HIGH_NUTRITION_TILT * (
             salad_base_bd["health_estimate"] / 100.0 - 0.5
@@ -560,12 +544,11 @@ class MoodEnergyAdjustmentTests(TestCase):
         pizza, tags, breakdown = score_restaurant(
             name="Slice House",
             cuisine="Pizza",
-            grade="A",
             google_rating=4.0,
             mood_check_in=check_in,
         )
         base, _, base_bd = score_restaurant(
-            name="Slice House", cuisine="Pizza", grade="A", google_rating=4.0
+            name="Slice House", cuisine="Pizza", google_rating=4.0
         )
         tilt = LOW_NUTRITION_TILT * (base_bd["health_estimate"] / 100.0 - 0.5)
         self.assertAlmostEqual(pizza, base + LOW_COMFORT_BONUS + tilt, places=1)
@@ -578,13 +561,11 @@ class MoodEnergyAdjustmentTests(TestCase):
         check_in = SimpleNamespace(mood=5, energy_level=4)
         light, _, light_bd = score_restaurant(
             name="Chain Spot",
-            grade="A",
             calorie_score=0.9,
             mood_check_in=check_in,
         )
         heavy, _, heavy_bd = score_restaurant(
             name="Chain Spot",
-            grade="A",
             calorie_score=0.1,
             mood_check_in=check_in,
         )
@@ -632,7 +613,6 @@ class DistanceEnergyAdjustmentTests(TestCase):
         kwargs = dict(
             name="Same Spot",
             cuisine="American",
-            grade="A",
             google_rating=4.0,
             mood_check_in=check_in,
             user_lat=40.7128,
@@ -657,7 +637,6 @@ class DistanceEnergyAdjustmentTests(TestCase):
     def test_no_distance_without_check_in(self):
         near, _, near_bd = score_restaurant(
             name="X",
-            grade="A",
             user_lat=40.71,
             user_lng=-74.0,
             place_lat=40.72,
@@ -691,7 +670,6 @@ class RatingAndTagTests(TestCase):
         _score, tags, _ = score_restaurant(
             name="Green Bowl",
             cuisine="Salads",
-            grade="A",
             google_rating=4.8,
             google_count=200,
             reviews=reviews,
@@ -717,7 +695,6 @@ class RatingAndTagTests(TestCase):
         _s, tags, _ = score_restaurant(
             name="Grill",
             cuisine="Italian",
-            grade="A",
             google_rating=4.7,
             google_count=60,
             profile=user,
@@ -733,7 +710,6 @@ class RatingAndTagTests(TestCase):
         _s, tags, _ = score_restaurant(
             name="Leaf",
             cuisine="Salads",  # +0.1 for weight loss, but nothing to read
-            grade="A",
             profile=profile(health_goals=["weight-loss"]),
         )
         self.assertNotIn("Lighter meals", tags)
@@ -743,7 +719,6 @@ class RatingAndTagTests(TestCase):
         _s, tags, _ = score_restaurant(
             name="Leaf",
             cuisine="American",
-            grade="A",
             profile=profile(health_goals=goals),
             ai_goals={goal: 0.8 for goal in goals},
         )
@@ -751,7 +726,7 @@ class RatingAndTagTests(TestCase):
         self.assertEqual(len([t for t in tags if t in goal_tags]), 2)
 
     def test_allergen_tag_only_for_people_with_that_allergy(self):
-        kwargs = dict(name="Slice", cuisine="Pizza", grade="A")
+        kwargs = dict(name="Slice", cuisine="Pizza")
         _s, with_allergy, _b = score_restaurant(
             profile=profile(allergies="Dairy"), **kwargs
         )
@@ -768,7 +743,6 @@ class RatingAndTagTests(TestCase):
         _s, tags, _ = score_restaurant(
             name="Leaf",
             cuisine="American",
-            grade="A",
             profile=heavy,
             ai_goals={"weight-loss": 0.8},
         )
@@ -776,15 +750,13 @@ class RatingAndTagTests(TestCase):
         _s, tags, _ = score_restaurant(
             name="Leaf",
             cuisine="American",
-            grade="A",
             profile=heavy,
             ai_goals={"weight-loss": 0.4},
         )
         self.assertNotIn("Lighter meals", tags)
 
-    def test_grade_b_and_c_get_a_tag_too(self):
-        for grade in ("B", "C"):
-            _score, tags, _ = score_restaurant(name="X", grade=grade)
-            self.assertEqual(tags, [f"Grade {grade}"])
-        _score, tags, _ = score_restaurant(name="X", grade="Z")
+    def test_no_grade_tags(self):
+        _score, tags, _ = score_restaurant(name="X")
+        self.assertFalse(any(tag.startswith("Grade") for tag in tags))
+        _score, tags, _ = score_restaurant(name="X")
         self.assertEqual(tags, [])

@@ -1,6 +1,6 @@
 # AWS Elastic Beanstalk deployment
 
-The Django site runs on AWS Elastic Beanstalk (EB) as a single EC2 instance. A push to `develop` on `gcivil-nyu-org/team-3-fall26` deploys the code. The instance downloads `nyc_food.db` and `community.db` from S3 before migrate. API keys and the Django secret key live in SSM Parameter Store and are injected as environment variables at startup.
+The Django site runs on AWS Elastic Beanstalk (EB) as a single EC2 instance. A push to `develop` on `gcivil-nyu-org/team-3-fall26` deploys the code. The instance downloads `nyc_food.db`, `community.db` and `users.db` from S3 before migrate. API keys and the Django secret key live in SSM Parameter Store and are injected as environment variables at startup.
 
 Live URL: http://nycfood-team3.us-east-1.elasticbeanstalk.com
 
@@ -25,7 +25,7 @@ EB application-versions S3 bucket     (EB always stages bundles here)
    │
    ▼
 EC2 instance
-   1. prebuild: download nyc_food.db and community.db from the private database bucket
+   1. prebuild: download nyc_food.db, community.db and users.db from the private database bucket
    2. fetch secrets from SSM Parameter Store  ──►  environment variables
    3. pip install -r requirements.txt
    4. container_commands: migrate, collectstatic
@@ -37,7 +37,7 @@ nginx :80
    └── everything else  ──►  gunicorn  ──►  Django (nycfood.wsgi)
 ```
 
-`database/*.db` is excluded by `.ebignore`. Django still opens local files at `database/nyc_food.db` and `database/community.db`; the prebuild hook fills those paths from S3 because SQLite cannot open an `s3://` URL. A configuration deploy such as `eb setenv` skips `container_commands`, so `.platform/confighooks/predeploy/00_download_databases.sh` downloads the same objects.
+`database/*.db` is excluded by `.ebignore`. Django still opens local files at `database/nyc_food.db`, `database/community.db` and `database/users.db`; the prebuild hook fills those paths from S3 because SQLite cannot open an `s3://` URL. A configuration deploy such as `eb setenv` skips `container_commands`, so `.platform/confighooks/predeploy/00_download_databases.sh` downloads the same objects.
 
 ## AWS pieces
 
@@ -45,7 +45,7 @@ nginx :80
 |---------|-------------------|
 | Elastic Beanstalk | Orchestrates everything below; one environment = one running copy of the site |
 | EC2 | The virtual machine running nginx + gunicorn + Django |
-| S3 | Stores each uploaded app version (zip) in the EB bucket, and the two SQLite files in a private database bucket |
+| S3 | Stores each uploaded app version (zip) in the EB bucket, and the three SQLite files in a private database bucket |
 | SSM Parameter Store | Encrypted storage for API keys and `DJANGO_SECRET_KEY` |
 | IAM | Permissions for the CLI user (deploying) and the instance role (reading SSM) |
 | CloudFormation | Created by EB behind the scenes; do not edit the `awseb-*` stacks directly |
@@ -128,7 +128,7 @@ GitHub Actions deploys with a separate role, `github-nycfood-deploy`. Its trust 
 
 1. Create the four SSM parameters (above).
 2. Attach `deploy/ssm-read-policy.json` and `deploy/s3-db-read-policy.json` to `aws-elasticbeanstalk-ec2-role`.
-3. Create the private database bucket and upload `nyc_food.db` and `community.db`.
+3. Create the private database bucket and upload `nyc_food.db`, `community.db` and `users.db`.
 4. Add the Google key restrictions.
 5. From the repo root:
 
@@ -180,10 +180,10 @@ The four remaining `check --deploy` warnings (HSTS, SSL redirect, secure cookies
 
 ## Costs
 
-Roughly $15/month for a `t3.small` running 24/7, plus the Elastic IP while the environment exists. SSM standard parameters are free. S3 keeps every uploaded app version; delete old versions in the EB console under Application versions, or configure a version lifecycle policy. The database bucket holds two SQLite objects. `eb terminate nycfood-env` stops the instance charges. Stored application versions and the database bucket remain until deleted.
+Roughly $15/month for a `t3.small` running 24/7, plus the Elastic IP while the environment exists. SSM standard parameters are free. S3 keeps every uploaded app version; delete old versions in the EB console under Application versions, or configure a version lifecycle policy. The database bucket holds three SQLite objects. `eb terminate nycfood-env` stops the instance charges. Stored application versions and the database bucket remain until deleted.
 
 ## Known limitations
 
-- **Live writes are replaced on every deploy.** The instance downloads `nyc_food.db` and `community.db` from S3, so accounts and other rows created only on the live site are lost on the next deploy, and also if EB replaces the instance. Upload new files to the private database bucket to change the canonical databases. `media/` is still replaced because it is not in S3.
+- **Live writes are replaced on every deploy.** The instance downloads `nyc_food.db`, `community.db` and `users.db` from S3, so accounts and other rows created only on the live site are lost on the next deploy, and also if EB replaces the instance. Upload new files to the private database bucket to change the canonical databases. `media/` is still replaced because it is not in S3.
 - Single instance only; SQLite cannot be shared across instances.
 - HTTP only. HTTPS needs a load balancer + ACM certificate (or a certificate on the instance), then the secure-cookie settings above.

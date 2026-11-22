@@ -1,40 +1,32 @@
-"""Fetch Google Places data for Find food pins and store it locally.
+"""Fetch Google Places data for farmers markets and Shop Healthy stores.
 
-Each place needs two API calls (Text Search + Place Details), so this command
-skips pins that already have stored data unless ``--refresh`` is passed.
+Each place is one Text Search request, so this command skips pins that
+already have stored data unless ``--refresh`` is passed. Restaurants come from
+Google directly; use ``manage.py sync_restaurants`` for them.
 
 Usage:
-    # Markets + Shop Healthy first (cheap under free caps), then restaurants:
     python manage.py enrich_places --type farmers_market --type grocery --sleep 0.5
-    python manage.py enrich_places --type restaurant --limit 4000 --sleep 0.5
-
-    python manage.py enrich_places --camis 41155161,40365429 --refresh
 """
 
 import time
-from datetime import timedelta
 
 from django.core.management.base import BaseCommand, CommandError
-from django.utils import timezone
 
-from community.keys import DOHMH, FARMERS_MARKET, GROCERY, dohmh_key
-from community.models import LocationLookup, PlaceEnrichment
+from community.keys import FARMERS_MARKET, GROCERY
+from community.models import PlaceEnrichment
 from search.find_food import farmers_market_items, grocery_items
-from search.locations import CACHE_DAYS
-from search.models import RestaurantInspection
-from search.services.places import PlacesAPIError, build_query, enrich_subject
+from search.services.places import PlacesAPIError, enrich_subject
 
 TYPE_FARMERS_MARKET = "farmers_market"
 TYPE_GROCERY = "grocery"
-TYPE_RESTAURANT = "restaurant"
-TYPE_CHOICES = (TYPE_FARMERS_MARKET, TYPE_GROCERY, TYPE_RESTAURANT)
-DEFAULT_TYPES = (TYPE_FARMERS_MARKET, TYPE_GROCERY, TYPE_RESTAURANT)
+TYPE_CHOICES = (TYPE_FARMERS_MARKET, TYPE_GROCERY)
+DEFAULT_TYPES = (TYPE_FARMERS_MARKET, TYPE_GROCERY)
 
 
 class Command(BaseCommand):
     help = (
-        "Query the Google Places API for farmers markets, Shop Healthy stores, "
-        "and/or restaurants and store the results."
+        "Query the Google Places API for farmers markets and Shop Healthy "
+        "stores and store the results."
     )
 
     def add_arguments(self, parser):
@@ -45,12 +37,8 @@ class Command(BaseCommand):
             dest="types",
             help=(
                 "Place type to enrich (repeatable). Default: farmers_market, "
-                "grocery, restaurant (in that order)."
+                "grocery."
             ),
-        )
-        parser.add_argument(
-            "--camis",
-            help="Comma-separated CAMIS ids (restaurant only; ignores --type).",
         )
         parser.add_argument(
             "--limit",
@@ -73,11 +61,6 @@ class Command(BaseCommand):
         if options["limit"] is not None and options["limit"] < 1:
             raise CommandError("--limit must be a positive integer.")
 
-        if options["camis"]:
-            targets = self._restaurant_targets_by_camis(options)
-            self._run_targets(targets, options)
-            return
-
         types = options["types"] or list(DEFAULT_TYPES)
         for place_type in types:
             targets = self._targets_for_type(place_type, options)
@@ -94,10 +77,7 @@ class Command(BaseCommand):
             label = target["label"]
             try:
                 enrichment = enrich_subject(
-                    target["kind"],
-                    target["key"],
-                    target["query"],
-                    camis=target.get("camis", ""),
+                    target["kind"], target["key"], target["query"]
                 )
             except PlacesAPIError as exc:
                 failed += 1
@@ -119,9 +99,7 @@ class Command(BaseCommand):
     def _targets_for_type(self, place_type, options):
         if place_type == TYPE_FARMERS_MARKET:
             return self._market_targets(options)
-        if place_type == TYPE_GROCERY:
-            return self._grocery_targets(options)
-        return self._restaurant_targets(options)
+        return self._grocery_targets(options)
 
     def _existing_keys(self, kind):
         return set(
@@ -166,100 +144,3 @@ class Command(BaseCommand):
             if item.get("locate_query")
         ]
         return self._apply_limit_and_skip(targets, existing, options)
-
-    def _restaurant_targets_by_camis(self, options):
-        camis_list = [
-            camis.strip() for camis in options["camis"].split(",") if camis.strip()
-        ]
-        existing = self._existing_keys(DOHMH)
-        targets = []
-        for camis in camis_list:
-            key = dohmh_key(camis)
-            if key in existing and not options["refresh"]:
-                continue
-            restaurant = (
-                RestaurantInspection.objects.filter(camis=camis)
-                .order_by("-inspection_date")
-                .first()
-            )
-            if restaurant is None:
-                continue
-            query = build_query(restaurant)
-            if not query:
-                continue
-            targets.append(
-                {
-                    "kind": DOHMH,
-                    "key": key,
-                    "query": query,
-                    "camis": camis,
-                    "label": camis,
-                }
-            )
-            if options["limit"] and len(targets) >= options["limit"]:
-                break
-        return targets
-
-    def _restaurant_targets(self, options):
-        """Prefer restaurants that lack enrichment and lack stored coordinates."""
-        existing = self._existing_keys(DOHMH)
-        located_camis = set(
-            PlaceEnrichment.objects.filter(kind=DOHMH)
-            .exclude(latitude__isnull=True)
-            .exclude(longitude__isnull=True)
-            .values_list("camis", flat=True)
-        )
-        fresh_since = timezone.now() - timedelta(days=CACHE_DAYS)
-        located_camis.update(
-            key.split(":", 1)[1]
-            for key in LocationLookup.objects.filter(
-                kind=DOHMH, found=True, fetched_at__gte=fresh_since
-            )
-            .exclude(key="")
-            .values_list("key", flat=True)
-            if key.startswith("camis:")
-        )
-
-        rows = list(
-            RestaurantInspection.objects.exclude(dba="")
-            .order_by("camis")
-            .values("camis")
-            .distinct()
-        )
-        # Missing coords first, then the rest; within each group keep camis order.
-        missing_coords = []
-        has_coords = []
-        for row in rows:
-            camis = row["camis"]
-            key = dohmh_key(camis)
-            if key in existing and not options["refresh"]:
-                continue
-            bucket = has_coords if camis in located_camis else missing_coords
-            bucket.append(camis)
-
-        ordered = missing_coords + has_coords
-        if options["limit"]:
-            ordered = ordered[: options["limit"]]
-
-        targets = []
-        for camis in ordered:
-            restaurant = (
-                RestaurantInspection.objects.filter(camis=camis)
-                .order_by("-inspection_date")
-                .first()
-            )
-            if restaurant is None:
-                continue
-            query = build_query(restaurant)
-            if not query:
-                continue
-            targets.append(
-                {
-                    "kind": DOHMH,
-                    "key": dohmh_key(camis),
-                    "query": query,
-                    "camis": camis,
-                    "label": camis,
-                }
-            )
-        return targets

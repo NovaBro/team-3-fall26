@@ -14,8 +14,9 @@ from community.models import MenuEstimate
 from search import menu_estimate as me
 from search import what_to_order as wto
 from search.menustat import clear_menustat_cache
-from search.models import MenuItem, RestaurantSummary
+from search.models import MenuItem
 from search.recommend import ESTIMATE_SHARE, UNLINKED_WEIGHTS, score_restaurant
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 
 def item(name, kind="main", calories=500, description=""):
@@ -83,11 +84,11 @@ class ParseAndCleanTests(SimpleTestCase):
 
 
 class StoredEstimateTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
-    def save(self, camis="1", median=500.0, tag=None, items=None):
+    def save(self, place_id="1", median=500.0, tag=None, items=None):
         MenuEstimate.objects.create(
-            camis=camis,
+            place_id=place_id,
             items=items or me.clean_items(mains(500, 500, 500)),
             median_calories=median,
             meal_count=3,
@@ -96,31 +97,31 @@ class StoredEstimateTests(TestCase):
 
     def test_nutrition_from_stored_estimate(self):
         self.save(median=500.0)
-        info = me.estimate_nutrition_for_camis("1")
+        info = me.estimate_nutrition_for_place("1")
         self.assertAlmostEqual(info["score"], 0.5)
         self.assertEqual(info["meal_count"], 3)
 
     def test_stale_prompt_version_is_ignored(self):
         self.save(tag="m|v0")
-        self.assertIsNone(me.estimate_nutrition_for_camis("1"))
+        self.assertIsNone(me.estimate_nutrition_for_place("1"))
         self.assertEqual(me.estimated_items("1"), [])
 
     def test_no_median_means_no_nutrition(self):
         self.save(median=None)
-        self.assertIsNone(me.estimate_nutrition_for_camis("1"))
+        self.assertIsNone(me.estimate_nutrition_for_place("1"))
         self.assertTrue(me.estimated_items("1"))
 
 
 class EstimateMenusCommandTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
-        for camis, name in (
+        for place_id, name in (
             ("1", "JOE'S PIZZA"),
             ("2", "GREEN BOWL"),
             ("3", "CHAIN X"),
         ):
-            RestaurantSummary.objects.create(camis=camis, name=name, cuisine="Pizza")
+            make_restaurant(place_id, name, cuisine="Pizza")
         # CHAIN X has a MenuStat menu (3 qualifying meals) and is skipped.
         for n in range(3):
             MenuItem.objects.create(
@@ -160,9 +161,9 @@ class EstimateMenusCommandTests(TestCase):
     def test_saves_non_menustat_restaurants(self):
         out = self.run_cmd()
         self.assertEqual(
-            sorted(MenuEstimate.objects.values_list("camis", flat=True)), ["1", "2"]
+            sorted(MenuEstimate.objects.values_list("place_id", flat=True)), ["1", "2"]
         )
-        row = MenuEstimate.objects.get(camis="1")
+        row = MenuEstimate.objects.get(place_id="1")
         self.assertEqual((row.median_calories, row.meal_count), (500.0, 3))
         self.assertTrue(me.is_current(row.model_name))
         self.assertIn("Saved 2 estimates", out)
@@ -190,7 +191,7 @@ class EstimateMenusCommandTests(TestCase):
 
 
 class ScoringTests(SimpleTestCase):
-    base = dict(name="Some Place", cuisine="American", grade="A")
+    base = dict(name="Some Place", cuisine="American")
 
     def test_estimate_blends_with_prior_at_low_confidence(self):
         _, _, plain = score_restaurant(**self.base)
@@ -215,7 +216,7 @@ class ScoringTests(SimpleTestCase):
         self.assertLess(heavy, plain)
 
     def test_non_meal_cuisine_ignores_estimate(self):
-        donuts = dict(name="Donut Shop", cuisine="Donuts", grade="A")
+        donuts = dict(name="Donut Shop", cuisine="Donuts")
         plain, _, _ = score_restaurant(**donuts)
         est, _, bd = score_restaurant(**donuts, estimated_menu_score=0.9)
         self.assertAlmostEqual(plain, est)
@@ -231,11 +232,11 @@ class ScoringTests(SimpleTestCase):
 
 
 class MenuBoxTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         MenuEstimate.objects.create(
-            camis="9",
+            place_id="9",
             items=me.clean_items(
                 mains(500, 600, 700) + [item("Lemonade", kind="drink", calories=150)]
             ),
@@ -248,7 +249,7 @@ class MenuBoxTests(TestCase):
         with patch.object(wto, "menustat_dishes", return_value=[]), patch.object(
             wto, "photo_dishes", return_value=[]
         ):
-            result = wto.build("X", None, None, "X", camis="9")
+            result = wto.build("X", None, None, "X", place_id="9")
         self.assertEqual(result.source, "estimate")
         self.assertEqual([g.label for g in result.groups], ["Food", "Drinks"])
         self.assertEqual(result.groups[0].dishes[0].calories, 500)
@@ -257,21 +258,21 @@ class MenuBoxTests(TestCase):
         with patch.object(wto, "menustat_dishes", return_value=[]), patch.object(
             wto, "photo_dishes", return_value=[wto.Dish("Real dish")]
         ):
-            result = wto.build("X", None, None, "X", camis="9")
+            result = wto.build("X", None, None, "X", place_id="9")
         self.assertEqual(result.source, "photos")
 
     def test_estimate_used_when_photo_reading_fails(self):
         with patch.object(wto, "menustat_dishes", return_value=[]), patch.object(
             wto, "photo_dishes", side_effect=RuntimeError("boom")
         ):
-            result = wto.build("X", None, None, "X", camis="9")
+            result = wto.build("X", None, None, "X", place_id="9")
         self.assertEqual(result.source, "estimate")
 
     def test_no_estimate_keeps_message(self):
         with patch.object(wto, "menustat_dishes", return_value=[]), patch.object(
             wto, "photo_dishes", return_value=[]
         ):
-            result = wto.build("X", None, None, "X", camis="404")
+            result = wto.build("X", None, None, "X", place_id="404")
         self.assertEqual(result.message, "Menu not available.")
 
 

@@ -25,7 +25,7 @@ Run `import_datasets` if your database has blank cuisines, because cuisine and d
 | Tool | Purpose |
 |---|---|
 | `search_places` | Restaurants, farmers markets, and Shop Healthy stores, optionally near the user |
-| `get_place_details` | Inspection history, cached Google data, visitor ratings |
+| `get_place_details` | Stored Google data (rating, price, recent reviews), visitor ratings |
 | `get_menu_nutrition` | Calories and nutrients for large chains (MenuStat) |
 | `get_my_ratings` | The logged-in user's own ratings |
 

@@ -7,7 +7,6 @@ Parts:
 - Nutrition: menu-first (MenuStat median-meal score) when the place links to a
   menu; otherwise the Health prior (cuisine, AI review score or keywords,
   fast-food chain). The breakdown reports ``health_estimate`` and ``confidence``.
-- Safety: the inspection grade (not nutrition).
 - Rating: Bayesian blend of Google and in-app stars.
 - Personal fit (only for a viewer with a profile or Like / Not interested
   history): favorite and disliked foods, health goals, mild allergies, home
@@ -36,15 +35,16 @@ from search.profile_options import (
     parse_foods,
 )
 
-# Sort weights: (nutrition_or_prior, safety, rating)
-LINKED_WEIGHTS = (0.70, 0.20, 0.10)  # MenuStat linked: menu-first
-UNLINKED_WEIGHTS = (0.40, 0.40, 0.20)  # no menu: soft health prior
-LINKED_HEALTH_FOCUS_WEIGHTS = (0.75, 0.15, 0.10)
-UNLINKED_HEALTH_FOCUS_WEIGHTS = (0.55, 0.30, 0.15)
+# Sort weights: (nutrition_or_prior, rating). These were the old weights with
+# the inspection-grade share removed and the rest scaled back up to 1.
+LINKED_WEIGHTS = (0.875, 0.125)  # MenuStat linked: menu-first
+UNLINKED_WEIGHTS = (2 / 3, 1 / 3)  # no menu: soft health prior
+LINKED_HEALTH_FOCUS_WEIGHTS = (0.88, 0.12)
+UNLINKED_HEALTH_FOCUS_WEIGHTS = (0.79, 0.21)
 
-# Personal fit is a fourth component for a viewer with personal inputs. It takes
-# PERSONAL_SHARE of the total; the three base weights above share the rest.
-# Order: (nutrition_or_prior, safety, rating, personal).
+# Personal fit is a third component for a viewer with personal inputs. It takes
+# PERSONAL_SHARE of the total; the two base weights above share the rest.
+# Order: (nutrition_or_prior, rating, personal).
 PERSONAL_SHARE = 0.20
 
 
@@ -53,8 +53,8 @@ def _with_personal(base):
     return tuple(w * scale for w in base) + (PERSONAL_SHARE,)
 
 
-LINKED_PERSONAL_WEIGHTS = _with_personal(LINKED_WEIGHTS)  # .56 .16 .08 .20
-UNLINKED_PERSONAL_WEIGHTS = _with_personal(UNLINKED_WEIGHTS)  # .32 .32 .16 .20
+LINKED_PERSONAL_WEIGHTS = _with_personal(LINKED_WEIGHTS)  # .70 .10 .20
+UNLINKED_PERSONAL_WEIGHTS = _with_personal(UNLINKED_WEIGHTS)  # .53 .27 .20
 LINKED_PERSONAL_HEALTH_FOCUS_WEIGHTS = _with_personal(LINKED_HEALTH_FOCUS_WEIGHTS)
 UNLINKED_PERSONAL_HEALTH_FOCUS_WEIGHTS = _with_personal(UNLINKED_HEALTH_FOCUS_WEIGHTS)
 PERSONAL_WEIGHTS = UNLINKED_PERSONAL_WEIGHTS  # no-menu personal weights
@@ -333,7 +333,6 @@ TAG_COMFORT_MOOD = "Comfort for your mood"
 TAG_HEALTHY_REVIEWS = "Healthy reviews"
 TAG_LOWER_CALORIE = "Lower-calorie menu"
 TAG_MENU_BASED = "Menu-based estimate"
-TAG_GRADE_A = "Grade A"  # kept for imports; not shown (every Top pick is grade A)
 TAG_BUDGET = "Budget-friendly"
 TAG_TOP_RATED = "Top rated"
 TAG_HIDDEN_GEM = "Hidden gem"
@@ -355,14 +354,12 @@ GOAL_TAG_MIN_BY_GOAL = {"low-carb": 0.4}
 HIDDEN_GEM_MIN_STARS = 4.6
 HIDDEN_GEM_REVIEWS = (20, 100)  # some reviews, but not many yet
 MAX_GOAL_TAGS = 2  # goals overlap a lot; more would push out other tags
-MAX_TAGS = 5  # Grade A is not a tag: every Top pick is grade A
+MAX_TAGS = 5
 
 # Shown in this order, at most MAX_TAGS: a safety warning first, then the
 # viewer's own reasons, then general ones.
 TAG_ORDER = (
     TAG_ALLERGY_CHECK,
-    "Grade B",
-    "Grade C",
     TAG_YOU_LIKED,
     TAG_SIMILAR_PICK,
     TAG_YOUR_FAVORITE,
@@ -447,11 +444,11 @@ def health_focus_weights(profile=None):
 
 
 def _weights(profile=None, has_calories=False, personal=False):
-    """Weights in this order: nutrition_or_prior, safety, rating, [personal].
+    """Weights in this order: nutrition_or_prior, rating, [personal].
 
     ``has_calories`` picks the MenuStat-linked (menu-first) table, otherwise
     the unlinked (soft prior) table; health focus (BMI ≥ 25 / weight-loss goal)
-    shifts weight to nutrition. ``personal`` adds Personal fit as a fourth part.
+    shifts weight to nutrition. ``personal`` adds Personal fit as a third part.
     """
     focus = health_focus_weights(profile)
     if has_calories:
@@ -664,8 +661,8 @@ def explain_reasons(contributions, max_reasons=MAX_REASONS):
 
     ``contributions`` is a list of (points, sentence, fallback) where *points*
     is how much that part raised the score compared with an average place.
-    Fallback reasons (inspection grade, which every Top pick shares) are only
-    used when fewer than two other reasons are strong enough.
+    Fallback reasons (generic ones many places share) are only used when
+    fewer than two other reasons are strong enough.
     """
     strong = sorted(
         (c for c in contributions if c[0] >= REASON_MIN_POINTS),
@@ -676,18 +673,6 @@ def explain_reasons(contributions, max_reasons=MAX_REASONS):
     if len(main) < 2:
         main += extra
     return main[:max_reasons]
-
-
-def grade_score(grade):
-    """Inspection grade component in [0, 1]."""
-    g = (grade or "").strip().upper()
-    if g == "A":
-        return 1.0
-    if g == "B":
-        return 0.5
-    if g == "C":
-        return 0.0
-    return 0.3
 
 
 def blended_rating(google_rating, google_count, app_avg, app_count):
@@ -948,16 +933,6 @@ def health_steps(h_parts, health, cuisine="", ai_health=None):
     return steps
 
 
-def grade_steps(grade):
-    """Lines showing how the inspection grade part was worked out."""
-    letter = (grade or "").strip().upper()
-    return [
-        ("Latest posted grade", letter or "none yet"),
-        ("Scale", "A = 1.0 · B = 0.5 · C = 0 · other or none = 0.3"),
-        ("Grade", f"{grade_score(grade):.2f}"),
-    ]
-
-
 def rating_steps(google_rating, google_count, app_avg, app_count):
     """Lines showing how the rating part was worked out (Bayesian average)."""
     blended, _votes = blended_rating(google_rating, google_count, app_avg, app_count)
@@ -1007,7 +982,7 @@ def personal_fit(
     boro="",
     profile=None,
     feedback=None,
-    camis="",
+    place_id="",
     ai_goals=None,
     nutrients=None,
 ):
@@ -1105,7 +1080,9 @@ def personal_fit(
             steps.append(_fit_step("Near your home", FIT_NEAR_HOME))
 
     if feedback is not None:
-        like_fit, cuisine_penalty, tag = feedback_adjustment(cuisine, feedback, camis)
+        like_fit, cuisine_penalty, tag = feedback_adjustment(
+            cuisine, feedback, place_id
+        )
         info["like_fit"], info["similar_tag"] = like_fit, tag
         if like_fit:
             raw += like_fit
@@ -1172,7 +1149,6 @@ def score_restaurant(
     *,
     name,
     cuisine="",
-    grade="",
     google_rating=None,
     google_count=0,
     app_avg=None,
@@ -1187,7 +1163,7 @@ def score_restaurant(
     menu_year=None,
     meal_count=None,
     feedback=None,
-    camis="",
+    place_id="",
     ai_health=None,
     ai_goals=None,
     nutrients=None,
@@ -1205,9 +1181,9 @@ def score_restaurant(
     When ``calorie_score`` is set (MenuStat linked), nutrition is menu-based and
     ``menu_match_kind`` / ``menu_year`` / ``meal_count`` set the ``confidence``.
     Otherwise a soft Health prior (cuisine, AI review score or keywords, chain)
-    is used at low confidence. Grade is safety, not nutrition. ``profile`` and
+    is used at low confidence. ``profile`` and
     ``feedback`` (the viewer's FeedbackPrefs) make up the Personal fit part;
-    with neither, the score has no Personal fit part. ``camis`` keeps a place's
+    with neither, the score has no Personal fit part. ``place_id`` keeps a place's
     own Like from boosting itself. ``ai_health`` is the stored AI health score
     (0–1; None falls back to review keywords); ``ai_goals`` ({goal: 0-1}) and
     ``nutrients`` (MenuStat medians) feed the health-goal fit. ``mood_check_in``
@@ -1222,14 +1198,13 @@ def score_restaurant(
     goal_words = _goal_words(profile)
     h_parts = health_parts(cuisine, reviews, name, goal_words, ai_score=ai_health)
     h = max(0.0, min(1.0, 0.5 + sum(h_parts.values())))
-    g = grade_score(grade)
     r = rating_score(google_rating, google_count, app_avg, app_count)
     has_menu = calorie_score is not None
     focus = health_focus_weights(profile)
     personal = has_personal_inputs(profile, feedback)
     weights = _weights(profile, has_calories=has_menu, personal=personal)
-    w_n, w_g, w_r = weights[:3]
-    w_p = weights[3] if personal else None
+    w_n, w_r = weights[:2]
+    w_p = weights[2] if personal else None
 
     if has_menu:
         c = max(0.0, min(1.0, float(calorie_score)))
@@ -1268,11 +1243,11 @@ def score_restaurant(
             boro=boro,
             profile=profile,
             feedback=feedback,
-            camis=camis,
+            place_id=place_id,
             ai_goals=ai_goals,
             nutrients=nutrients,
         )
-    base_points = 100.0 * (nutrition * w_n + g * w_g + r * w_r)
+    base_points = 100.0 * (nutrition * w_n + r * w_r)
     if personal:
         base_points += 100.0 * p * w_p
 
@@ -1305,8 +1280,6 @@ def score_restaurant(
     candidates = []
     if info.get("allergy_warnings"):
         candidates.append(TAG_ALLERGY_CHECK)
-    if (grade or "").strip().upper() in ("B", "C"):
-        candidates.append(f"Grade {(grade or '').strip().upper()}")
     candidates.extend(info.get("goal_tags", []))
     if is_favorite:
         candidates.append(TAG_YOUR_FAVORITE)
@@ -1337,8 +1310,6 @@ def score_restaurant(
     elif liked_tag:
         similar_to = liked_tag.replace("Because you liked ", "")
         candidates.append(TAG_SIMILAR_PICK)
-    # The card shows the grade only through tags (no photo badge), so B and C
-    # are tags; A is not (every Top pick is grade A).
     tags = [tag for tag in TAG_ORDER if tag in candidates][:MAX_TAGS]
 
     def _part(key, label, value, weight, section, steps=()):
@@ -1389,7 +1360,6 @@ def score_restaurant(
         )
     parts = [
         nutrition_part,
-        _part("grade", "Inspection grade", g, w_g, "safety", grade_steps(grade)),
         _part(
             "rating",
             "Rating",
@@ -1481,8 +1451,6 @@ def score_restaurant(
     for row in adjustments:
         if row["delta"] > 0:
             contributions.append((row["delta"], row["label"], False))
-    if (grade or "").strip().upper() == "A":
-        contributions.append((100 * w_g * (g - 0.5), "NYC health grade A", True))
     reasons = explain_reasons(contributions)
 
     if personal:
@@ -1529,8 +1497,8 @@ class FeedbackPrefs:
     """What one user told us: liked places by cuisine, hidden places, and how
     many places of each cuisine they marked not interested."""
 
-    liked: dict = field(default_factory=dict)  # cuisine -> [(camis, name)]
-    hidden: set = field(default_factory=set)  # camis never to show again
+    liked: dict = field(default_factory=dict)  # cuisine -> [(place_id, name)]
+    hidden: set = field(default_factory=set)  # place_id never to show again
     not_interested: dict = field(default_factory=dict)  # cuisine -> count
 
     def is_empty(self):
@@ -1540,34 +1508,34 @@ class FeedbackPrefs:
 def build_feedback_prefs(explicit=(), star_ratings=()):
     """Combine button feedback and star ratings into FeedbackPrefs.
 
-    ``explicit``: (camis, name, cuisine, value) with value +1 like / -1 not
-    interested. ``star_ratings``: (camis, name, cuisine, stars 1-5); 4-5 counts
+    ``explicit``: (place_id, name, cuisine, value) with value +1 like / -1 not
+    interested. ``star_ratings``: (place_id, name, cuisine, stars 1-5); 4-5 counts
     as a like and 1-2 as not interested. A button press wins over a star rating
     for the same restaurant.
     """
-    by_camis = {}
-    for camis, name, cuisine, stars in star_ratings:
+    by_place = {}
+    for place_id, name, cuisine, stars in star_ratings:
         if stars >= LIKED_STARS:
-            by_camis[camis] = (name, cuisine, 1)
+            by_place[place_id] = (name, cuisine, 1)
         elif stars <= DISLIKED_STARS:
-            by_camis[camis] = (name, cuisine, -1)
-    for camis, name, cuisine, value in explicit:
-        by_camis[camis] = (name, cuisine, 1 if value > 0 else -1)
+            by_place[place_id] = (name, cuisine, -1)
+    for place_id, name, cuisine, value in explicit:
+        by_place[place_id] = (name, cuisine, 1 if value > 0 else -1)
 
     prefs = FeedbackPrefs()
-    for camis, (name, cuisine, value) in by_camis.items():
+    for place_id, (name, cuisine, value) in by_place.items():
         cuisine = (cuisine or "").strip()
         if value > 0:
             if cuisine:
-                prefs.liked.setdefault(cuisine, []).append((camis, name or ""))
+                prefs.liked.setdefault(cuisine, []).append((place_id, name or ""))
         else:
-            prefs.hidden.add(camis)
+            prefs.hidden.add(place_id)
             if cuisine:
                 prefs.not_interested[cuisine] = prefs.not_interested.get(cuisine, 0) + 1
     return prefs
 
 
-def feedback_adjustment(cuisine, prefs, camis=""):
+def feedback_adjustment(cuisine, prefs, place_id=""):
     """(like bonus, cuisine penalty, reason tag or None) for one place.
 
     The bonus counts *other* liked places with the same cuisine; a place the
@@ -1577,13 +1545,13 @@ def feedback_adjustment(cuisine, prefs, camis=""):
     if not cuisine or prefs is None:
         return 0.0, 0.0, None
     liked = prefs.liked.get(cuisine, [])
-    others = [name for liked_camis, name in liked if liked_camis != camis]
+    others = [name for liked_place_id, name in liked if liked_place_id != place_id]
     bonus = min(LIKE_BONUS_CAP, LIKE_BONUS_PER_PLACE * len(others))
     penalty = 0.0
     if prefs.not_interested.get(cuisine, 0) >= NOT_INTERESTED_CUISINE_MIN:
         penalty = NOT_INTERESTED_CUISINE_PENALTY
     tag = None
-    if camis and len(others) < len(liked):
+    if place_id and len(others) < len(liked):
         tag = TAG_YOU_LIKED
     elif bonus and others[0]:
         tag = BECAUSE_YOU_LIKED.format(name=others[0].title())

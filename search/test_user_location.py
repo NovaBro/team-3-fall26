@@ -1,19 +1,17 @@
 """User location pin for distance-aware ranking."""
 
-from unittest.mock import patch
-
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import UserProfile
-from search.models import RestaurantInspection
 from search.user_location import (
     clear_user_latlng,
     parse_latlng,
     save_user_latlng,
     user_latlng,
 )
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 
 class ParseLatLngTests(TestCase):
@@ -30,6 +28,8 @@ class ParseLatLngTests(TestCase):
 
 
 class UserLatLngHelperTests(TestCase):
+    databases = ALL_DATABASES
+
     def setUp(self):
         self.user = User.objects.create_user("pin", "pin@example.com", "pw-12345!")
 
@@ -50,37 +50,34 @@ class UserLatLngHelperTests(TestCase):
         self.assertIsNone(user_latlng(self.user))
 
 
-@patch("search.views.find_restaurant_place", return_value=None)
 class SaveLocationViewTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
-        for camis, dba, cuisine, day in [
+        for place_id, name, cuisine, _day in [
             ("1", "GREEN LEAF", "Salads", "2024-07-04"),
             ("2", "LEAF AND CO", "Salads", "2024-07-03"),
             ("3", "TAQUERIA", "Mexican", "2024-07-02"),
             ("4", "THAI SPOT", "Thai", "2024-07-01"),
         ]:
-            RestaurantInspection.objects.create(
-                camis=camis,
-                dba=dba,
+            make_restaurant(
+                place_id,
+                name,
                 boro="Brooklyn",
                 street="1 Main St",
                 zipcode="11201",
                 cuisine=cuisine,
-                inspection_date=day,
-                grade="A",
             )
         self.user = User.objects.create_user("loc", "loc@example.com", "pw-12345!")
 
-    def test_requires_login(self, _find):
+    def test_requires_login(self):
         response = self.client.post(
             reverse("search:save_location"), {"lat": "40.7", "lng": "-74.0"}
         )
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("accounts:login"), response["Location"])
 
-    def test_saves_in_bounds_pin(self, _find):
+    def test_saves_in_bounds_pin(self):
         self.client.force_login(self.user)
         response = self.client.post(
             reverse("search:save_location"), {"lat": "40.7128", "lng": "-74.0060"}
@@ -93,7 +90,7 @@ class SaveLocationViewTests(TestCase):
         self.assertAlmostEqual(profile.location_lat, 40.7128)
         self.assertAlmostEqual(profile.location_lng, -74.0060)
 
-    def test_rejects_out_of_bounds(self, _find):
+    def test_rejects_out_of_bounds(self):
         self.client.force_login(self.user)
         response = self.client.post(
             reverse("search:save_location"), {"lat": "34.05", "lng": "-118.25"}
@@ -101,7 +98,7 @@ class SaveLocationViewTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(UserProfile.objects.filter(user=self.user).exists())
 
-    def test_clear(self, _find):
+    def test_clear(self):
         self.client.force_login(self.user)
         save_user_latlng(self.user, 40.7, -74.0)
         response = self.client.post(reverse("search:save_location"), {"clear": "1"})
@@ -109,7 +106,7 @@ class SaveLocationViewTests(TestCase):
         self.assertTrue(response.json()["cleared"])
         self.assertIsNone(user_latlng(self.user))
 
-    def test_home_hides_minimap_for_now(self, _find):
+    def test_home_hides_minimap_for_now(self):
         self.client.force_login(self.user)
         page = self.client.get(reverse("search:home"))
         self.assertNotContains(page, "location-minimap")

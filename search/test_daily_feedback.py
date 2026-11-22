@@ -10,10 +10,15 @@ from django.urls import reverse
 
 from accounts.models import MoodLog, UserProfile
 from accounts.mood import today_ny
-from community.keys import DOHMH, dohmh_key
-from community.models import CommunitySubject, RecommendationFeedback, UserRating
+from community.keys import GOOGLE, google_key
+from community.models import (
+    CommunitySubject,
+    PlaceEnrichment,
+    PlaceReview,
+    RecommendationFeedback,
+    UserRating,
+)
 from search import views
-from search.models import RestaurantInspection
 from search.recommend import (
     FeedbackPrefs,
     build_feedback_prefs,
@@ -23,6 +28,7 @@ from search.recommend import (
     pick_top,
     score_restaurant,
 )
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 
 def item(name, score, cuisine, like_bonus=0.0):
@@ -30,7 +36,7 @@ def item(name, score, cuisine, like_bonus=0.0):
 
 
 class DailySampleTests(SimpleTestCase):
-    rows = [{"camis": str(n)} for n in range(50)]
+    rows = [{"place_id": str(n)} for n in range(50)]
 
     def test_same_seed_same_picks(self):
         seed = daily_seed(date(2026, 11, 8), 7)
@@ -50,7 +56,7 @@ class DailySampleTests(SimpleTestCase):
 
     def test_sample_keeps_original_order(self):
         picked = daily_sample(self.rows, 9, "seed")
-        self.assertEqual(picked, sorted(picked, key=lambda row: int(row["camis"])))
+        self.assertEqual(picked, sorted(picked, key=lambda row: int(row["place_id"])))
 
 
 class PickTopTests(SimpleTestCase):
@@ -137,7 +143,7 @@ class FeedbackPrefsTests(SimpleTestCase):
     def test_score_shows_feedback_in_breakdown_and_tags(self):
         prefs = FeedbackPrefs(liked={"Mexican": [("1", "TAQUERIA")]})
         score, tags, breakdown = score_restaurant(
-            name="X", cuisine="Mexican", grade="A", feedback=prefs
+            name="X", cuisine="Mexican", feedback=prefs
         )
         personal = next(p for p in breakdown["parts"] if p["key"] == "personal")
         self.assertAlmostEqual(personal["value_0_1"], 0.6)  # 0.5 + one like
@@ -149,9 +155,8 @@ class FeedbackPrefsTests(SimpleTestCase):
         self.assertIn(("Similar to places you liked", "+0.10"), personal["steps"])
 
 
-@patch("search.views.find_restaurant_place", return_value=None)
 class FeedbackViewTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         rows = [
@@ -160,16 +165,14 @@ class FeedbackViewTests(TestCase):
             ("3", "TAQUERIA", "Mexican", "2024-07-02"),
             ("4", "THAI SPOT", "Thai", "2024-07-01"),
         ]
-        for camis, dba, cuisine, day in rows:
-            RestaurantInspection.objects.create(
-                camis=camis,
-                dba=dba,
+        for place_id, name, cuisine, _day in rows:
+            make_restaurant(
+                place_id,
+                name,
                 boro="Queens",
                 street="1 Main St",
                 zipcode="11101",
                 cuisine=cuisine,
-                inspection_date=day,
-                grade="A",
             )
         self.user = User.objects.create_user("sam", "sam@example.com", "pw-12345!")
 
@@ -177,29 +180,29 @@ class FeedbackViewTests(TestCase):
         response = self.client.get(reverse("search:home"))
         return response, [p["name"] for p in response.context["top_picks"]]
 
-    def press(self, camis, value):
+    def press(self, place_id, value):
         return self.client.post(
-            reverse("search:pick_feedback", args=[camis]), {"value": value}
+            reverse("search:pick_feedback", args=[place_id]), {"value": value}
         )
 
-    def test_anonymous_sees_diverse_picks_and_no_buttons(self, _find):
+    def test_anonymous_sees_diverse_picks_and_no_buttons(self):
         response, names = self.picks()
         self.assertEqual(len(names), 3)
         self.assertEqual(len({"GREEN LEAF", "LEAF AND CO"} & set(names)), 1)
         self.assertNotContains(response, "top-pick-card__feedback")
 
-    def test_buttons_require_login(self, _find):
+    def test_buttons_require_login(self):
         response = self.press("1", "like")
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("accounts:login"), response["Location"])
         self.assertFalse(RecommendationFeedback.objects.exists())
 
-    def test_anonymous_hides_mood_pickers(self, _find):
+    def test_anonymous_hides_mood_pickers(self):
         response, _names = self.picks()
         self.assertNotContains(response, "mood-pick__btn")
         self.assertContains(response, "Down for a healthy bite?")
 
-    def test_quick_checkin_requires_login(self, _find):
+    def test_quick_checkin_requires_login(self):
         response = self.client.post(
             reverse("accounts:quick_checkin"),
             {"kind": "mood", "value": "4"},
@@ -208,7 +211,7 @@ class FeedbackViewTests(TestCase):
         self.assertIn(reverse("accounts:login"), response["Location"])
         self.assertFalse(MoodLog.objects.exists())
 
-    def test_quick_checkin_upserts_for_today(self, _find):
+    def test_quick_checkin_upserts_for_today(self):
         self.client.force_login(self.user)
         self.client.post(
             reverse("accounts:quick_checkin"),
@@ -236,7 +239,7 @@ class FeedbackViewTests(TestCase):
         self.assertContains(response, "mood-pick__btn")
         self.assertContains(response, "Ready for something great?")
 
-    def test_home_and_profile_share_todays_mood(self, _find):
+    def test_home_and_profile_share_todays_mood(self):
         self.client.force_login(self.user)
         self.client.post(
             reverse("accounts:quick_checkin"),
@@ -255,11 +258,11 @@ class FeedbackViewTests(TestCase):
         self.assertEqual(log.mood, 3)
         self.assertEqual(log.energy_level, 5)
 
-    def test_like_saves_and_pressing_again_undoes(self, _find):
+    def test_like_saves_and_pressing_again_undoes(self):
         self.client.force_login(self.user)
         self.press("3", "like")
         saved = RecommendationFeedback.objects.get()
-        self.assertEqual((saved.camis, saved.value), ("3", 1))
+        self.assertEqual((saved.place_id, saved.value), ("3", 1))
         self.assertEqual((saved.name, saved.cuisine), ("TAQUERIA", "Mexican"))
         response, _names = self.picks()
         self.assertContains(response, 'aria-pressed="true"')
@@ -271,27 +274,25 @@ class FeedbackViewTests(TestCase):
         self.press("3", "like")
         self.assertFalse(RecommendationFeedback.objects.exists())
 
-    def test_not_interested_hides_the_place(self, _find):
+    def test_not_interested_hides_the_place(self):
         self.client.force_login(self.user)
         self.press("1", "not_interested")
         _response, names = self.picks()
         self.assertNotIn("GREEN LEAF", names)
         self.assertEqual(len(names), 3)
 
-    def test_like_tags_similar_place(self, _find):
-        RestaurantInspection.objects.create(
-            camis="9",
-            dba="OLD TAQUERIA",
+    def test_like_tags_similar_place(self):
+        make_restaurant(
+            "9",
+            "OLD TAQUERIA",
             boro="Queens",
             street="2 Main St",
             zipcode="11101",
             cuisine="Mexican",
-            inspection_date="2020-01-01",
-            grade="A",
         )
         RecommendationFeedback.objects.create(
             user_id=self.user.pk,
-            camis="9",
+            place_id="9",
             name="OLD TAQUERIA",
             cuisine="Mexican",
             value=RecommendationFeedback.LIKE,
@@ -305,20 +306,20 @@ class FeedbackViewTests(TestCase):
         self.assertEqual(taqueria["similar_to"], "Old Taqueria")
         self.assertContains(response, 'title="Because you liked Old Taqueria"')
 
-    def test_one_star_rating_hides_the_place(self, _find):
-        subject = CommunitySubject.objects.create(kind=DOHMH, key=dohmh_key("1"))
+    def test_one_star_rating_hides_the_place(self):
+        subject = CommunitySubject.objects.create(kind=GOOGLE, key=google_key("1"))
         UserRating.objects.create(subject=subject, user_id=self.user.pk, score=1)
         self.client.force_login(self.user)
         _response, names = self.picks()
         self.assertNotIn("GREEN LEAF", names)
 
-    def test_unknown_value_and_restaurant(self, _find):
+    def test_unknown_value_and_restaurant(self):
         self.client.force_login(self.user)
         self.assertEqual(self.press("1", "love").status_code, 302)
         self.assertFalse(RecommendationFeedback.objects.exists())
         self.assertEqual(self.press("404", "like").status_code, 404)
 
-    def test_next_must_be_local(self, _find):
+    def test_next_must_be_local(self):
         self.client.force_login(self.user)
         response = self.client.post(
             reverse("search:pick_feedback", args=["1"]),
@@ -328,24 +329,24 @@ class FeedbackViewTests(TestCase):
 
 
 class DailyPoolTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         for n in range(60):
-            RestaurantInspection.objects.create(
-                camis=str(1000 + n),
-                dba=f"PLACE {n}",
+            make_restaurant(
+                str(1000 + n),
+                f"PLACE {n}",
                 boro="Queens",
                 street="1 Main St",
                 zipcode="11101",
                 cuisine="American",
-                inspection_date=f"2024-{1 + n % 12:02d}-{1 + n % 28:02d}",
-                grade="A",
             )
 
     def pool(self, day):
         seed = daily_seed(day, None)
-        return {row["camis"] for row in views._build_candidate_pool(None, None, seed)}
+        return {
+            row["place_id"] for row in views._build_candidate_pool(None, None, seed)
+        }
 
     def test_pool_rotates_daily_and_is_stable_within_a_day(self):
         monday = self.pool(date(2026, 11, 9))
@@ -356,29 +357,24 @@ class DailyPoolTests(TestCase):
     def test_hidden_places_never_enter_the_pool(self):
         prefs = FeedbackPrefs(hidden={str(1000 + n) for n in range(55)})
         seed = daily_seed(date(2026, 11, 9), 1)
-        pool = {row["camis"] for row in views._build_candidate_pool(None, prefs, seed)}
+        pool = {
+            row["place_id"] for row in views._build_candidate_pool(None, prefs, seed)
+        }
         self.assertTrue(pool)
         self.assertFalse(pool & prefs.hidden)
 
 
-def inspection(camis, dba, cuisine, grade, day="2024-07-01"):
-    return RestaurantInspection.objects.create(
-        camis=camis,
-        dba=dba,
-        boro="Queens",
-        street="1 Main St",
-        zipcode="11101",
-        cuisine=cuisine,
-        inspection_date=day,
-        grade=grade,
+def restaurant(place_id, name, cuisine, rating=4.2, **fields):
+    return make_restaurant(
+        place_id, name, boro="Queens", cuisine=cuisine, rating=rating, **fields
     )
 
 
 class ExploreOrderTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
-        # A fixed "today" so the test dates (2023-2025) are not seen as closed.
+        # A fixed "today" keeps the daily shuffle the same.
         today = patch("search.views._today", return_value=date(2025, 3, 1))
         today.start()
         self.addCleanup(today.stop)
@@ -387,29 +383,27 @@ class ExploreOrderTests(TestCase):
         return [row["name"] for row in views._explore_rows()]
 
     def test_best_first_using_db_data_only(self):
-        inspection("10", "MCDONALD'S", "Hamburgers", "A")  # 2 - 1 - 2 = -1
-        inspection("11", "GRADE B DINER", "American", "B")  # 1
-        inspection("12", "AMERICAN GRILL", "American", "A")  # 2
-        inspection("13", "GREEN BOWL", "Salads", "A")  # 3
-        inspection("14", "PENDING PIZZA", "Pizza", "")  # -1 + 0
-        with patch("search.views.find_restaurant_place") as find:
+        restaurant("10", "MCDONALD'S", "Hamburgers", rating=4.6)  # 2 - 1 - 2 = -1
+        restaurant("11", "OK DINER", "American", rating=4.1)  # 1
+        restaurant("12", "AMERICAN GRILL", "American", rating=4.7)  # 2
+        restaurant("13", "GREEN BOWL", "Salads", rating=4.6)  # 3
+        restaurant("14", "SO-SO PIZZA", "Pizza", rating=3.2)  # -1 - 1
+        with patch("search.views.enrich_place_id") as fetch:
             names = self.order()
-        find.assert_not_called()
-        self.assertEqual(names[:3], ["GREEN BOWL", "AMERICAN GRILL", "GRADE B DINER"])
-        self.assertEqual(set(names[3:]), {"MCDONALD'S", "PENDING PIZZA"})
+        fetch.assert_not_called()
+        self.assertEqual(
+            names, ["GREEN BOWL", "AMERICAN GRILL", "OK DINER"] + names[3:]
+        )
+        self.assertEqual(set(names[3:]), {"MCDONALD'S", "SO-SO PIZZA"})
 
-    def test_latest_grade_counts(self):
-        inspection("20", "WAS GOOD", "American", "A", day="2023-01-01")
-        inspection("20", "WAS GOOD", "American", "C", day="2024-01-01")
-        inspection("20", "WAS GOOD", "American", "", day="2025-01-01")
-        inspection("21", "STILL GOOD", "American", "A", day="2024-01-01")
-        rows = {row["name"]: row for row in views._explore_rows()}
-        self.assertEqual(rows["WAS GOOD"]["latest_grade"], "C")
+    def test_rating_changes_the_order(self):
+        restaurant("20", "WAS GOOD", "American", rating=3.4)
+        restaurant("21", "STILL GOOD", "American", rating=4.5)
         self.assertEqual(self.order(), ["STILL GOOD", "WAS GOOD"])
 
     def test_ties_shuffle_daily_and_stay_put_within_a_day(self):
         for n in range(30):
-            inspection(str(5000 + n), f"PLACE {n:02d}", "American", "A")
+            restaurant(str(5000 + n), f"PLACE {n:02d}", "American")
         with patch("search.views._today", return_value=date(2026, 11, 9)):
             monday = self.order()
             self.assertEqual(monday, self.order())
@@ -419,68 +413,62 @@ class ExploreOrderTests(TestCase):
         self.assertNotEqual(monday, tuesday)
         self.assertNotEqual(monday, sorted(monday))  # not alphabetical
 
-    @patch("search.views.find_restaurant_place", return_value=None)
-    def test_first_page_skips_places_already_in_top_picks(self, _find):
+    def test_first_page_skips_places_already_in_top_picks(self):
         for n in range(5):
-            inspection(str(6000 + n), f"SPOT {n}", "American", "A")
+            restaurant(str(6000 + n), f"SPOT {n}", "American")
         response = self.client.get(reverse("search:home"))
-        picked = {pick["camis"] for pick in response.context["top_picks"]}
-        listed = {row["camis"] for row in response.context["restaurants"]}
+        picked = {pick["place_id"] for pick in response.context["top_picks"]}
+        listed = {row["place_id"] for row in response.context["restaurants"]}
         self.assertEqual(len(picked), 3)
         self.assertFalse(picked & listed)
         self.assertEqual(len(listed), 2)
 
 
-@patch("search.views.find_restaurant_place", return_value=None)
 class BoroughTopPicksTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         cuisines = ["American", "Thai", "Salads", "Mexican"]
         for n, boro in enumerate(["Brooklyn"] * 4 + ["Queens"] * 4):
-            RestaurantInspection.objects.create(
-                camis=str(7000 + n),
-                dba=f"{boro.upper()} SPOT {n}",
+            make_restaurant(
+                str(7000 + n),
+                f"{boro.upper()} SPOT {n}",
                 boro=boro,
                 street="1 Main St",
                 zipcode="11201",
                 cuisine=cuisines[n % 4],
-                inspection_date="2024-07-01",
-                grade="A",
             )
 
-    def test_selected_borough_keeps_top_picks_from_that_borough(self, _find):
+    def test_selected_borough_keeps_top_picks_from_that_borough(self):
         response = self.client.get(reverse("search:home"), {"boro": "Brooklyn"})
         picks = response.context["top_picks"]
         self.assertEqual(len(picks), 3)
         self.assertEqual({pick["boro"] for pick in picks}, {"Brooklyn"})
         self.assertContains(response, '<option value="Brooklyn" selected>')
 
-    def test_all_boroughs_title_and_mix(self, _find):
+    def test_all_boroughs_title_and_mix(self):
         response = self.client.get(reverse("search:home"))
         self.assertEqual(len(response.context["top_picks"]), 3)
         # The title's borough menu shows "New York" (all boroughs) selected.
         self.assertContains(response, '<option value="">New York</option>')
         self.assertNotContains(response, "selected>")
 
-    def test_no_top_picks_after_page_one(self, _find):
+    def test_no_top_picks_after_page_one(self):
         for n in range(20):
-            RestaurantInspection.objects.create(
-                camis=str(8000 + n),
-                dba=f"MORE {n}",
+            make_restaurant(
+                str(8000 + n),
+                f"MORE {n}",
                 boro="Brooklyn",
                 street="1 Main St",
                 zipcode="11201",
                 cuisine="American",
-                inspection_date="2024-07-01",
-                grade="A",
             )
         response = self.client.get(
             reverse("search:home"), {"boro": "Brooklyn", "page": 2}
         )
         self.assertEqual(response.context["top_picks"], [])
 
-    def test_home_borough_extras_only_when_it_matches(self, _find):
+    def test_home_borough_extras_only_when_it_matches(self):
         user = User.objects.create_user("lee", "lee@example.com", "pw-12345!")
         UserProfile.objects.create(user=user, home_address="Astoria, Queens")
         self.client.force_login(user)
@@ -489,38 +477,35 @@ class BoroughTopPicksTests(TestCase):
         self.assertEqual(boros, {"Brooklyn"})
 
 
-@patch("search.views.find_restaurant_place", return_value=None)
 class MealOnlyTopPicksTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
-        inspection("30", "STARBUCKS", "Coffee/Tea", "A", day="2024-07-09")
-        inspection("31", "STARBUCKS #812", "American", "A", day="2024-07-08")
-        inspection(
-            "32", "MAGNOLIA BAKERY", "Bakery Products/Desserts", "A", "2024-07-07"
-        )
-        inspection("33", "CARVEL", "Frozen Desserts", "A", day="2024-07-06")
-        inspection("34", "GREEN JUICE BAR", "Juice, Smoothies, Fruit Salads", "A")
-        inspection("35", "TAQUERIA", "Mexican", "A")
-        inspection("36", "AMERICAN GRILL", "American", "A")
+        restaurant("30", "STARBUCKS", "Coffee/Tea")
+        restaurant("31", "STARBUCKS #812", "American")
+        restaurant("32", "MAGNOLIA BAKERY", "Bakery Products/Desserts")
+        restaurant("33", "CARVEL", "Frozen Desserts")
+        restaurant("34", "GREEN JUICE BAR", "Juice, Smoothies, Fruit Salads")
+        restaurant("35", "TAQUERIA", "Mexican")
+        restaurant("36", "AMERICAN GRILL", "American")
 
-    def test_coffee_and_dessert_places_are_not_top_picks(self, _find):
+    def test_coffee_and_dessert_places_are_not_top_picks(self):
         response = self.client.get(reverse("search:home"))
         names = {pick["name"] for pick in response.context["top_picks"]}
         self.assertEqual(names, {"GREEN JUICE BAR", "TAQUERIA", "AMERICAN GRILL"})
 
-    def test_explore_more_lists_them_lower(self, _find):
+    def test_explore_more_lists_them_lower(self):
         order = [row["name"] for row in views._explore_rows()]
-        self.assertEqual(order[0], "GREEN JUICE BAR")  # A + healthy = 3
-        self.assertEqual(set(order[1:3]), {"TAQUERIA", "AMERICAN GRILL"})  # 2
+        self.assertEqual(order[0], "GREEN JUICE BAR")  # rated 4.2 + healthy = 2
+        self.assertEqual(set(order[1:3]), {"TAQUERIA", "AMERICAN GRILL"})  # 1
         self.assertEqual(
             set(order[3:]),
-            {"STARBUCKS", "STARBUCKS #812", "MAGNOLIA BAKERY", "CARVEL"},  # 1
+            {"STARBUCKS", "STARBUCKS #812", "MAGNOLIA BAKERY", "CARVEL"},  # 0
         )
 
 
 class CuisineLabelTests(SimpleTestCase):
-    def test_healthy_cuisines_use_exact_dohmh_labels(self):
+    def test_healthy_cuisines_use_exact_cuisine_labels(self):
         from search.recommend import HEALTHY_CUISINES, health_score
 
         self.assertIn("Juice, Smoothies, Fruit Salads", HEALTHY_CUISINES)
@@ -580,39 +565,37 @@ class DisplayReviewTests(SimpleTestCase):
         self.assertIs(pick_display_review(reviews, profile), reviews[1])
 
 
-@patch("search.views.find_restaurant_place")
 class CardReviewTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
-    def test_card_shows_the_healthy_review(self, find):
-        inspection("40", "GREEN LEAF", "Salads", "A")
-        find.return_value = {
-            "name": "Green Leaf",
-            "address": "",
-            "rating": 4.5,
-            "rating_count": 100,
-            "reviews": [
-                {"text": "Nice staff.", "author_name": "A", "rating": 5},
-                {"text": "So fresh and healthy.", "author_name": "B", "rating": 4},
-            ],
-            "review": {"text": "Nice staff.", "author_name": "A", "rating": 5},
-        }
+    def test_card_shows_the_healthy_review(self):
+        restaurant("40", "GREEN LEAF", "Salads")
+        place = PlaceEnrichment.objects.create(
+            kind=GOOGLE, key=google_key("40"), place_id="40"
+        )
+        for text, author, rating in (
+            ("Nice staff.", "A", 5),
+            ("So fresh and healthy.", "B", 4),
+        ):
+            PlaceReview.objects.create(
+                place=place, text=text, author_name=author, rating=rating
+            )
         response = self.client.get(reverse("search:home"))
         pick = response.context["top_picks"][0]
         self.assertEqual(pick["review"]["text"], "So fresh and healthy.")
 
 
 class HealthyCandidateTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def pool(self, profile=None, seed="2026-11-10:0:"):
         return [row["name"] for row in views._build_candidate_pool(profile, None, seed)]
 
-    def test_best_db_score_beats_recent_inspection(self):
-        for n in range(30):  # inspected recently, plain cuisine
-            inspection(str(9000 + n), f"RECENT {n}", "American", "A", day="2026-10-01")
-        for n in range(9):  # inspected a year earlier, healthy cuisine
-            inspection(str(9100 + n), f"HEALTHY {n}", "Salads", "A", day="2025-06-01")
+    def test_best_db_score_comes_first(self):
+        for n in range(30):  # plain cuisine
+            restaurant(str(9000 + n), f"PLAIN {n}", "American")
+        for n in range(9):  # healthy cuisine
+            restaurant(str(9100 + n), f"HEALTHY {n}", "Salads")
         with patch("search.views._today", return_value=date(2026, 11, 9)):
             names = self.pool()
         self.assertEqual(len(names), views.POOL_SIZE)
@@ -620,24 +603,21 @@ class HealthyCandidateTests(TestCase):
         self.assertTrue(all(name.startswith("HEALTHY") for name in names[:cap]))
         self.assertEqual(sum(name.startswith("HEALTHY") for name in names), 9)
 
-    def test_latest_grade_must_be_a(self):
-        inspection("9200", "FELL TO C", "Salads", "A", day="2023-01-01")
-        inspection("9200", "FELL TO C", "Salads", "C", day="2024-01-01")
-        inspection("9201", "STILL A", "American", "A", day="2024-01-01")
-        self.assertEqual(self.pool(), ["STILL A"])
+    def test_poorly_rated_places_are_left_out(self):
+        restaurant("9200", "POORLY RATED", "Salads", rating=3.4)
+        restaurant("9201", "WELL RATED", "American", rating=4.4)
+        self.assertEqual(self.pool(), ["WELL RATED"])
 
     def test_home_borough_extras_skip_coffee_shops(self):
-        inspection("9300", "TAQUERIA", "Mexican", "A")
+        restaurant("9300", "TAQUERIA", "Mexican")
         for n in range(5):
-            RestaurantInspection.objects.create(
-                camis=str(9310 + n),
-                dba=f"STARBUCKS #{n}",
+            make_restaurant(
+                str(9310 + n),
+                f"STARBUCKS #{n}",
                 boro="Bronx",
                 street="1 Main St",
                 zipcode="10453",
                 cuisine="American",
-                inspection_date="2024-07-01",
-                grade="A",
             )
         profile = SimpleNamespace(
             allergies="",
@@ -648,7 +628,7 @@ class HealthyCandidateTests(TestCase):
 
 
 class MoodPoolExtraTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def test_mood_boost_cuisines_by_check_in(self):
         self.assertEqual(views._mood_boost_cuisines(None), set())
@@ -676,9 +656,9 @@ class MoodPoolExtraTests(TestCase):
         n = 0
         for cuisine in healthy:
             for _ in range(views.MAX_PER_CUISINE):
-                inspection(str(9400 + n), f"{cuisine} {n}", cuisine, "A")
+                restaurant(str(9400 + n), f"{cuisine} {n}", cuisine)
                 n += 1
-        inspection("9499", "RIB HOUSE", "BBQ", "A")
+        restaurant("9499", "RIB HOUSE", "BBQ")
         seed = "2026-11-10:0:"
         without = {
             row["name"]
@@ -698,28 +678,28 @@ class MoodPoolExtraTests(TestCase):
 
 
 class ClaudePicksTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
-        inspection("50", "LUIGI", "Italian", "A")
-        inspection("51", "SOFIA", "Italian", "A")
-        inspection("52", "GREEN LEAF", "Salads", "A")
+        restaurant("50", "LUIGI", "Italian")
+        restaurant("51", "SOFIA", "Italian")
+        restaurant("52", "GREEN LEAF", "Salads")
         self.user = User.objects.create_user("ai", "ai@example.com", "pw-12345!")
         self.client.force_login(self.user)
         self.ai = [
-            {"camis": "50", "reason": "Your favorite cuisine."},
-            {"camis": "51", "reason": "Also Italian."},
+            {"place_id": "50", "reason": "Your favorite cuisine."},
+            {"place_id": "51", "reason": "Also Italian."},
         ]
 
     def get(self, **params):
-        with patch("search.views.find_restaurant_place", return_value=None), patch(
-            "search.views.personalized_picks", return_value=self.ai
-        ):
+        with patch("search.views.personalized_picks", return_value=self.ai):
             return self.client.get(reverse("search:home"), params)
 
     def test_claude_order_is_kept(self):
         page = self.get()
-        self.assertEqual([p["camis"] for p in page.context["top_picks"]], ["50", "51"])
+        self.assertEqual(
+            [p["place_id"] for p in page.context["top_picks"]], ["50", "51"]
+        )
         self.assertContains(page, "Picked for you")
 
     def test_claude_order_yields_to_scores_when_mood_check_in(self):
@@ -728,23 +708,23 @@ class ClaudePicksTests(TestCase):
         )
         # Salad (52) should outrank Italian under high mood/energy (2H healthier).
         self.ai = [
-            {"camis": "50", "reason": "Your favorite cuisine."},
-            {"camis": "52", "reason": "A salad spot."},
-            {"camis": "51", "reason": "Also Italian."},
+            {"place_id": "50", "reason": "Your favorite cuisine."},
+            {"place_id": "52", "reason": "A salad spot."},
+            {"place_id": "51", "reason": "Also Italian."},
         ]
         page = self.get()
-        camis = [p["camis"] for p in page.context["top_picks"]]
-        self.assertIn("52", camis)
-        self.assertLess(camis.index("52"), camis.index("50"))
+        ids = [p["place_id"] for p in page.context["top_picks"]]
+        self.assertIn("52", ids)
+        self.assertLess(ids.index("52"), ids.index("50"))
 
     def test_not_interested_drops_a_claude_pick(self):
         RecommendationFeedback.objects.create(
             user_id=self.user.pk,
-            camis="50",
+            place_id="50",
             value=RecommendationFeedback.NOT_INTERESTED,
         )
         page = self.get()
-        self.assertEqual([p["camis"] for p in page.context["top_picks"]], ["51"])
+        self.assertEqual([p["place_id"] for p in page.context["top_picks"]], ["51"])
 
     def test_selected_borough_uses_daily_picks(self):
         page = self.get(boro="Queens")

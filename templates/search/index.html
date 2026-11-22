@@ -62,9 +62,6 @@
     <label>Cuisine
       {{ form.cuisine }}
     </label>
-    <label>Grade
-      {{ form.grade }}
-    </label>
     <label>Diet
       {{ form.diet }}
     </label>
@@ -75,7 +72,7 @@
       {% endfor %}
     </fieldset>
     <fieldset class="price-group filter-section" id="google-filters">
-      <legend>Google Places only</legend>
+      <legend>Price and rating</legend>
       <div class="price-toggles" aria-label="Price">
         {% for choice in form.price %}
           <label class="check">{{ choice.tag }} {{ choice.choice_label }}</label>
@@ -84,7 +81,7 @@
       <label>Minimum rating
         {{ form.min_rating }}
       </label>
-      <label class="inline-check">{{ form.open_now }} Open now</label>
+      <label class="inline-check">{{ form.open_now }} Open now (live Google only)</label>
     </fieldset>
   </fieldset>
 
@@ -128,8 +125,7 @@
   </p>
 
   <div class="map-legend" aria-label="Map legend">
-    <span><span class="swatch swatch--restaurant_dohmh" aria-hidden="true"></span> Restaurant (inspection records)</span>
-    <span><span class="swatch swatch--restaurant_google" aria-hidden="true"></span> Restaurant (Google Places)</span>
+    <span><span class="swatch swatch--restaurant_google" aria-hidden="true"></span> Restaurant</span>
     <span><span class="swatch swatch--farmers_market" aria-hidden="true"></span> Farmers market</span>
     <span><span class="swatch swatch--grocery" aria-hidden="true"></span> Grocery</span>
   </div>
@@ -175,11 +171,6 @@
           {% if item.details %}<div class="result-details">{{ item.details|join:" · " }}</div>{% endif %}
           <div class="tags">
             <span class="tag type-tag"><span class="swatch swatch--{{ item.category }}" aria-hidden="true"></span> {{ item.type_label }}</span>
-            {% if item.has_inspection %}
-              <a class="tag grade grade-{{ item.grade|lower|default:'na' }}" href="{{ item.grade_url }}" title="Latest NYC health inspection">{% if item.grade %}Grade {{ item.grade }}{% else %}Inspected{% endif %}</a>
-            {% elif item.has_inspection is False %}
-              <span class="tag grade grade-none">No inspection data</span>
-            {% endif %}
             {% if item.price %}<span class="tag">{{ item.price }}</span>{% endif %}
             {% if item.rating %}<span class="tag">★ {{ item.rating }}{% if item.rating_count %} ({{ item.rating_count }}){% endif %}</span>{% endif %}
             {% if item.distance_mi is not None %}<span class="tag">{{ item.distance_mi|floatformat:2 }} mi away</span>{% endif %}

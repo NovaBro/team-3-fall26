@@ -12,7 +12,7 @@ GitHub Actions: test, then eb deploy nycfood-env
    │
    ▼
 S3 bundle  ──►  EC2 instance
-                 │  download nyc_food.db and community.db
+                 │  download nyc_food.db, community.db and users.db
                  ▼
                live site
 ```
@@ -31,7 +31,7 @@ Because `.ebignore` exists, `eb deploy` zips the working directory, minus what `
 |----------------|------------|
 | Uncommitted edits, on a laptop `eb deploy` | Yes |
 | Commits not yet pushed to GitHub, on a laptop `eb deploy` | Yes |
-| `database/nyc_food.db` and `database/community.db` | No. `.ebignore` excludes `database/*.db`. The instance downloads both from the private database bucket |
+| `database/nyc_food.db`, `database/community.db` and `database/users.db` | No. `.ebignore` excludes `database/*.db`. The instance downloads all three from the private database bucket |
 | `.env` | No (excluded); live keys come from SSM |
 | `.venv/`, `database/datasets/`, notebooks, `md_guides/`, `deploy/` | No (excluded) |
 
@@ -40,6 +40,7 @@ Actions deploys the Git commit, so uncommitted laptop files are not in that bund
 ```bash
 aws s3 cp database/nyc_food.db s3://<database-bucket>/nyc_food.db
 aws s3 cp database/community.db s3://<database-bucket>/community.db
+aws s3 cp database/users.db s3://<database-bucket>/users.db
 ```
 
 ## Branches and environments

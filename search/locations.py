@@ -1,14 +1,13 @@
 """Fill in coordinates for dataset rows that have none.
 
-Farmers markets and Shop Healthy stores usually carry latitude/longitude;
-DOHMH inspection records never do. For a row without coordinates we check, in
-order:
+Farmers markets and Shop Healthy stores usually carry latitude/longitude, and
+restaurants (from Google) always do. For a row without coordinates we check,
+in order:
 
-1. ``PlaceEnrichment`` (restaurants enriched from the detail page), then
-2. ``LocationLookup`` (earlier Google lookups, found or not), then
-3. Google Places Text Search, saving the answer to ``LocationLookup``.
+1. ``LocationLookup`` (earlier Google lookups, found or not), then
+2. Google Places Text Search, saving the answer to ``LocationLookup``.
 
-Step 3 only runs for the rows a visitor is looking at (one results page) or
+Step 2 only runs for the rows a visitor is looking at (one results page) or
 from the ``locate_places`` command, never for a whole dataset per request.
 """
 
@@ -17,8 +16,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from community.keys import DOHMH
-from community.models import LocationLookup, PlaceEnrichment
+from community.models import LocationLookup
 from restaurants.places import PlacesError, has_api_key, locate_place
 
 # Google's terms allow caching coordinates for at most 30 days.
@@ -28,10 +26,6 @@ MAX_WORKERS = 5
 
 def _fresh_since():
     return timezone.now() - timedelta(days=CACHE_DAYS)
-
-
-def _camis(item):
-    return item["key"].split(":", 1)[1] if item["key"].startswith("camis:") else ""
 
 
 def _apply(item, lat, lng, source, address=""):
@@ -49,16 +43,6 @@ def cached_lookups(kind, keys=None):
     return {row.key: row for row in rows}
 
 
-def enrichment_coordinates(camis_list=None):
-    """{camis: PlaceEnrichment} for enriched restaurants that have coordinates."""
-    rows = PlaceEnrichment.objects.exclude(latitude__isnull=True).exclude(
-        longitude__isnull=True
-    )
-    if camis_list is not None:
-        rows = rows.filter(camis__in=list(camis_list))
-    return {row.camis: row for row in rows}
-
-
 def resolve(items, fetch=True):
     """Set lat/lng in place on items that lack them.
 
@@ -70,24 +54,9 @@ def resolve(items, fetch=True):
     if not missing:
         return 0
 
-    restaurants = [item for item in missing if item["kind"] == DOHMH]
-    if restaurants:
-        enriched = enrichment_coordinates(_camis(item) for item in restaurants)
-        for item in restaurants:
-            place = enriched.get(_camis(item))
-            if place:
-                _apply(
-                    item,
-                    place.latitude,
-                    place.longitude,
-                    "google",
-                    place.formatted_address,
-                )
-
-    still_missing = [item for item in missing if item.get("lat") is None]
     unknown = []
-    for kind in {item["kind"] for item in still_missing}:
-        of_kind = [item for item in still_missing if item["kind"] == kind]
+    for kind in {item["kind"] for item in missing}:
+        of_kind = [item for item in missing if item["kind"] == kind]
         cached = cached_lookups(kind, (item["key"] for item in of_kind))
         for item in of_kind:
             row = cached.get(item["key"])

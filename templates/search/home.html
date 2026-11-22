@@ -88,7 +88,7 @@
 
     <div class="restaurant-grid">
       {% for restaurant in restaurants %}
-        <article class="restaurant-card" id="r-{{ restaurant.camis }}">
+        <article class="restaurant-card" id="r-{{ restaurant.place_id }}">
           <div class="restaurant-card__art">
             {% static 'search/images/nyc-restaurant.jpg' as fallback_img %}
           <img
@@ -101,12 +101,12 @@
           <div class="restaurant-card__body">
             <div class="restaurant-card__topline">
               <p class="restaurant-card__category">{{ restaurant.cuisine|default:"Restaurant" }}</p>
-              {% if user.is_authenticated and restaurant.camis %}
+              {% if user.is_authenticated and restaurant.place_id %}
                 <form class="restaurant-card__like" method="post"
-                      action="{% url 'search:pick_feedback' restaurant.camis %}">
+                      action="{% url 'search:pick_feedback' restaurant.place_id %}">
                   {% csrf_token %}
                   <input type="hidden" name="value" value="like">
-                  <input type="hidden" name="next" value="{{ request.get_full_path }}#r-{{ restaurant.camis }}">
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}#r-{{ restaurant.place_id }}">
                   <button type="submit"
                           class="restaurant-card__like-btn{% if restaurant.liked %} is-active{% endif %}"
                           aria-pressed="{% if restaurant.liked %}true{% else %}false{% endif %}"
@@ -116,8 +116,8 @@
               {% endif %}
             </div>
             <h2>
-              {% if restaurant.camis %}
-                <a href="{% url 'search:restaurant_detail' restaurant.camis %}?from=home{% if selected_boro %}&amp;boro={{ selected_boro|urlencode }}{% endif %}{% if page_obj.number > 1 %}&amp;page={{ page_obj.number }}{% endif %}">{{ restaurant.name }}</a>
+              {% if restaurant.place_id %}
+                <a href="{% url 'search:restaurant_detail' restaurant.place_id %}?from=home{% if selected_boro %}&amp;boro={{ selected_boro|urlencode }}{% endif %}{% if page_obj.number > 1 %}&amp;page={{ page_obj.number }}{% endif %}">{{ restaurant.name }}</a>
               {% else %}
                 {{ restaurant.name }}
               {% endif %}

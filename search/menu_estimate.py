@@ -37,7 +37,7 @@ RETRY_WAITS = (5, 15, 30)  # seconds before each retry
 
 PROMPT = (
     "You estimate restaurant menus for a NYC food-search app. For each "
-    "restaurant below (from NYC health inspection records), list 12 to 20 "
+    "restaurant below (from Google Maps), list 12 to 20 "
     "items it most likely serves, based on its name, cuisine and borough. "
     "These are labeled as estimates, so give typical dishes for this kind of "
     "place; if the name suggests specialties, include them. For each item "
@@ -186,20 +186,20 @@ def estimate_batch(restaurants, generate):
     return result
 
 
-def _row(camis):
+def _row(place_id):
     from community.models import MenuEstimate
 
-    if not camis:
+    if not place_id:
         return None
-    row = MenuEstimate.objects.filter(camis=camis).first()
+    row = MenuEstimate.objects.filter(place_id=place_id).first()
     if row is None or not is_current(row.model_name):
         return None
     return row
 
 
-def estimate_nutrition_for_camis(camis):
+def estimate_nutrition_for_place(place_id):
     """{score, median_calories, meal_count} from a stored estimate, or None."""
-    row = _row(camis)
+    row = _row(place_id)
     if row is None or row.median_calories is None:
         return None
     score = calorie_score_from_median(row.median_calories)
@@ -212,7 +212,7 @@ def estimate_nutrition_for_camis(camis):
     }
 
 
-def estimated_items(camis):
+def estimated_items(place_id):
     """Stored estimated items for a restaurant ([] when none)."""
-    row = _row(camis)
+    row = _row(place_id)
     return list(row.items) if row is not None else []

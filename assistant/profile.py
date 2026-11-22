@@ -15,7 +15,7 @@ from django.utils import timezone
 from accounts.models import UserProfile
 from accounts.mood import latest_check_in_for
 from search.find_food import ZIP_PATTERN
-from search.models import RestaurantInspection
+from restaurants.boroughs import borough_for_zip
 
 MAX_FIELD_CHARS = 1000
 NYC_TZ = ZoneInfo("America/New_York")
@@ -36,13 +36,7 @@ def home_area(address):
         "",
     )
     if zip_code and not borough:
-        borough = (
-            RestaurantInspection.objects.filter(zipcode=zip_code)
-            .exclude(boro="")
-            .values_list("boro", flat=True)
-            .first()
-            or ""
-        )
+        borough = borough_for_zip(zip_code)
     return {"zip": zip_code, "borough": borough}
 
 

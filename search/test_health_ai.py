@@ -14,11 +14,11 @@ from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
-from community.keys import DOHMH
+from community.keys import GOOGLE
 from community.models import HealthScore, PlaceEnrichment, PlaceReview
 from search import health_ai, views
-from search.models import RestaurantInspection
 from search.recommend import health_score, score_restaurant
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 DIM = 512
 
@@ -76,29 +76,27 @@ class AiInScoreTests(SimpleTestCase):
         self.assertLess(health_score("", reviews, "X"), 0.5)
 
     def test_breakdown_marks_ai(self):
-        _s, _t, with_ai = score_restaurant(name="X", grade="A", ai_health=0.8)
-        _s, _t, without = score_restaurant(name="X", grade="A")
+        _s, _t, with_ai = score_restaurant(name="X", ai_health=0.8)
+        _s, _t, without = score_restaurant(name="X")
         self.assertEqual(with_ai["parts"][0]["label"], "Health (AI)")
         self.assertEqual(with_ai["ai_health"], 0.8)
         self.assertEqual(without["parts"][0]["label"], "Health")
 
 
 class StoredScoreTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
-        RestaurantInspection.objects.create(
-            camis="77",
-            dba="GREEN LEAF",
+        make_restaurant(
+            "77",
+            "GREEN LEAF",
             boro="Queens",
             street="1 Main St",
             zipcode="11101",
             cuisine="American",
-            inspection_date="2024-07-01",
-            grade="A",
         )
         place = PlaceEnrichment.objects.create(
-            kind=DOHMH, key="camis:77", camis="77", display_name="Green Leaf"
+            kind=GOOGLE, key="google:77", place_id="77", display_name="Green Leaf"
         )
         for text in (
             "Fresh salad with lots of vegetables.",
@@ -113,19 +111,20 @@ class StoredScoreTests(TestCase):
 
     def test_command_stores_scores_and_skips_done(self):
         self.run_command()
-        row = HealthScore.objects.get(camis="77")
+        row = HealthScore.objects.get(place_id="77")
         self.assertAlmostEqual(row.score, 0.7, places=3)
         self.assertEqual(row.sentences_used, 2)
-        HealthScore.objects.filter(camis="77").update(score=0.1)
+        HealthScore.objects.filter(place_id="77").update(score=0.1)
         self.run_command()  # already scored -> untouched
-        self.assertEqual(HealthScore.objects.get(camis="77").score, 0.1)
+        self.assertEqual(HealthScore.objects.get(place_id="77").score, 0.1)
         self.run_command("--refresh")
-        self.assertAlmostEqual(HealthScore.objects.get(camis="77").score, 0.7, places=3)
+        self.assertAlmostEqual(
+            HealthScore.objects.get(place_id="77").score, 0.7, places=3
+        )
 
     def test_views_read_the_stored_score(self):
         self.assertEqual(views._ai_scores("77"), (None, {}))
-        HealthScore.objects.create(camis="77", score=0.9, goal_scores={})
+        HealthScore.objects.create(place_id="77", score=0.9, goal_scores={})
         self.assertEqual(views._ai_scores("77"), (0.9, {}))
-        with patch("search.views.find_restaurant_place", return_value=None):
-            page = self.client.get(reverse("search:restaurant_detail", args=["77"]))
+        page = self.client.get(reverse("search:restaurant_detail", args=["77"]))
         self.assertEqual(page.context["score_breakdown"]["ai_health"], 0.9)

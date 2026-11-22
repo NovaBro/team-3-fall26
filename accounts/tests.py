@@ -19,6 +19,7 @@ from accounts.models import MoodLog, UserProfile
 from accounts.mood import latest_check_in_for, today_ny, upsert_today_mood
 from accounts.tokens import email_verification_token
 from community.models import CommunitySubject, UserComment, UserRating
+from nycfood.test_utils import ALL_DATABASES
 
 VALID_PASSWORD = "sTr0ngPass!2026x"
 
@@ -36,6 +37,8 @@ def _png_upload(name="me.png"):
 
 
 class SignupTests(TestCase):
+    databases = ALL_DATABASES
+
     def test_signup_creates_inactive_user_and_profile_and_emails_a_link(self):
         response = self.client.post(
             reverse("accounts:signup"),
@@ -207,6 +210,8 @@ class SignupTests(TestCase):
 
 
 class LoginTests(TestCase):
+    databases = ALL_DATABASES
+
     def setUp(self):
         self.user = User.objects.create_user(username="foodie", password=VALID_PASSWORD)
 
@@ -233,7 +238,7 @@ class LoginTests(TestCase):
 
 class ProfileTests(TestCase):
     # Logging out redirects to Find food, which reads stored map locations.
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.user = User.objects.create_user(username="foodie", password=VALID_PASSWORD)
@@ -467,6 +472,8 @@ class ProfileTests(TestCase):
 
 
 class MoodHelperTests(TestCase):
+    databases = ALL_DATABASES
+
     def setUp(self):
         self.user = User.objects.create_user("mooder", "m@example.com", VALID_PASSWORD)
 
@@ -494,6 +501,8 @@ class MoodHelperTests(TestCase):
 
 
 class ViewProfileTests(TestCase):
+    databases = ALL_DATABASES
+
     def setUp(self):
         self.user = User.objects.create_user(
             "ann",
@@ -513,6 +522,8 @@ class ViewProfileTests(TestCase):
 
 
 class AdminUserManagementTests(TestCase):
+    databases = ALL_DATABASES
+
     def setUp(self):
         self.user = User.objects.create_user(
             "target", "target@example.com", VALID_PASSWORD, is_active=True
@@ -580,7 +591,7 @@ class AdminUserManagementTests(TestCase):
 
 
 class SuperuserDashboardTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.admin = User.objects.create_superuser(
@@ -594,7 +605,7 @@ class SuperuserDashboardTests(TestCase):
             last_name="Example",
         )
         self.subject = CommunitySubject.objects.create(
-            kind="restaurant_dohmh", key="camis:1", name="Test Restaurant"
+            kind="restaurant_dohmh", key="google:1", name="Test Restaurant"
         )
         self.comment = UserComment.objects.create(
             subject=self.subject, user_id=self.user.pk, text="Helpful review"
@@ -649,7 +660,7 @@ class SuperuserDashboardTests(TestCase):
 
 
 class AdminDeleteUserTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.admin = User.objects.create_superuser(
@@ -699,7 +710,7 @@ class AdminDeleteUserTests(TestCase):
 
 
 class AdminDeleteCommentTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.admin = User.objects.create_superuser(
@@ -709,7 +720,7 @@ class AdminDeleteCommentTests(TestCase):
             "target", "target@example.com", VALID_PASSWORD
         )
         self.subject = CommunitySubject.objects.create(
-            kind="restaurant_dohmh", key="camis:1", name="Test Restaurant"
+            kind="restaurant_dohmh", key="google:1", name="Test Restaurant"
         )
         self.comment = UserComment.objects.create(
             subject=self.subject, user_id=self.user.pk, text="Helpful review"
@@ -752,6 +763,8 @@ class AdminDeleteCommentTests(TestCase):
 
 
 class SendPromoEmailCommandTests(TestCase):
+    databases = ALL_DATABASES
+
     def test_sends_only_to_opted_in_users(self):
         opted_in = User.objects.create_user("ann", "ann@example.com", VALID_PASSWORD)
         UserProfile.objects.create(user=opted_in, promo_opt_in=True)

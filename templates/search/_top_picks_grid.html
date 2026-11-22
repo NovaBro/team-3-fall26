@@ -1,6 +1,6 @@
 {% load static %}
 {% for pick in top_picks %}
-  <article class="top-pick-card" id="pick-{{ pick.camis }}">
+  <article class="top-pick-card" id="pick-{{ pick.place_id }}">
     <div class="top-pick-card__art">
       {% static 'search/images/nyc-restaurant.jpg' as fallback_img %}
       <img
@@ -19,8 +19,8 @@
         {% if pick.boro %}<span class="top-pick-card__boro-tag">{{ pick.boro }}</span>{% endif %}
       </div>
       <h3>
-        {% if pick.inspection.camis %}
-          <a href="{% url 'search:restaurant_detail' pick.inspection.camis %}?from=home{% if selected_boro %}&amp;boro={{ selected_boro|urlencode }}{% endif %}{% if page_obj and page_obj.number > 1 %}&amp;page={{ page_obj.number }}{% endif %}">{{ pick.name }}</a>
+        {% if pick.place_id %}
+          <a href="{% url 'search:restaurant_detail' pick.place_id %}?from=home{% if selected_boro %}&amp;boro={{ selected_boro|urlencode }}{% endif %}{% if page_obj and page_obj.number > 1 %}&amp;page={{ page_obj.number }}{% endif %}">{{ pick.name }}</a>
         {% else %}
           {{ pick.name }}
         {% endif %}
@@ -88,7 +88,7 @@
 
       <div class="top-pick-card__slot top-pick-card__slot--bottom">
       {% if user.is_authenticated %}
-        <form class="top-pick-card__feedback" method="post" action="{% url 'search:pick_feedback' pick.camis %}">
+        <form class="top-pick-card__feedback" method="post" action="{% url 'search:pick_feedback' pick.place_id %}">
           {% csrf_token %}
           <input type="hidden" name="next" value="{{ request.get_full_path }}">
           <button type="submit" name="value" value="like"

@@ -3,13 +3,11 @@
 GOOGLE_MAPS_JS_KEY=dummy python manage.py test search.test_score_steps
 """
 
-from unittest.mock import patch
-
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
-from search.models import RestaurantInspection
 from search.recommend import score_restaurant
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 
 def steps(breakdown, key):
@@ -19,9 +17,7 @@ def steps(breakdown, key):
 
 class ScoreStepsTests(SimpleTestCase):
     def test_health_steps_add_up(self):
-        _, _, b = score_restaurant(
-            name="Leaf", cuisine="Salads", grade="A", ai_health=0.73
-        )
+        _, _, b = score_restaurant(name="Leaf", cuisine="Salads", ai_health=0.73)
         health = steps(b, "health")
         self.assertEqual(health["Starting point"], "0.50")
         self.assertEqual(health["Cuisine (Salads)"], "+0.20")
@@ -39,12 +35,6 @@ class ScoreStepsTests(SimpleTestCase):
         health = steps(b, "health")
         self.assertIn("Kept between 0 and 1", health)
         self.assertEqual(health["Health"], "0.00")
-
-    def test_grade_steps(self):
-        _, _, b = score_restaurant(name="X", cuisine="Thai", grade="")
-        grade = steps(b, "grade")
-        self.assertEqual(grade["Latest posted grade"], "none yet")
-        self.assertEqual(grade["Grade"], "0.30")
 
     def test_rating_steps_show_the_bayesian_sum(self):
         _, _, b = score_restaurant(
@@ -65,24 +55,14 @@ class ScoreStepsTests(SimpleTestCase):
 
 
 class DetailPageStepsTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def test_parts_open_to_their_steps(self):
-        RestaurantInspection.objects.create(
-            camis="5",
-            dba="LEAF",
-            boro="Queens",
-            street="1 Main St",
-            zipcode="11101",
-            cuisine="Salads",
-            inspection_date="2026-06-01",
-            grade="A",
-        )
-        with patch("search.views.find_restaurant_place", return_value=None):
-            html = self.client.get(
-                reverse("search:restaurant_detail", args=["5"])
-            ).content.decode()
-        self.assertEqual(html.count('<li class="healthiness-score__part">'), 3)
+        make_restaurant("5", "LEAF", boro="Queens", cuisine="Salads", rating=None)
+        html = self.client.get(
+            reverse("search:restaurant_detail", args=["5"])
+        ).content.decode()
+        self.assertEqual(html.count('<li class="healthiness-score__part">'), 2)
         self.assertIn("<dt>Starting point</dt>", html)
-        self.assertIn("<dt>Latest posted grade</dt>", html)
+        self.assertNotIn("Inspection grade", html)
         self.assertIn("Adjusted with 20 virtual 4.0★ votes", html)

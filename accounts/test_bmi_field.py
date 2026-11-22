@@ -9,10 +9,11 @@ from django.urls import reverse
 
 from accounts.forms import UserProfileForm
 from accounts.models import UserProfile
+from nycfood.test_utils import ALL_DATABASES
 
 
 class BmiFieldTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.user = User.objects.create_user("bmi", password="pw-12345!")

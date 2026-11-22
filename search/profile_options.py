@@ -3,7 +3,7 @@
 Users pick from these lists instead of typing, so every choice can be matched
 to our data:
 
-* A food is a cuisine (matched on the DOHMH cuisine) or a dish (matched on
+* A food is a cuisine (matched on the restaurant cuisine label) or a dish (matched on
   the cuisine *or* a word in the restaurant name, e.g. Sushi -> Japanese or
   "sushi" in the name).
 * A health goal has its own AI example sentences (search/health_ai.py),
@@ -27,7 +27,7 @@ from restaurants.diet_filters import ALLERGIES as DIET_ALLERGIES
 @dataclass(frozen=True)
 class FoodOption:
     label: str
-    cuisines: frozenset = frozenset()  # DOHMH cuisine descriptions
+    cuisines: frozenset = frozenset()  # cuisine labels (restaurants/cuisines.py)
     words: tuple = ()  # whole words/phrases searched in the restaurant name
     kind: str = "cuisine"  # "cuisine" or "dish"
 

@@ -252,7 +252,7 @@ def delete_liked_places(request):
         user_id=request.user.pk, value=RecommendationFeedback.LIKE
     )
     if request.POST.get("action") != "delete_all":
-        likes = likes.filter(camis__in=request.POST.getlist("camis"))
+        likes = likes.filter(place_id__in=request.POST.getlist("place_id"))
     removed, _ = likes.delete()
     if removed:
         messages.success(
@@ -272,7 +272,7 @@ def restore_hidden_places(request):
         user_id=request.user.pk, value=RecommendationFeedback.NOT_INTERESTED
     )
     if request.POST.get("action") != "show_all":
-        hidden = hidden.filter(camis__in=request.POST.getlist("camis"))
+        hidden = hidden.filter(place_id__in=request.POST.getlist("place_id"))
     restored, _ = hidden.delete()
     if restored:
         messages.success(

@@ -15,13 +15,14 @@ from search.views import (
     _ranking_seed,
     _store_top_picks_pool,
 )
+from nycfood.test_utils import ALL_DATABASES
 
 User = get_user_model()
 
 
 def _candidate(camis, name, cuisine, nutrition, base_score, *, calorie_score=None):
     return {
-        "camis": camis,
+        "place_id": camis,
         "name": name,
         "cuisine": cuisine,
         "street": "1 Main",
@@ -35,7 +36,7 @@ def _candidate(camis, name, cuisine, nutrition, base_score, *, calorie_score=Non
         },
         "photo_url": "",
         "image": "search/images/nyc-restaurant.jpg",
-        "inspection": {"camis": camis, "grade": "A", "date": None},
+        "inspection": {"place_id": camis, "grade": "A", "date": None},
         "review": None,
         "base_score": base_score,
         "base_reason_tags": ["Grade A"],
@@ -65,10 +66,10 @@ class MoodOverlayRerankUnitTests(TestCase):
         low = SimpleNamespace(mood=1, energy_level=1)
         high = SimpleNamespace(mood=5, energy_level=5)
         low_order = [
-            p["camis"] for p in pick_top(_apply_mood_overlay_to_pool(pool, low), 2)
+            p["place_id"] for p in pick_top(_apply_mood_overlay_to_pool(pool, low), 2)
         ]
         high_order = [
-            p["camis"] for p in pick_top(_apply_mood_overlay_to_pool(pool, high), 2)
+            p["place_id"] for p in pick_top(_apply_mood_overlay_to_pool(pool, high), 2)
         ]
         self.assertEqual(high_order[0], "2")
         self.assertNotEqual(low_order[0], high_order[0])
@@ -88,6 +89,8 @@ class MoodOverlayRerankUnitTests(TestCase):
 
 
 class RerankEndpointTests(TestCase):
+    databases = ALL_DATABASES
+
     def setUp(self):
         cache.clear()
         self.client = Client()
@@ -113,7 +116,7 @@ class RerankEndpointTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("accounts:login"), response["Location"])
 
-    @patch("search.views.find_restaurant_place")
+    @patch("search.views.enrich_place_id")
     def test_rerank_uses_cache_without_google(self, find_place):
         self._seed_pool()
         save_today(self.user, "mood", 5)
@@ -126,7 +129,7 @@ class RerankEndpointTests(TestCase):
         self.assertIn("mood and energy", payload["subtitle"])
         find_place.assert_not_called()
 
-    @patch("search.views.find_restaurant_place")
+    @patch("search.views.enrich_place_id")
     def test_rerank_order_changes_with_mood(self, find_place):
         self._seed_pool()
         save_today(self.user, "mood", 1)
@@ -139,7 +142,7 @@ class RerankEndpointTests(TestCase):
         self.assertLess(high.index("Green Bowl"), high.index("Burger Spot"))
         find_place.assert_not_called()
 
-    @patch("search.views.find_restaurant_place")
+    @patch("search.views.enrich_place_id")
     @patch("search.views._top_picks")
     def test_rerank_rebuilds_pool_on_cache_miss(self, top_picks, find_place):
         def populate(request, count=3, boro=""):

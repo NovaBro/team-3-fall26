@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}{{ dba }} - NYC Food Search{% endblock %}
+{% block title %}{{ name }} - NYC Food Search{% endblock %}
 
 {% block content %}
 <a class="back-link" href="{{ back_url }}">&larr; {{ back_label }}</a>
-<h1>{{ dba }}</h1>
-<p class="muted">{% if cuisine %}{{ cuisine }} &middot; {% endif %}{{ street }}, {{ boro }} {{ zipcode }} &middot; <span class="mono">CAMIS {{ camis }}</span></p>
+<h1>{{ name }}</h1>
+<p class="muted">{% if cuisine %}{{ cuisine }} &middot; {% endif %}{{ street }}, {{ boro }} {{ zipcode }}</p>
 
 {% if score_breakdown %}
 <section class="healthiness-score" aria-labelledby="healthiness-score-title">
@@ -67,16 +67,16 @@
   {% endif %}
   {% if score_breakdown.has_calories == False or score_breakdown.has_menu == False %}
   {% if score_breakdown.estimated_menu_health is not None %}
-  <p class="muted healthiness-score__note">No MenuStat menu match — nutrition blends a soft prior with calories from an AI-estimated menu (a guess, not the real menu). Inspection grade is safety, not nutrition.</p>
+  <p class="muted healthiness-score__note">No MenuStat menu match — nutrition blends a soft prior with calories from an AI-estimated menu (a guess, not the real menu).</p>
   {% else %}
-  <p class="muted healthiness-score__note">No MenuStat menu match — calorie/menu weight uses a soft prior. Inspection grade is safety, not nutrition.</p>
+  <p class="muted healthiness-score__note">No MenuStat menu match — calorie/menu weight uses a soft prior.</p>
   {% endif %}
   {% endif %}
 </section>
 {% endif %}
 
 <h2>Menu</h2>
-<div class="what-to-order" id="what-to-order" data-url="{% url 'search:what_to_order' camis %}" aria-live="polite" aria-busy="true">
+<div class="what-to-order" id="what-to-order" data-url="{% url 'search:what_to_order' place_id %}" aria-live="polite" aria-busy="true">
   <p class="muted what-to-order__empty">Reading the menu…</p>
 </div>
 <noscript><p class="muted">Turn on JavaScript to see dish suggestions.</p></noscript>
@@ -85,7 +85,7 @@
 <h2>Lower-calorie menu items (MenuStat)</h2>
 <p class="muted">
   Top {{ menu_picks|length }} qualifying meals matched to
-  <strong>{{ menustat_name }}</strong> by restaurant name (not CAMIS).
+  <strong>{{ menustat_name }}</strong> by restaurant name.
   Menus are historical (often 2017–2018) and may not match today's offerings.
   Only entrees/sandwiches/salads/burgers/pizza/soup with at least 15&nbsp;g protein;
   kids' meals excluded.

@@ -316,12 +316,12 @@ ESTIMATE_KINDS = {
 }
 
 
-def estimated_dishes(camis):
+def estimated_dishes(place_id):
     """Dishes from a stored Gemini-estimated menu, or []."""
     from search import menu_estimate
 
     dishes = []
-    for item in menu_estimate.estimated_items(camis):
+    for item in menu_estimate.estimated_items(place_id):
         kind = ESTIMATE_KINDS.get(item.get("kind"))
         if kind:
             dishes.append(
@@ -550,12 +550,12 @@ def pick(dishes, profile, count=PICKS, skipped=None):
     return choices[:count]
 
 
-def build(name, place, profile, query, get_encoder=None, camis=None):
+def build(name, place, profile, query, get_encoder=None, place_id=None):
     """The menu for one restaurant, grouped by kind, with food picks for
     this user highlighted (never raises).
 
     Order: MenuStat, then the Google photos, then a stored AI-estimated menu
-    for *camis*. ``get_encoder`` returns the MiniLM encoder (or None);
+    for *place_id*. ``get_encoder`` returns the MiniLM encoder (or None);
     without it the menu is shown with no picks.
     """
     failed = False
@@ -566,11 +566,13 @@ def build(name, place, profile, query, get_encoder=None, camis=None):
     except Exception:
         logger.warning("Menu lookup failed for %s", name, exc_info=True)
         failed, dishes = True, []
-    if not dishes and camis:
+    if not dishes and place_id:
         try:
-            source, dishes = "estimate", estimated_dishes(camis)
+            source, dishes = "estimate", estimated_dishes(place_id)
         except Exception:
-            logger.warning("Estimated menu lookup failed for %s", camis, exc_info=True)
+            logger.warning(
+                "Estimated menu lookup failed for %s", place_id, exc_info=True
+            )
             dishes = []
     if not dishes:
         message = "Menu not available right now." if failed else "Menu not available."

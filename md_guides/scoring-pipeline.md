@@ -7,6 +7,103 @@ score. **Shipped math and tables:** [`scoring-algorithm.md`](scoring-algorithm.m
 Core API: pure `score_restaurant()` in `search/recommend.py` (no I/O). Wiring
 and enrichment live in `search/views.py`.
 
+The pipeline has two halves:
+
+- **Offline (management commands):** load the datasets, fetch restaurants from
+  Google, cut the ranked pool, and optionally store AI scores. See section 0.
+- **Per request (page views):** pick candidates from the pool, attach the stored
+  data, score, and choose the top 3 (sections 1–6). Scoring makes no Google
+  or Gemini calls. The only Google call on a page view is a photo-only lookup
+  for a shown Top pick that has no stored photo (`ensure_photos`; see
+  `scoring-algorithm.md`, "Top pick photos").
+
+---
+
+## 0. Data stage: datasets → pool → stored enrichment
+
+```mermaid
+flowchart TD
+  subgraph sources [Sources]
+    CSV["database/datasets/*.csv<br/>MenuStat, Farmers Markets,<br/>Shop Healthy Stores"]
+    GP["Google Places API"]
+  end
+
+  CSV -->|import_datasets| ND[("nyc_food.db<br/>MenuItem, FarmersMarket, HealthyStore")]
+  GP -->|"sync_restaurants<br/>(+ first detail-page visit)"| CD[("community.db<br/>Restaurant, PlaceEnrichment, PlaceReview")]
+  GP -->|"enrich_places<br/>(markets, stores)"| CD
+
+  ND --> CUR["curate_pool<br/>top 500 per borough per category<br/>sets active flag"]
+  CD --> CUR
+  CUR --> POOL["Model.pool<br/>(active rows only)"]
+
+  POOL -->|"score_health (MiniLM, local)"| HS[("HealthScore")]
+  POOL -->|"estimate_menus (Gemini)"| ME[("MenuEstimate")]
+  HS -->|"write_reasons (Gemini)"| RB[("ReasonBlurb")]
+
+  POOL --> RANK["Ranking (sections 1–6)"]
+  ND -->|"MenuStat fuzzy name match"| RANK
+  HS --> RANK
+  ME --> RANK
+```
+
+### What each dataset is used for
+
+| Source | Stored as | Role in ranking |
+|---|---|---|
+| MenuStat CSV (chain menu nutrition) | `MenuItem` | Median calories of qualifying meals → `menu_health`, for restaurants whose name matches a chain. Also goal fit (`search/goal_fit.py`) and the Menu box. |
+| Farmers Markets CSV | `FarmersMarket` | Not in the restaurant score. Listed in Find food and the "Cook at home today" strip. |
+| Shop Healthy Stores CSV | `HealthyStore` | Same as farmers markets. |
+| Google Places | `Restaurant`, `PlaceEnrichment`, `PlaceReview` | The restaurants themselves: rating, review count, cuisine, borough, price, coordinates, up to 5 reviews. |
+
+There is no shared key between Google place ids and MenuStat `Restaurant_ID`.
+Links use a normalized name match (exact, then unambiguous prefix, then
+unambiguous contains), so only chains link, and only a small share of the pool.
+
+### The pool (`active` flag)
+
+"Pool" is the set of places the site ranks. `Restaurant`, `FarmersMarket` and
+`HealthyStore` each have an `active` flag and a `pool` manager that returns
+active rows only:
+
+- `Model.pool` is read by listing and ranking code: Top Picks, Explore more,
+  Find food, the assistant, and the AI enrichment commands.
+- `Model.objects` is used for lookups by id, so a detail page still works for a
+  place that dropped out.
+
+`manage.py curate_pool` (`search/curation.py`) sets the flag. It runs on its
+own at the end of `sync_restaurants` and `import_datasets`, and
+`--dry-run` previews the result. Per category and per borough, eligible places
+are ordered by a weighted (Bayesian) rating, and the top 500 are kept:
+
+```text
+score = (v × R + m × C) / (v + m)
+```
+
+R is the Google rating, v its review count, C the category's mean rating, and m
+a prior: 100 for restaurants, 20 for markets and stores. A 4.9 with 3 reviews
+therefore ranks below a 4.6 with 2,000.
+
+| Category | Eligible when |
+|---|---|
+| Restaurants | Google `OPERATIONAL`, rating ≥ 3.5, ≥ 20 reviews, borough known |
+| Farmers markets | Latest season only; not permanently closed; not rated < 3.5 on ≥ 5 reviews |
+| Shop Healthy stores | Not permanently closed; not rated < 3.5 on ≥ 5 reviews |
+
+Unrated markets and stores rank after every rated one. Rows that drop out are
+never deleted, because their Google data cost money, and the next run can bring
+them back.
+
+### Optional AI enrichment (stored, filled over time)
+
+Nothing runs these on a schedule. Coverage is whatever has been run or visited
+so far, and a place without a stored value falls back to the non-AI path.
+
+| Step | When it runs | Covers | Effect on score |
+|---|---|---|---|
+| MiniLM health + goal scores (`HealthScore`) | `manage.py score_health` (local, free); also live the first time a place is shown, if `AI_LIVE_SCORING` is on | Pool restaurants with stored Google reviews | Replaces the review-keyword term in the health prior (±0.5 instead of ±0.3); feeds goal fit |
+| Gemini menu estimates (`MenuEstimate`) | `manage.py estimate_menus` only, run locally (5 places per call). The server only reads rows. `--dry-run` still calls Gemini; it only skips saving. | Open pool restaurants with no MenuStat match | 50% of nutrition for that place (confidence stays low) |
+| Gemini reason paragraph (`ReasonBlurb`) | First detail-page visit with `GEMINI_API_KEY` set; or `manage.py write_reasons` (default `--limit 50`) | Places with a `HealthScore`, best first | None. It rewrites the computed reasons as prose (section 6). |
+
 ---
 
 ## 1. End-to-end Top Picks pipeline
@@ -14,8 +111,8 @@ and enrichment live in `search/views.py`.
 ```mermaid
 flowchart TD
   subgraph candidates [1. Candidate pool - DB only]
-    A["Explore ranking<br/>grade / cuisine / fast-food / staleness"] --> B["Daily shuffle<br/>seed = date + user + borough"]
-    B --> C["First 25 meal places<br/>grade A, max 5 per cuisine"]
+    A["Explore ranking<br/>Google rating / cuisine / fast-food<br/>open places only"] --> B["Daily shuffle<br/>seed = date + user + borough"]
+    B --> C["First 25 meal places<br/>rated 3.8+, max 5 per cuisine"]
     C --> D{Logged-in profile?}
     D -->|yes| E["+ up to 3 favorite matches<br/>+ up to 3 near-home"]
     D -->|no| F["Pool max 25"]
@@ -27,10 +124,9 @@ flowchart TD
     MY --> G["Drop Not interested<br/>Drop strong allergy cuisines"]
   end
 
-  subgraph enrich [2. Enrich each candidate]
-    G --> H["Google Places<br/>rating, price, up to 5 reviews, photo"]
-    H --> I[DOHMH latest grade]
-    I --> J["MenuStat fuzzy name match<br/>median qualifying-meal calories"]
+  subgraph enrich [2. Enrich each candidate - stored data, no API calls]
+    G --> H["Stored Google data<br/>rating, price, up to 5 reviews, photo"]
+    H --> J["MenuStat fuzzy name match<br/>median qualifying-meal calories"]
     J --> J2["No MenuStat: Gemini-estimated menu<br/>stored MenuEstimate median kcal"]
     J2 --> K["AI health score<br/>HealthScore or MiniLM live"]
     K --> L[In-app ratings]
@@ -49,11 +145,12 @@ flowchart TD
   end
 ```
 
-**Explore more** uses only step 1's cheap `explore_score` (no Google / MenuStat /
-AI). Top Picks re-scores the enriched pool with the full formula.
+**Explore more** uses only step 1's cheap `explore_score` (no MenuStat / AI).
+Top Picks re-scores the enriched pool with the full formula. Both read the
+stored `community.Restaurant` pool, so neither calls Google.
 
-**Detail page** (`/restaurant/<camis>/`) skips the pool: `score_for_camis` loads
-Google / MenuStat / AI / ratings for one place, then calls the same
+**Detail page** (`/restaurant/<place_id>/`) skips the pool: `score_for_place`
+loads Google / MenuStat / AI / ratings for one place, then calls the same
 `score_restaurant`.
 
 ---
@@ -62,7 +159,7 @@ Google / MenuStat / AI / ratings for one place, then calls the same
 
 ```mermaid
 flowchart TD
-  IN["Inputs: name, cuisine, grade, ratings, reviews<br/>profile, feedback, mood, MenuStat, AI scores"] --> NUT
+  IN["Inputs: name, cuisine, ratings, reviews<br/>profile, feedback, mood, MenuStat, AI scores"] --> NUT
 
   subgraph nutrition [Nutrition 0-1]
     NUT{"MenuStat linked<br/>calorie_score set?"}
@@ -81,14 +178,12 @@ flowchart TD
   MENU --> BLEND
 
   subgraph other [Other components 0-1]
-    SAFE["Safety: grade A=1, B=0.5, C=0, missing=0.3"]
     RATE["Rating: Bayesian Google+app, map 3 stars to 0 ... 5 stars to 1"]
     FIT{Personal inputs?}
     FIT -->|yes| PF["Personal fit 0-1<br/>favorites, goals, likes, home, allergies"]
     FIT -->|no| NOP[Skip personal term]
   end
 
-  SAFE --> BLEND
   RATE --> BLEND
   PF --> BLEND
   NOP --> BLEND
@@ -101,20 +196,42 @@ flowchart TD
 
 ```text
 sort_score =
-  100 × (nutrition × w_n + safety × w_s + rating × w_r [+ personal × w_p])
+  100 × (nutrition × w_n + rating × w_r [+ personal × w_p])
   + mood_overlay (2H: high→healthier, low→laxer)
 ```
 
-| Mode | Nutrition / prior | Safety | Rating | Personal |
-|---|---|---|---|---|
-| Linked (MenuStat) | 70% | 20% | 10% | — |
-| Linked + health focus | 75% | 15% | 10% | — |
-| Unlinked | 40% | 40% | 20% | — |
-| Unlinked + health focus | 55% | 30% | 15% | — |
-| Any + personal inputs | base × 0.80 | | | 20% |
+| Mode | Nutrition / prior | Rating | Personal |
+|---|---|---|---|
+| Linked (MenuStat) | 87.5% | 12.5% | — |
+| Linked + health focus | 88% | 12% | — |
+| Unlinked | 66.7% | 33.3% | — |
+| Unlinked + health focus | 79% | 21% | — |
+| Any + personal inputs | base × 0.80 | | 20% |
+
+There is no safety part: restaurants come from Google, which has no
+inspection grades.
 
 **Health focus:** BMI ≥ 25 or `weight-loss` goal (BMI is never shown; it only
 shifts weights).
+
+**Rating component:** Google and in-app ratings are blended with 20 virtual
+4.0★ votes, then mapped as `(blended − 3.0) / 2.0`, clipped to 0–1.
+
+### Worked example
+
+A salad place with no MenuStat match, no Gemini estimate and no profile:
+4.6★ on 300 Google reviews, AI health score 0.7.
+
+```text
+nutrition (prior) = 0.5 + 0.2 (healthy cuisine) + 1.0 × (0.7 − 0.5) (AI) = 0.90
+blended rating    = (300 × 4.6 + 20 × 4.0) / 320 = 4.56★
+rating            = (4.56 − 3.0) / 2.0 = 0.78
+sort_score        = 100 × (0.667 × 0.90 + 0.333 × 0.78) ≈ 86
+```
+
+With a stored Gemini estimate whose median main is 500 kcal
+(`menu_health = (800 − 500) / 600 = 0.5`), nutrition becomes
+`0.5 × 0.5 + 0.5 × 0.90 = 0.70`, and the score drops to about 73.
 
 **Health estimate** (detail headline, not the sort total):
 
@@ -166,7 +283,7 @@ flowchart TD
   M --> LIVE
 
   subgraph store [Cache]
-    DB[("community.HealthScore<br/>camis, score, goal_scores")]
+    DB[("community.HealthScore<br/>place_id, score, goal_scores")]
   end
 
   LIVE{Row with goal_scores?}
@@ -272,14 +389,17 @@ general reasons only — never personal facts, never review text.
 
 | Step | Module |
 |---|---|
+| Dataset import | `search/management/commands/import_datasets.py` |
+| Pool curation (`active`) | `search/curation.py`, `manage.py curate_pool` |
 | Candidate pool / Explore score | `search/views.py` (`_build_candidate_pool`, `_scored_restaurants`) |
-| Google enrichment | `search/services/places.py`, `restaurants/places.py` |
+| Google restaurants + enrichment | `search/services/places.py`, `restaurants/places.py`, `restaurants/cuisines.py`, `manage.py sync_restaurants` |
 | MenuStat link + calories | `search/menustat.py` |
 | Gemini-estimated menus | `search/menu_estimate.py`, `manage.py estimate_menus` |
 | MiniLM health / goals | `search/health_ai.py`, `search/ai_scores.py` |
 | Pure score | `search/recommend.py` (`score_restaurant`, `health_parts`, `personal_fit`, `pick_top`) |
 | Goal nutrient fit | `search/goal_fit.py` |
-| Top Picks / detail wiring | `search/views.py` (`_top_picks`, `score_for_camis`) |
+| Top Picks / detail wiring | `search/views.py` (`_top_picks`, `score_for_place`) |
+| Top pick photos | `search/views.py` (`_attach_photos`), `search/services/places.py` (`ensure_photos`, `forget_photo`) |
 | Claude optional order | `assistant/recommend.py` (`personalized_picks`) |
 | Gemini reason prose | `search/reason_writer.py` |
 | Batch AI scores | `manage.py score_health` |
@@ -291,6 +411,7 @@ general reasons only — never personal facts, never review text.
 
 | Doc | Contents |
 |---|---|
+| [`dataset_setup.md`](dataset_setup.md) | Dataset files, import ETL, Google sync, databases |
 | [`scoring-algorithm.md`](scoring-algorithm.md) | Full tables, tags, MenuStat filters, daily rotation, limits |
-| [`ranking-v2-plan.md`](ranking-v2-plan.md) | Why nutrition/safety split and linked vs unlinked weights |
+| [`ranking-v2-plan.md`](ranking-v2-plan.md) | Why linked vs unlinked weights (written when an inspection-grade safety part existed) |
 | [`mood-energy-survey-plan.md`](mood-energy-survey-plan.md) | MoodLog check-in UX and storage |
