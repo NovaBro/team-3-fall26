@@ -118,7 +118,7 @@ before `search/0008`, which deletes the inspection tables, so migrate the
 | Path | Behavior |
 |------|----------|
 | `/` (Find food) | Farmers markets (latest year), Shop Healthy stores and saved restaurants on one map and list; or live Google results for restaurants |
-| `/home/` | Top picks and Explore more, ranked from saved restaurants with no Google calls |
+| `/home/` | Top picks and Explore more, ranked from saved restaurants with no Google calls (except a photo-only lookup for a shown Top pick with no stored photo) |
 | `/restaurant/<place_id>/` | Score breakdown, Menu box, lower-calorie MenuStat items |
 | `POST /restaurant/<place_id>/refresh-google/` | Re-fetch the place from Google |
 
@@ -149,8 +149,14 @@ Google Places API
         ├── Find food "Google Places (live)" (request time; stored when opened)
         └── missing market/store locations ──► LocationLookup (30-day cache)
 
-community.Restaurant ──► /home/ Top picks + Explore more, Find food, assistant
+curate_pool (after import_datasets / sync_restaurants)
+        │  top 500 per borough per category by weighted Google rating
+        ▼
+Model.pool (active rows) ──► /home/ Top picks + Explore more, Find food, assistant
 ```
+
+How the pool is chosen and how restaurants are scored from it:
+[`scoring-pipeline.md`](scoring-pipeline.md).
 
 ## Setup reminder
 

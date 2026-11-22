@@ -22,7 +22,9 @@ Each viewer gets one ranking per day (and per selected borough): the DB-only
 score below plus their taste, ties shuffled with a seed made of the date, the
 user ID and the borough. Explore more pages through this list; Top picks score
 its first 25 places for a meal (see Setup). Every card reads stored Google
-data (rating, price, photo, reviews), so the page makes no Google calls.
+data (rating, price, photo, reviews), so ranking makes no Google calls. The one
+exception is photos: a shown Top pick with no stored photo reference gets one
+fetched (see "Top pick photos" below).
 
 DB-only score: Google rating 4.5+ +2 / 4.0+ +1 / below 3.5 −1, healthy cuisine
 +1, unhealthy or non-meal cuisine −1, fast food −2. Places Google lists as
@@ -323,6 +325,27 @@ by place id that returns all its details (also used by Refresh and
 Google search stores it as a saved restaurant. A failed fetch is retried after
 10 minutes; until then the page shows "No Google data" and the Refresh button.
 
+## Top pick photos
+
+After the final 3 picks are chosen (`_attach_photos` in `search/views.py`,
+also after a mood rerank), each one needs a Google photo reference
+(`Restaurant.photo_name`). Places with a stored reference make no request.
+For the rest, `ensure_photos` (`search/services/places.py`):
+
+- sends a Place Details request that asks for `photos` only (the cheapest
+  field mask), all 3 in parallel with a 3 s timeout, so a slow Google call
+  can't hold up the page for long;
+- stores the first reference and sets `photo_checked_at`, even when Google
+  has no photo, so a place without photos is asked again only after 30 days;
+- leaves nothing recorded when Google fails or no key is set, so a later
+  page load retries.
+
+Google's terms allow storing the photo reference, not the image. The image is
+served through `restaurants:photo`, which keeps the API key on the server.
+References expire: when Google answers 400/404 for one, `forget_photo` clears
+it, and the next Top picks load fetches a new one. Off under `manage.py test`
+(`GOOGLE_PHOTO_FETCH`) and without `GOOGLE_PLACES_API_KEY`.
+
 ## Review shown on the card
 
 Only 4–5 star reviews are shown on a Top Picks card (the rating score still
@@ -431,8 +454,10 @@ BMI is never displayed; health-focus mode is noted as “personalized weights.�
 - **Google review sample:** At most five relevance-ordered Google reviews.
 - **No safety signal:** inspection grades are gone; nothing warns about a
   restaurant with food-safety problems.
-- **API cost:** page views make no Google calls; the cost is in
-  `sync_restaurants` (capped by `--limit`) and first visits to new places.
+- **API cost:** ranking makes no Google calls; the cost is in
+  `sync_restaurants` (capped by `--limit`), first visits to new places, and
+  at most 3 photo-only Place Details requests when shown Top picks have no
+  stored photo (each place at most once per 30 days if Google has none).
 
 ## Code map
 

@@ -72,8 +72,8 @@ Restaurants come only from Google Places. They are stored in
 `community.Restaurant` (keyed by Google place id) in `community.db`, with their
 details and reviews in `PlaceEnrichment`/`PlaceReview` (kind
 `restaurant_google`, key `google:<place_id>`). Top picks, Explore more, Find
-food and the assistant rank this stored pool, so page views make no Google
-calls. Cuisine labels come from Google place types
+food and the assistant rank this stored pool, so ranking makes no Google
+calls (a shown Top pick with no stored photo gets a photo-only lookup). Cuisine labels come from Google place types
 (`restaurants/cuisines.py`), borough from the address.
 
 `sync_restaurants` keeps the pool filled (needs `GOOGLE_PLACES_API_KEY`):
