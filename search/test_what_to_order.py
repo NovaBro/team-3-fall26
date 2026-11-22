@@ -17,6 +17,7 @@ from community.keys import DOHMH
 from community.models import PlaceEnrichment
 from search import what_to_order as wto
 from search.models import RestaurantInspection
+from nycfood.test_utils import ALL_DATABASES
 
 HEALTHY_WORDS = (
     "salad", "grilled", "steamed", "vegan", "lean", "fresh", "healthy",
@@ -374,7 +375,7 @@ class MenuStatTests(TestCase):
 
 
 class ViewTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         RestaurantInspection.objects.create(

@@ -14,6 +14,7 @@ from community.models import LocationLookup, PlaceEnrichment
 from restaurants.places import PlacesError, locate_place
 from search.find_food import Chain, market_operates_on_day
 from search.models import FarmersMarket, HealthyStore, RestaurantInspection
+from nycfood.test_utils import ALL_DATABASES
 
 NO_KEY = {"GOOGLE_API_KEY": ""}
 WITH_KEY = {"GOOGLE_API_KEY": "test-key"}
@@ -24,7 +25,7 @@ def found(lat=40.7, lng=-73.9, address="1 Found St, New York, NY 10001"):
 
 
 class FindFoodData(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     @classmethod
     def setUpTestData(cls):

@@ -14,6 +14,7 @@ from search.user_location import (
     save_user_latlng,
     user_latlng,
 )
+from nycfood.test_utils import ALL_DATABASES
 
 
 class ParseLatLngTests(TestCase):
@@ -30,6 +31,8 @@ class ParseLatLngTests(TestCase):
 
 
 class UserLatLngHelperTests(TestCase):
+    databases = ALL_DATABASES
+
     def setUp(self):
         self.user = User.objects.create_user("pin", "pin@example.com", "pw-12345!")
 
@@ -52,7 +55,7 @@ class UserLatLngHelperTests(TestCase):
 
 @patch("search.views.find_restaurant_place", return_value=None)
 class SaveLocationViewTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         for camis, dba, cuisine, day in [

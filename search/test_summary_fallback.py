@@ -13,6 +13,7 @@ from django.urls import reverse
 
 from search import signals, summary_status, views
 from search.models import RestaurantInspection, RestaurantSummary
+from nycfood.test_utils import ALL_DATABASES
 
 TODAY = date(2026, 11, 15)
 
@@ -48,7 +49,7 @@ def explore_names():
 
 @patch("search.views._today", return_value=TODAY)
 class SummaryFallbackTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         summary_status.reset()

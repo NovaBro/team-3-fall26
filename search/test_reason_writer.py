@@ -20,6 +20,7 @@ from community.keys import DOHMH
 from community.models import HealthScore, PlaceEnrichment, PlaceReview, ReasonBlurb
 from search import reason_writer, views
 from search.models import RestaurantInspection
+from nycfood.test_utils import ALL_DATABASES
 
 GOOD = "A salad bar where reviewers praise the crisp greens and grilled chicken."
 
@@ -103,7 +104,7 @@ class GeminiWrapperTests(SimpleTestCase):
 
 
 class WriteReasonsCommandTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         RestaurantInspection.objects.create(
@@ -191,7 +192,7 @@ class WriteReasonsCommandTests(TestCase):
 class OnDemandTests(TestCase):
     """The detail page writes the paragraph on the first visit, then reuses it."""
 
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         cache.clear()

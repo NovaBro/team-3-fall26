@@ -6,7 +6,6 @@ Usage:
 The command is idempotent: each target table is cleared before it is reloaded.
 """
 
-import json
 import math
 from pathlib import Path
 
@@ -16,11 +15,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
 
 from search.models import (
-    AgencyPurchase,
     FarmersMarket,
     HealthyStore,
     MenuItem,
-    ParkEatery,
     RestaurantInspection,
     RestaurantSummary,
 )
@@ -90,10 +87,8 @@ class Command(BaseCommand):
         importers = [
             ("restaurant inspections", RestaurantInspection, self._import_restaurants),
             ("menu items", MenuItem, self._import_menu_items),
-            ("agency purchases", AgencyPurchase, self._import_purchases),
             ("farmers markets", FarmersMarket, self._import_markets),
             ("healthy stores", HealthyStore, self._import_stores),
-            ("park eateries", ParkEatery, self._import_eateries),
         ]
 
         with summary_signals.paused():
@@ -177,26 +172,6 @@ class Command(BaseCommand):
         ]
         return self._bulk(MenuItem, records)
 
-    def _import_purchases(self):
-        records = [
-            AgencyPurchase(
-                agency=_text(row["Agency"]),
-                time_period=_text(row["Time Period"]),
-                food_product_group=_text(row["Food Product Group"]),
-                food_product_category=_text(row["Food Product Category"]),
-                product_name=_text(row["Product Name"]),
-                product_type=_text(row["Product Type"]),
-                origin_detail=_text(row["Origin Detail"]),
-                distributor=_text(row["Distributor"]),
-                vendor=_text(row["Vendor"]),
-                units=_number(row["# of Units"]),
-                total_weight_lbs=_number(row["Total Weight in lbs"]),
-                total_cost=_number(row["Total Cost"]),
-            )
-            for row in self._read_csv("Good_Food_Purchasing_Data_*.csv")
-        ]
-        return self._bulk(AgencyPurchase, records)
-
     def _import_markets(self):
         records = [
             FarmersMarket(
@@ -241,23 +216,3 @@ class Command(BaseCommand):
             for row in self._read_csv("Recognized_Shop_Healthy_Stores_*.csv")
         ]
         return self._bulk(HealthyStore, records)
-
-    def _import_eateries(self):
-        with open(self._find("DPR_Eateries_*.json")) as handle:
-            data = json.load(handle)
-        records = [
-            ParkEatery(
-                name=_text(item.get("name")),
-                location=_text(item.get("location")),
-                park_id=_text(item.get("park_id")),
-                start_date=_date(item.get("start_date")),
-                end_date=_date(item.get("end_date")),
-                description=_text(item.get("description")),
-                permit_number=_text(item.get("permit_number")),
-                phone=_text(item.get("phone")),
-                website=_text(item.get("website")),
-                type_name=_text(item.get("type_name")),
-            )
-            for item in data
-        ]
-        return self._bulk(ParkEatery, records)

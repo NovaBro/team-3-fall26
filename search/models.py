@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.db import models
 
 
@@ -88,29 +87,6 @@ class MenuItem(models.Model):
         return f"{self.restaurant} - {self.item_name}"
 
 
-class AgencyPurchase(models.Model):
-    """One product purchase line by an NYC agency (Good Food Purchasing)."""
-
-    agency = models.CharField(max_length=255, blank=True, db_index=True)
-    time_period = models.CharField(max_length=32, blank=True, db_index=True)
-    food_product_group = models.CharField(max_length=255, blank=True, db_index=True)
-    food_product_category = models.CharField(max_length=255, blank=True)
-    product_name = models.CharField(max_length=255, blank=True)
-    product_type = models.CharField(max_length=255, blank=True)
-    origin_detail = models.CharField(max_length=255, blank=True)
-    distributor = models.CharField(max_length=255, blank=True)
-    vendor = models.CharField(max_length=255, blank=True)
-    units = models.FloatField(null=True)
-    total_weight_lbs = models.FloatField(null=True)
-    total_cost = models.FloatField(null=True)
-
-    class Meta:
-        verbose_name = "agency purchase"
-
-    def __str__(self):
-        return f"{self.agency} - {self.product_name}"
-
-
 class FarmersMarket(models.Model):
     """One NYC farmers market per year."""
 
@@ -158,50 +134,3 @@ class HealthyStore(models.Model):
 
     def __str__(self):
         return self.store_name
-
-
-class ParkEatery(models.Model):
-    """One permitted NYC Parks eatery."""
-
-    name = models.CharField(max_length=255, blank=True, db_index=True)
-    location = models.CharField(max_length=255, blank=True)
-    park_id = models.CharField(max_length=32, blank=True, db_index=True)
-    start_date = models.DateField(null=True)
-    end_date = models.DateField(null=True)
-    description = models.TextField(blank=True)
-    permit_number = models.CharField(max_length=64, blank=True, db_index=True)
-    phone = models.CharField(max_length=64, blank=True)
-    website = models.CharField(max_length=255, blank=True)
-    type_name = models.CharField(max_length=128, blank=True, db_index=True)
-
-    class Meta:
-        verbose_name = "park eatery"
-
-    def __str__(self):
-        return self.name
-
-
-class Place(models.Model):
-    RESTAURANT = "restaurant"
-    FARMERS_MARKET = "farmers_market"
-    GROCERY_STORE = "grocery_store"
-    KIND_CHOICES = [
-        (RESTAURANT, "Restaurant"),
-        (FARMERS_MARKET, "Farmers market"),
-        (GROCERY_STORE, "Grocery store"),
-    ]
-
-    kind = models.CharField(max_length=32, choices=KIND_CHOICES)
-    name = models.CharField(max_length=255)
-    external_id = models.CharField(max_length=255)
-
-    def __str__(self):
-        return self.name
-
-
-class Review(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    place = models.ForeignKey(Place, on_delete=models.CASCADE)
-    rating = models.PositiveSmallIntegerField()
-    text = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)

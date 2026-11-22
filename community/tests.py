@@ -23,6 +23,7 @@ from community.models import (
     UserPhoto,
     UserRating,
 )
+from nycfood.test_utils import ALL_DATABASES
 
 
 def _png():
@@ -52,7 +53,7 @@ class PinKeyTests(SimpleTestCase):
 
 
 class CommunityPanelTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.user = User.objects.create_user(

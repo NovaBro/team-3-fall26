@@ -16,11 +16,12 @@ from community.keys import DOHMH
 from community.models import PlaceEnrichment
 from search.models import RestaurantInspection
 from search.services.places import PlacesAPIError
+from nycfood.test_utils import ALL_DATABASES
 
 
 @override_settings(GOOGLE_AUTO_FETCH=True, GOOGLE_PLACES_API_KEY="test-key")
 class AutoFetchTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         cache.clear()

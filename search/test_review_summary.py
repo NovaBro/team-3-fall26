@@ -12,6 +12,7 @@ from community.keys import DOHMH
 from community.models import PlaceEnrichment, PlaceReview
 from search.models import RestaurantInspection
 from search.services import places
+from nycfood.test_utils import ALL_DATABASES
 
 SUMMARY = {
     "text": {
@@ -25,7 +26,7 @@ SUMMARY = {
 
 
 class ReviewSummaryTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def place(self, raw):
         return PlaceEnrichment.objects.create(
@@ -60,7 +61,7 @@ class ReviewSummaryTests(TestCase):
 
 
 class DetailPageSummaryTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         RestaurantInspection.objects.create(

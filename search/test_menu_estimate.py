@@ -16,6 +16,7 @@ from search import what_to_order as wto
 from search.menustat import clear_menustat_cache
 from search.models import MenuItem, RestaurantSummary
 from search.recommend import ESTIMATE_SHARE, UNLINKED_WEIGHTS, score_restaurant
+from nycfood.test_utils import ALL_DATABASES
 
 
 def item(name, kind="main", calories=500, description=""):
@@ -83,7 +84,7 @@ class ParseAndCleanTests(SimpleTestCase):
 
 
 class StoredEstimateTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def save(self, camis="1", median=500.0, tag=None, items=None):
         MenuEstimate.objects.create(
@@ -112,7 +113,7 @@ class StoredEstimateTests(TestCase):
 
 
 class EstimateMenusCommandTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         for camis, name in (
@@ -231,7 +232,7 @@ class ScoringTests(SimpleTestCase):
 
 
 class MenuBoxTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         MenuEstimate.objects.create(

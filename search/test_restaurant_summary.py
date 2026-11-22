@@ -92,10 +92,8 @@ class ImportDatasetsTests(TestCase):
             )
             others = [
                 "_import_menu_items",
-                "_import_purchases",
                 "_import_markets",
                 "_import_stores",
-                "_import_eateries",
             ]
             out = StringIO()
             with patch.object(cmd, "DATASETS_DIR", folder):

@@ -8,10 +8,11 @@ from django.test import TestCase
 from django.urls import reverse
 
 from community.models import RecommendationFeedback
+from nycfood.test_utils import ALL_DATABASES
 
 
 class LikedPlacesTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.ann = User.objects.create_user("ann", password="pw-12345!")
@@ -56,7 +57,7 @@ class LikedPlacesTests(TestCase):
 
 
 class DeleteLikedPlacesTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.ann = User.objects.create_user("ann", password="pw-12345!")
@@ -123,7 +124,7 @@ class DeleteLikedPlacesTests(TestCase):
 
 
 class HiddenPlacesTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.ann = User.objects.create_user("ann", password="pw-12345!")

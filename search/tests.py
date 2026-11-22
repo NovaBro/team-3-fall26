@@ -7,11 +7,12 @@ from community.keys import DOHMH, FARMERS_MARKET, GROCERY, dohmh_key
 from community.models import PlaceEnrichment, PlaceReview
 from search.models import RestaurantInspection
 from search.services.places import PlacesAPIError, enrich_camis, enrich_subject
+from nycfood.test_utils import ALL_DATABASES
 
 
 @patch.dict("os.environ", {"GOOGLE_API_KEY": ""})
 class RestaurantSearchTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     @classmethod
     def setUpTestData(cls):
@@ -220,7 +221,7 @@ SEARCH_RESULT = {"places": [DETAILS_RESULT]}
 
 @override_settings(GOOGLE_PLACES_API_KEY="test-key")
 class EnrichRestaurantTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     @classmethod
     def setUpTestData(cls):
@@ -278,7 +279,7 @@ class EnrichRestaurantTests(TestCase):
 
 
 class RestaurantDetailGoogleTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     @classmethod
     def setUpTestData(cls):
@@ -341,7 +342,7 @@ class RestaurantDetailGoogleTests(TestCase):
 
 
 class HomeTopPicksTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     @patch("search.views.find_restaurant_place")
     def test_home_page_shows_top_picks_with_google_review(self, mock_find_place):
@@ -480,7 +481,7 @@ class HomeTopPicksTests(TestCase):
 
 @override_settings(GOOGLE_PLACES_API_KEY="test-key")
 class EnrichSubjectTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     @patch("search.services.places.requests.request")
     def test_enrich_grocery_saves_kind_key_and_reviews(self, request):
@@ -526,7 +527,7 @@ class EnrichSubjectTests(TestCase):
 
 
 class EnrichPlacesCommandOrderingTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def test_restaurants_prefer_missing_coordinates(self):
         from search.management.commands.enrich_places import Command

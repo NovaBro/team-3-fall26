@@ -11,6 +11,7 @@ from django.urls import reverse
 from search import views
 from search.models import RestaurantInspection
 from search.recommend import score_restaurant
+from nycfood.test_utils import ALL_DATABASES
 
 
 def inspection(camis, dba, grade, day="2024-07-01", cuisine="Salads"):
@@ -27,7 +28,7 @@ def inspection(camis, dba, grade, day="2024-07-01", cuisine="Salads"):
 
 
 class GymFilterTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def test_gyms_and_studios_are_not_top_picks(self):
         inspection("1", "INTOXX FITNESS", "A", cuisine="Juice, Smoothies, Fruit Salads")
@@ -41,7 +42,7 @@ class GymFilterTests(TestCase):
 
 
 class UnknownGradeTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def reasons(self, camis):
         with patch("search.views.find_restaurant_place", return_value=None):

@@ -27,8 +27,8 @@ from community.models import CommunitySubject, PlaceEnrichment, UserRating
 from restaurants.places import PlacesError
 from search.find_food import GOOGLE, _item
 from search.models import HealthyStore, MenuItem, RestaurantInspection
+from nycfood.test_utils import ALL_DATABASES
 
-ALL_DATABASES = {"default", "community"}
 TEST_KEY = "test-key"
 MIDTOWN = (40.7549, -73.984)
 

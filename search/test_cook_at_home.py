@@ -20,6 +20,7 @@ from search.cook_at_home import (
     passes_place_quality,
 )
 from search.models import FarmersMarket, HealthyStore, RestaurantInspection
+from nycfood.test_utils import ALL_DATABASES
 
 
 def enrich_market(market, rating=4.5, reviews=150):
@@ -82,7 +83,7 @@ class PlaceQualityTests(TestCase):
 
 
 class CookAtHomePickerTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     @classmethod
     def setUpTestData(cls):
@@ -213,7 +214,7 @@ class CookAtHomePickerTests(TestCase):
 
 @patch("search.views.find_restaurant_place", return_value=None)
 class CookAtHomeHomeViewTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         for camis, dba, cuisine, day in [

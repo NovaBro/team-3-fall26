@@ -14,6 +14,7 @@ from django.test import RequestFactory, TestCase
 from community.models import RecommendationFeedback
 from search import views
 from search.models import RestaurantInspection
+from nycfood.test_utils import ALL_DATABASES
 
 TODAY = date(2026, 11, 15)
 
@@ -33,7 +34,7 @@ def inspection(camis, dba, cuisine="Salads", grade="A"):
 
 @patch("search.views._today", return_value=TODAY)
 class SharedRankingTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         for n in range(40):
@@ -78,7 +79,7 @@ class SharedRankingTests(TestCase):
 
 @patch("search.views.find_restaurant_place", return_value=None)
 class ExplorePagesTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         for n in range(40):
@@ -107,7 +108,7 @@ class ExplorePagesTests(TestCase):
 
 
 class NoZipTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def test_places_without_zip_are_not_candidates(self):
         inspection("8100", "HAS ZIP")
@@ -123,7 +124,7 @@ class NoZipTests(TestCase):
 class TasteMixTests(TestCase):
     """A liked cuisine is mixed in, not stacked at the top."""
 
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         cuisines = ["Japanese", "Salads", "Mediterranean", "Vegan", "Korean"]

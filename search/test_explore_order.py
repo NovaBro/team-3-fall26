@@ -13,6 +13,7 @@ from django.test import RequestFactory, TestCase
 from community.models import RecommendationFeedback
 from search import views
 from search.models import RestaurantInspection
+from nycfood.test_utils import ALL_DATABASES
 
 TODAY = date(2026, 11, 15)
 
@@ -32,7 +33,7 @@ def inspection(camis, dba, cuisine, day="2026-06-01", grade="A"):
 
 @patch("search.views._today", return_value=TODAY)
 class ExplorePersonalOrderTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.user = User.objects.create_user("kim", password="pw-12345!")

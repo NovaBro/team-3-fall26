@@ -114,9 +114,14 @@ DATABASES = {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "database" / "community.db",
     },
+    # Accounts, profiles, mood logs and sessions (see nycfood/routers.py).
+    "users": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "database" / "users.db",
+    },
 }
 
-DATABASE_ROUTERS = ["community.router.CommunityRouter"]
+DATABASE_ROUTERS = ["nycfood.routers.UsersRouter", "community.router.CommunityRouter"]
 
 
 # Password validation

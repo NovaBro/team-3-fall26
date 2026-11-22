@@ -169,8 +169,8 @@ class Command(BaseCommand):
             raise CommandError(f"Full database not found: {source}")
         if os.path.exists(dest) and not force:
             raise CommandError(
-                f"{dest} exists. Rebuilding replaces it (accounts created while "
-                "using it are lost); pass --force to continue."
+                f"{dest} exists; pass --force to rebuild it. Accounts live in "
+                "users.db and are not affected."
             )
 
         src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)

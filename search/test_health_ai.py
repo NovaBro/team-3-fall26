@@ -19,6 +19,7 @@ from community.models import HealthScore, PlaceEnrichment, PlaceReview
 from search import health_ai, views
 from search.models import RestaurantInspection
 from search.recommend import health_score, score_restaurant
+from nycfood.test_utils import ALL_DATABASES
 
 DIM = 512
 
@@ -84,7 +85,7 @@ class AiInScoreTests(SimpleTestCase):
 
 
 class StoredScoreTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         RestaurantInspection.objects.create(

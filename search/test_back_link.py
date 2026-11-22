@@ -9,10 +9,11 @@ from django.test import TestCase
 from django.urls import reverse
 
 from search.models import RestaurantInspection
+from nycfood.test_utils import ALL_DATABASES
 
 
 class BackLinkTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         RestaurantInspection.objects.create(
@@ -53,7 +54,7 @@ class BackLinkTests(TestCase):
 
 
 class SearchHeadlineTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def test_search_page_headline(self):
         html = self.client.get(reverse("search:index")).content.decode()

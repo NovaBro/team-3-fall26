@@ -15,6 +15,7 @@ from search.views import (
     _ranking_seed,
     _store_top_picks_pool,
 )
+from nycfood.test_utils import ALL_DATABASES
 
 User = get_user_model()
 
@@ -88,6 +89,8 @@ class MoodOverlayRerankUnitTests(TestCase):
 
 
 class RerankEndpointTests(TestCase):
+    databases = ALL_DATABASES
+
     def setUp(self):
         cache.clear()
         self.client = Client()

@@ -23,6 +23,7 @@ from search.recommend import (
     pick_top,
     score_restaurant,
 )
+from nycfood.test_utils import ALL_DATABASES
 
 
 def item(name, score, cuisine, like_bonus=0.0):
@@ -151,7 +152,7 @@ class FeedbackPrefsTests(SimpleTestCase):
 
 @patch("search.views.find_restaurant_place", return_value=None)
 class FeedbackViewTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         rows = [
@@ -328,7 +329,7 @@ class FeedbackViewTests(TestCase):
 
 
 class DailyPoolTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         for n in range(60):
@@ -375,7 +376,7 @@ def inspection(camis, dba, cuisine, grade, day="2024-07-01"):
 
 
 class ExploreOrderTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         # A fixed "today" so the test dates (2023-2025) are not seen as closed.
@@ -433,7 +434,7 @@ class ExploreOrderTests(TestCase):
 
 @patch("search.views.find_restaurant_place", return_value=None)
 class BoroughTopPicksTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         cuisines = ["American", "Thai", "Salads", "Mexican"]
@@ -491,7 +492,7 @@ class BoroughTopPicksTests(TestCase):
 
 @patch("search.views.find_restaurant_place", return_value=None)
 class MealOnlyTopPicksTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         inspection("30", "STARBUCKS", "Coffee/Tea", "A", day="2024-07-09")
@@ -582,7 +583,7 @@ class DisplayReviewTests(SimpleTestCase):
 
 @patch("search.views.find_restaurant_place")
 class CardReviewTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def test_card_shows_the_healthy_review(self, find):
         inspection("40", "GREEN LEAF", "Salads", "A")
@@ -603,7 +604,7 @@ class CardReviewTests(TestCase):
 
 
 class HealthyCandidateTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def pool(self, profile=None, seed="2026-11-10:0:"):
         return [row["name"] for row in views._build_candidate_pool(profile, None, seed)]
@@ -648,7 +649,7 @@ class HealthyCandidateTests(TestCase):
 
 
 class MoodPoolExtraTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def test_mood_boost_cuisines_by_check_in(self):
         self.assertEqual(views._mood_boost_cuisines(None), set())
@@ -698,7 +699,7 @@ class MoodPoolExtraTests(TestCase):
 
 
 class ClaudePicksTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         inspection("50", "LUIGI", "Italian", "A")

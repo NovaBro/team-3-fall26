@@ -8,6 +8,7 @@ from django.urls import reverse
 
 from search.models import RestaurantInspection
 from search.recommend import FeedbackPrefs, explain_reasons, score_restaurant
+from nycfood.test_utils import ALL_DATABASES
 
 
 def profile(**fields):
@@ -142,7 +143,7 @@ class ScoreReasonsTests(SimpleTestCase):
 
 
 class PickReasonsTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def test_top_picks_carry_reasons(self):
         RestaurantInspection.objects.create(
@@ -162,7 +163,7 @@ class PickReasonsTests(TestCase):
 
 
 class DetailWhyTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         RestaurantInspection.objects.create(

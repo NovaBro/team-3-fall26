@@ -12,8 +12,10 @@ NYC food / open-data search project. Raw datasets live in `database/datasets/`.
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
-.venv/bin/python manage.py migrate
-.venv/bin/python manage.py import_datasets   # loads CSVs/JSON into database/nyc_food.db
+.venv/bin/python manage.py migrate                        # datasets: nyc_food.db
+.venv/bin/python manage.py migrate --database=community   # community.db
+.venv/bin/python manage.py migrate --database=users       # accounts: users.db
+.venv/bin/python manage.py import_datasets   # loads CSVs into database/nyc_food.db
 .venv/bin/python manage.py runserver
 ```
 
@@ -136,20 +138,33 @@ star rating, and whether the place is open now.
 
 ## Data
 
-The SQLite database (`database/nyc_food.db`) is generated, not committed. Rebuild it
-any time with `import_datasets`; the command is idempotent.
+Three SQLite files live in `database/`; none are committed.
+
+| File | Holds | Rebuild |
+|---|---|---|
+| `nyc_food.db` (`default`) | Open Data tables below | `import_datasets` (idempotent) |
+| `community.db` (`community`) | Google enrichment, ratings, comments, photos, scores | Not rebuildable; back it up |
+| `users.db` (`users`) | Accounts, profiles, mood logs, sessions, admin log | Not rebuildable; back it up |
+
+Routers (`nycfood/routers.py`, `community/router.py`) pick the file per app.
+Community rows store a plain `user_id` that matches `users.db`.
+
+Upgrading a checkout from before the split (accounts were in `nyc_food.db`):
+
+```bash
+.venv/bin/python manage.py migrate --database=users
+.venv/bin/python manage.py move_accounts_db   # copies users, keeping their ids
+```
 
 | Dataset | Size | Rows | Imported as |
 |---|---|---|---|
 | `restaurant_data_set_2_*.csv` | ~71 MB | ~297K | `RestaurantInspection` |
 | `restaurant_cuisines_*.csv` | ~688 KB | ~31.5K | `RestaurantInspection.cuisine` (matched on CAMIS) |
 | `DOHMH_MenuStat_(Historical)_*.csv` | ~21 MB | ~65K | `MenuItem` |
-| `Good_Food_Purchasing_Data_*.csv` | ~3.5 MB | ~17K | `AgencyPurchase` |
 | `NYC_Farmers_Markets_*.csv` | ~300 KB | ~2.3K | `FarmersMarket` |
 | `Recognized_Shop_Healthy_Stores_*.csv` | ~104 KB | 712 | `HealthyStore` |
-| `DPR_Eateries_001.json` | ~52 KB | 142 | `ParkEatery` |
 
-Total is about 97 MB / 414K rows. Inspection rows are per violation, not per
+Total is about 93 MB / 397K rows. Inspection rows are per violation, not per
 restaurant. The `YYYYMMDD` filename suffix is the download date, not the period
 the data covers.
 
@@ -195,18 +210,17 @@ the best places per type (default `--limit 500`):
 - **Shop Healthy stores:** 500, ranked the same way.
 - **Farmers markets:** up to 500 per year (all 102 in the latest year).
 
-MenuStat, agency purchases, park eateries, and accounts are copied unchanged.
-`nyc_food.db` and `community.db` are only read, never modified.
+MenuStat is copied unchanged. `nyc_food.db` and `community.db` are only read,
+never modified.
 
 When the lite file exists, the site uses it automatically. Set
 `NYCFOOD_FULL_DATA=1` to switch back to the full DB without deleting anything.
 `import_datasets` refuses to run against the lite DB.
 
-Note: accounts and profiles live in `nyc_food.db`, so the lite copy has the
-accounts that existed when it was built. Rebuilding with `--force` replaces any
-accounts created since. Ratings, comments, and Google data are in the shared
-`community.db`. Production is unaffected: deploys download only `nyc_food.db`
-from S3.
+Accounts live in `users.db` and ratings, comments, and Google data in
+`community.db`, so both modes share them and rebuilding the lite DB with
+`--force` loses nothing. Production is unaffected: deploys download only
+`nyc_food.db` from S3.
 
 ## Tests
 
@@ -237,12 +251,15 @@ Repository settings that the workflow depends on:
 
 The integration site is http://Nycfood-env.eba-jht3rtv2.us-east-1.elasticbeanstalk.com. The Elastic Beanstalk application is `nycfood`, the environments are `Nycfood-env` (integration, from `develop`) and `Nycfood-env-main` (production, from `main`), and the region is `us-east-1`. GitHub Actions deploys with `eb deploy` after tests pass (see [CI/CD](#cicd)). The workflow assumes the IAM role `github-nycfood-deploy`; no AWS keys are stored in GitHub.
 
-The instance downloads `database/nyc_food.db` and `database/community.db` from `elasticbeanstalk-us-east-1-322134621417` before migrate. Those files are not in Git and are not in the deploy bundle. Django still opens them as local SQLite files. Rows written on the live site, and files in `media/`, are replaced by the next deploy. To change the canonical databases, upload them again:
+The instance downloads `database/nyc_food.db`, `database/community.db` and `database/users.db` from `elasticbeanstalk-us-east-1-322134621417` before migrate. Those files are not in Git and are not in the deploy bundle. Django still opens them as local SQLite files. Rows written on the live site, and files in `media/`, are replaced by the next deploy. To change the canonical databases, upload them again:
 
 ```bash
 aws s3 cp database/nyc_food.db s3://elasticbeanstalk-us-east-1-322134621417/nyc_food.db
 aws s3 cp database/community.db s3://elasticbeanstalk-us-east-1-322134621417/community.db
+aws s3 cp database/users.db s3://elasticbeanstalk-us-east-1-322134621417/users.db
 ```
+
+`users.db` may be missing from S3: the download is allowed to fail, `migrate --database=users` creates it, and `move_accounts_db` copies accounts out of `nyc_food.db` while `users.db` has none.
 
 Before the first Actions deploy, upload both files and attach `deploy/s3-db-read-policy.json` to the instance role `aws-elasticbeanstalk-ec2-role` (so it can `GetObject` those keys). A failed download fails the deploy. API keys come from SSM Parameter Store.
 

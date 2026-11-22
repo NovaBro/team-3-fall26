@@ -18,6 +18,7 @@ from search.models import MenuItem, RestaurantInspection
 from search.goal_fit import menu_nutrients
 from search.menustat import clear_menustat_cache
 from search.test_health_ai import fake_encoder
+from nycfood.test_utils import ALL_DATABASES
 
 
 class GoalFitTests(SimpleTestCase):
@@ -80,6 +81,8 @@ class MenuNutrientTests(TestCase):
 
 
 class ProfileFormTests(TestCase):
+    databases = ALL_DATABASES
+
     def form(self, **data):
         user = User.objects.create_user("u")
         return UserProfileForm(
@@ -123,7 +126,7 @@ class ProfileFormTests(TestCase):
 
 
 class CandidatePoolTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def add(self, camis, name, cuisine):
         RestaurantInspection.objects.create(
@@ -195,7 +198,7 @@ class CandidatePoolTests(TestCase):
 
 
 class GoogleMatchedPicksTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         for index in range(5):
@@ -232,7 +235,7 @@ class GoogleMatchedPicksTests(TestCase):
 
 
 class BoroughOptionsTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def test_zero_borough_is_not_offered(self):
         for camis, boro in (("71", "Queens"), ("72", "0")):

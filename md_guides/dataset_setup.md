@@ -10,13 +10,11 @@ Filename suffix `YYYYMMDD` (e.g. `20261011`) is the **download date**, not a con
 |------|--------------|------|------|------------|
 | `restaurant_data_set_2_*.csv` | ~71M | ~297K | DOHMH restaurant inspections (one row per violation) | `CAMIS`, `DBA`, `BORO`, `STREET`, `ZIPCODE`, `INSPECTION DATE`, `VIOLATION CODE`, `VIOLATION DESCRIPTION`, `GRADE` |
 | `DOHMH_MenuStat_(Historical)_*.csv` | ~21M | ~65K | Chain menu nutrition (MenuStat) | `Restaurant_ID`, `Menu_Item_ID`, nutrients per serving / per 100g, kids/LTO flags |
-| `Good_Food_Purchasing_Data_*.csv` | ~3.5M | ~17K | Agency food purchases | agency, product, vendor, units / weight / cost |
 | `NYC_Farmers_Markets_*.csv` | ~300K | ~2.3K | Farmers markets | name, borough, lat/long, hours, season, EBT |
 | `Recognized_Shop_Healthy_Stores_*.csv` | ~104K | 712 | Shop Healthy stores | store, address, lat/long, program wave, geo IDs |
-| `DPR_Eateries_001.json` | ~52K | 142 | Park eateries | `name`, `location`, `park_id`, `permit_number`, `website`, `type_name` |
 | `restaurant_cuisines_*.csv` | ~688K | ~31.5K | CAMIS → cuisine lookup (from Open Data `43nn-pn8j`) | `camis`, `cuisine_description` |
 
-Total: about 97 MB / 414K rows.
+Total: about 93 MB / 397K rows.
 
 There is **no shared primary key** across sources: inspection `CAMIS` and MenuStat `Restaurant_ID` are distinct ID spaces. Inspections are linked to MenuStat by fuzzy name match (`search/menustat.py`).
 
@@ -56,7 +54,7 @@ Shop Healthy stores, and ≤500 farmers markets per year.
 
 1. Resolve the latest file matching each glob under `database/datasets/`
 2. Delete all rows in the target model (full reload)
-3. Read CSV via pandas (or JSON for DPR eateries); normalize text, zip codes, numbers, dates, and booleans
+3. Read CSV via pandas; normalize text, zip codes, numbers, dates, and booleans
 4. `bulk_create` in batches of 2000 into SQLite at `database/nyc_food.db` (generated, not committed)
 
 ### Source → Django model
@@ -66,10 +64,8 @@ Shop Healthy stores, and ≤500 farmers markets per year.
 | `restaurant_data_set_2_*.csv` | `RestaurantInspection` |
 | `restaurant_cuisines_*.csv` | `RestaurantInspection.cuisine` (matched on CAMIS) |
 | `DOHMH_MenuStat_(Historical)_*.csv` | `MenuItem` |
-| `Good_Food_Purchasing_Data_*.csv` | `AgencyPurchase` |
 | `NYC_Farmers_Markets_*.csv` | `FarmersMarket` |
 | `Recognized_Shop_Healthy_Stores_*.csv` | `HealthyStore` |
-| `DPR_Eateries_*.json` | `ParkEatery` |
 
 **Partial MenuStat import:** most `*_100g` nutrients (except `Calories_100g`), serving-size helper columns, and `*_text` nutrient columns are dropped at import time.
 
@@ -94,11 +90,14 @@ located through `PlaceEnrichment`, then `community.LocationLookup`, then a
 Google Places Text Search for the visible page (`search/locations.py`). The
 `locate_places` command backfills `LocationLookup`.
 
-The agency purchase and park eatery tables are still imported but are no
-longer shown in the UI (the Explore datasets tab was removed in issue #109).
 MenuStat is not listed on its own, but it feeds Top Picks ranking, health-goal
 fit, the "what to order" menu box, and lower-calorie items on restaurant detail
 pages (`search/recommend.py`, `search/goal_fit.py`, `search/what_to_order.py`).
+The Good Food Purchasing and DPR park eatery datasets were dropped: nothing
+read them after the Explore datasets tab was removed in issue #109.
+
+Accounts are not in this database: they live in `database/users.db`
+(`nycfood/routers.py`), so rebuilding `nyc_food.db` never touches them.
 
 ### Not from local datasets
 

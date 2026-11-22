@@ -11,10 +11,11 @@ from django.urls import reverse
 
 from community.models import RecommendationFeedback
 from search.models import RestaurantInspection
+from nycfood.test_utils import ALL_DATABASES
 
 
 class ExploreLikeTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         RestaurantInspection.objects.create(

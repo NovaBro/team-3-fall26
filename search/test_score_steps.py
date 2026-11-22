@@ -10,6 +10,7 @@ from django.urls import reverse
 
 from search.models import RestaurantInspection
 from search.recommend import score_restaurant
+from nycfood.test_utils import ALL_DATABASES
 
 
 def steps(breakdown, key):
@@ -65,7 +66,7 @@ class ScoreStepsTests(SimpleTestCase):
 
 
 class DetailPageStepsTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def test_parts_open_to_their_steps(self):
         RestaurantInspection.objects.create(

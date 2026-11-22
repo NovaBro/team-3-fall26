@@ -19,13 +19,14 @@ from community.models import HealthScore, PlaceEnrichment, PlaceReview
 from search import ai_scores, health_ai
 from search.models import RestaurantInspection
 from search.test_health_ai import fake_encoder
+from nycfood.test_utils import ALL_DATABASES
 
 HEALTHY = ["Fresh vegetables and grilled chicken, very light and healthy."]
 
 
 @override_settings(AI_LIVE_SCORING=True)
 class AiHealthForTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         cache.clear()

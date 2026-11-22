@@ -15,6 +15,7 @@ from search.menustat import (
     top_low_calorie_meals,
 )
 from search.models import MenuItem, RestaurantInspection
+from nycfood.test_utils import ALL_DATABASES
 
 
 def _meal(**kwargs):
@@ -138,7 +139,7 @@ class MenuStatHelperTests(TestCase):
 
 
 class RestaurantDetailMenuStatTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         clear_menustat_cache()

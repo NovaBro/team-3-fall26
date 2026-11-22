@@ -9,6 +9,7 @@ from django.urls import reverse
 from accounts import checkin
 from accounts.models import MoodLog
 from search.models import RestaurantInspection
+from nycfood.test_utils import ALL_DATABASES
 
 
 class HeadlineTests(TestCase):
@@ -26,6 +27,8 @@ class HeadlineTests(TestCase):
 
 
 class QuickCheckinTests(TestCase):
+    databases = ALL_DATABASES
+
     def setUp(self):
         self.user = User.objects.create_user("mia", password="pw-12345!")
         self.client.force_login(self.user)
@@ -93,6 +96,8 @@ class QuickCheckinTests(TestCase):
 
 
 class TodayTests(TestCase):
+    databases = ALL_DATABASES
+
     def test_start_of_today_is_new_york_midnight(self):
         now = datetime(2026, 11, 17, 3, 30, tzinfo=checkin.NEW_YORK)
         start = checkin.start_of_today(now)
@@ -108,7 +113,7 @@ class TodayTests(TestCase):
 
 
 class HomePageTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def test_logged_out_sees_default_banner_and_no_picker(self):
         response = self.client.get(reverse("search:home"))
