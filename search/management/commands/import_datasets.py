@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pandas as pd
 from django.conf import settings
-from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.core.management.base import BaseCommand, CommandError
+from django.db import connection, transaction
 
 from search.models import (
     AgencyPurchase,
@@ -78,6 +78,11 @@ class Command(BaseCommand):
     help = "Import the raw NYC food datasets into the SQLite database."
 
     def handle(self, *args, **options):
+        if str(connection.settings_dict["NAME"]) == str(settings.LITE_DB_PATH):
+            raise CommandError(
+                "The site is using the lite DB. Import into the full DB with "
+                "NYCFOOD_FULL_DATA=1, then run build_lite_db --force."
+            )
         if not DATASETS_DIR.exists():
             self.stderr.write(f"Datasets directory not found: {DATASETS_DIR}")
             return

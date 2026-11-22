@@ -5,6 +5,10 @@ Where the menu comes from:
 1. MenuStat (chains in our DB): read from our own table, no API cost.
 2. Otherwise the restaurant's Google photos: up to 10 photos are downloaded
    and one Gemini call finds the menu photos and reads the dish names.
+3. Otherwise a stored Gemini-estimated menu (``community.MenuEstimate``,
+   made offline by ``manage.py estimate_menus`` from name and cuisine only),
+   labeled as an estimate.
+
 Nothing from step 2 is saved in the database: Google's terms don't allow
 storing Places content (only place IDs). The menu read from the photos is
 kept in the cache for PLACES_CACHE_SECONDS (1 hour), the same as Google
@@ -125,7 +129,7 @@ class Group:
 
 @dataclass
 class Result:
-    source: str = ""  # "menustat", "photos" or "" (no menu)
+    source: str = ""  # "menustat", "photos", "estimate" or "" (no menu)
     groups: list = field(default_factory=list)
     picks: list = field(default_factory=list)
     skipped: list = field(default_factory=list)  # [(dish name, [allergen words])]
@@ -302,6 +306,33 @@ def read_dishes(images):
         logger.warning("Gemini quota reached; pausing menu reading.")
         cache.set(GEMINI_PAUSE_KEY, True, GEMINI_PAUSE_SECONDS)
         return []
+
+
+ESTIMATE_KINDS = {
+    "main": "food",
+    "side": "food",
+    "drink": "drink",
+    "dessert": "dessert",
+}
+
+
+def estimated_dishes(camis):
+    """Dishes from a stored Gemini-estimated menu, or []."""
+    from search import menu_estimate
+
+    dishes = []
+    for item in menu_estimate.estimated_items(camis):
+        kind = ESTIMATE_KINDS.get(item.get("kind"))
+        if kind:
+            dishes.append(
+                Dish(
+                    name=item.get("name") or "",
+                    description=" ".join((item.get("description") or "").split()),
+                    kind=kind,
+                    calories=item.get("calories"),
+                )
+            )
+    return clean(dishes)
 
 
 def _can_read():
@@ -519,22 +550,31 @@ def pick(dishes, profile, count=PICKS, skipped=None):
     return choices[:count]
 
 
-def build(name, place, profile, query, get_encoder=None):
+def build(name, place, profile, query, get_encoder=None, camis=None):
     """The menu for one restaurant, grouped by kind, with food picks for
     this user highlighted (never raises).
 
-    ``get_encoder`` returns the MiniLM encoder (or None); without it the
-    menu is shown with no picks.
+    Order: MenuStat, then the Google photos, then a stored AI-estimated menu
+    for *camis*. ``get_encoder`` returns the MiniLM encoder (or None);
+    without it the menu is shown with no picks.
     """
+    failed = False
     try:
         source, dishes = "menustat", menustat_dishes(name)
         if not dishes:
             source, dishes = "photos", photo_dishes(place, query)
     except Exception:
         logger.warning("Menu lookup failed for %s", name, exc_info=True)
-        return Result(message="Menu not available right now.")
+        failed, dishes = True, []
+    if not dishes and camis:
+        try:
+            source, dishes = "estimate", estimated_dishes(camis)
+        except Exception:
+            logger.warning("Estimated menu lookup failed for %s", camis, exc_info=True)
+            dishes = []
     if not dishes:
-        return Result(message="Menu not available.")
+        message = "Menu not available right now." if failed else "Menu not available."
+        return Result(message=message)
     result = Result(source=source, groups=group(dishes))
     try:
         _add_picks(result, dishes, profile, get_encoder)

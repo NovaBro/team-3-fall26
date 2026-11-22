@@ -167,10 +167,11 @@ class RestaurantSearchTests(TestCase):
         breakdown = response.context["score_breakdown"]
         self.assertIsNotNone(breakdown)
         self.assertTrue(breakdown["parts"])
+        self.assertIn(breakdown["confidence"], ("high", "medium", "low"))
         content = response.content.decode()
-        self.assertIn("Healthiness score", content)
+        self.assertIn("Health estimate", content)
+        self.assertIn("confidence", content.casefold())
         self.assertIn("How this score is calculated", content)
-        self.assertIn("Health", content)
         self.assertIn("pts", content)
 
     def test_detail_missing_returns_404(self):

@@ -1,10 +1,18 @@
-# Top Picks scoring algorithm
+# Top Picks scoring algorithm (v4 / ranking-v2)
 
 HealthyFoodsNYC ranks a small pool of recent grade-A restaurants and shows the
 top three on the home page (first page; with a borough selected, picks come
 from that borough). Scoring is rule-based in
 `search/recommend.py` (`score_restaurant`). MenuStat linking and meal filters
-live in `search/menustat.py`.
+live in `search/menustat.py`. Design rationale:
+`md_guides/ranking-v2-plan.md`.
+
+**Pipeline diagrams** (candidate pool → enrichment → formula → Top 3):
+[`scoring-pipeline.md`](scoring-pipeline.md).
+
+**Nutrition and safety are separate.** The detail page “Health estimate” is
+menu calories (when linked) or a soft prior — not the inspection grade.
+Grade is an **Inspection safety** term in the ranking blend and a badge/filter.
 
 ## One ranking for Top picks and Explore more
 
@@ -33,8 +41,7 @@ of one cuisine.
    years −2 since the place has likely closed, ...; no Google calls),
    restricted to places whose latest grade is A. Ties are shuffled with a daily
    seed (see "Daily rotation" below). Places the user marked not interested are
-   skipped. (Before: the most recently inspected grade-A places, which says
-   nothing about how healthy a place is.)
+   skipped.
 2. Top picks are places for a meal: coffee/tea, bakery/desserts, donuts, frozen
    desserts, bagels/pretzels, bottled beverages and nuts/confectionary are left
    out, plus coffee/dessert chains filed under another cuisine (e.g. some
@@ -45,22 +52,105 @@ of one cuisine.
 3. Exclude cuisines that are risky for the user’s free-text allergies (via
    `diet_filters.risky_cuisines` after keyword → `nuts` / `shellfish` mapping).
 4. For logged-in users with a profile, add up to 3 favorite-food matches and up
-   to 3 same-borough-as-home places (15 candidates max).
+   to 3 same-borough-as-home places (31 candidates max). With a mood check-in
+   today, add up to 8 more grade-A places in cuisines that suit the mood
+   (`MOOD_POOL_EXTRA`, 39 candidates max) so the mood overlay can change the
+   top 3.
 5. Enrich with Google Places (rating, price, up to 5 reviews), DOHMH grade, and
-   in-app ratings; optionally resolve MenuStat calories by **fuzzy name match**.
-6. Score each candidate; show the top 3 (one per cuisine) with their reason tags.
+   in-app ratings; optionally resolve MenuStat calories by **fuzzy name match**
+   (with match kind + menu year for confidence).
+6. Score each candidate; show the top 3 (one per cuisine). Ties prefer higher
+   confidence, then rating.
 
 Price is **not** part of the numeric score (Budget-friendly is a tag only).
-BMI is never shown on the page; it only shifts weights.
+BMI is never shown on the page; it only shifts weights slightly (health focus).
 
-## Components (0–1)
+## Health estimate (detail headline)
+
+```text
+if MenuStat linked:
+    health_estimate = 100 × menu_health
+else:
+    health_estimate = 100 × prior_health
+```
+
+Shown with **confidence** (high / medium / low). Profile adjustments are not
+folded into this headline number; they appear under ranking adjustments.
+
+### Menu health (0–1)
+
+Median calories of *qualifying* meals → `(800 − median) / 600`, clipped to
+[0, 1] (200 kcal → 1.0, 800 → 0.0).
+
+### Prior health (0–1) — unlinked only
+
+Base 0.5, then soft priors (capped):
+
+| Signal | Effect |
+|---|---|
+| Healthy / unhealthy cuisine lists | ±0.2 |
+| AI review score (when present) | `1.0 × (ai − 0.5)` → ±0.5 |
+| Review keyword share (healthy − unhealthy), no AI score | ×0.3 → ±0.3 |
+| Known fast-food chain name | −0.2 |
+
+Result clipped to [0, 1] (`health_parts` / `prior_health_score`).
+
+### Confidence
+
+| Level | When |
+|---|---|
+| **High** | Exact MenuStat name match, ≥5 qualifying meals, menu year ≥ 2019 |
+| **Medium** | Prefix/contains match, or &lt;5 meals, or menu year &lt; 2019 |
+| **Low** | No MenuStat link (prior only) |
+
+## Ranking sort score (Top Picks)
+
+```text
+100 × (nutrition_or_prior × w_n + safety × w_s + rating × w_r [+ personal × w_p])
+  + mood_overlay (mood/energy + distance points)
+```
+
+### Components (0–1)
 
 | Part | How it is computed |
 |---|---|
-| **Health** | Base 0.5 ± 0.2 cuisine ± 0.3 × (healthy − unhealthy review share) − 0.2 if fast-food chain; clipped to [0, 1]. |
-| **Inspection grade** | A = 1.0, B = 0.5, C = 0, pending/missing = 0.3. The grade is the latest *graded* inspection's; a place never graded is unknown (0.3, no "Grade A" tag or reason), not A. |
+| **Nutrition** (linked) | `menu_health` from MenuStat median calories of qualifying meals. |
+| **Prior / Health** (unlinked) | Soft prior: base 0.5 ± cuisine ± review share − fast-food penalty; clipped to [0, 1]. |
+| **Inspection safety** | A = 1.0, B = 0.5, C = 0, pending/missing = 0.3. Latest *graded* inspection; never graded = unknown (0.3). |
 | **Rating** | Bayesian blend of Google + in-app ratings toward prior 4.0 (pseudo-count 20), then map 3.0 → 0 … 5.0 → 1. |
-| **Calories** (MenuStat only) | Median calories of *qualifying* meals → `(800 − median) / 600`, clipped to [0, 1] (200 kcal → 1.0, 800 → 0.0). |
+| **Personal fit** | Favorite/disliked foods, goals, mild allergies, home area, Like / Not interested (when profile or feedback present). |
+
+### Weights
+
+| Mode | Nutrition / prior | Safety | Rating | Personal |
+|---|---|---|---|---|
+| Linked (default) | 70% menu | 20% | 10% | — |
+| Linked + health focus | 75% menu | 15% | 10% | — |
+| Unlinked (default) | 40% prior | 40% | 20% | — |
+| Unlinked + health focus | 55% prior | 30% | 15% | — |
+| Personal (profile/feedback) | share of remaining after personal 20% | | | 20% |
+
+Health focus: BMI ≥ 25 or `weight-loss` goal. Mood/energy check-in adjusts the sort score separately.
+
+### AI-estimated menus (no MenuStat link)
+
+Restaurants without a MenuStat menu can have a **Gemini-estimated menu**
+(`community.MenuEstimate`, see "AI-estimated menus" below). Its median
+main-dish calories go through the same `(800 − kcal) / 600` mapping, then are
+blended with the prior:
+
+```text
+nutrition = 0.5 × estimated_menu_health + 0.5 × prior_health   (ESTIMATE_SHARE)
+```
+
+Not applied to non-meal cuisines (donuts, coffee, bakery/desserts, …): per-item
+calories there look "light" next to full meals. Their estimated menus still
+show in the Menu box.
+
+Weights stay **unlinked**, confidence stays **low**, and the MenuStat-only
+tags (Menu-based estimate, Lower-calorie menu) are not given. The detail
+headline reads "prior + AI-estimated menu"; the Health part shows the median
+kcal and the blend. Reason sentence: "Lighter dishes on its estimated menu".
 
 ### Qualifying MenuStat meals
 
@@ -70,38 +160,57 @@ BMI is never shown on the page; it only shifts weights.
 - One row per `item_name` (lowest calories kept)
 - Need at least **3** qualifying meals or the place is treated as unlinked
 
-## Weights
+## Personal fit (logged-in)
 
-Without MenuStat link:
+Profile and feedback signals build one **personal fit** value (start 0.5,
+clipped to [0, 1]) that enters the blend at 20% weight (`personal_fit`).
+Points below are at that 20% weight (fit change × 100 × 0.20).
 
-| Mode | Health | Grade | Rating |
-|---|---|---|---|
-| Default | 50% | 25% | 25% |
-| Health focus (BMI ≥ 25 or `weight-loss` goal) | 60% | 25% | 15% |
+| Signal | Fit change | ≈ Points |
+|---|---|---|
+| Favorite foods (whole-word on cuisine/name) | +0.3, tag “Your favorite” | +6 |
+| Disliked foods | −0.4 | −8 |
+| Health goals (AI goal scores + MenuStat nutrients) | `1.2 × (avg_fit − 0.5)` | up to ±12 |
+| BMI ≥ 25 | half-strength weight-loss goal fit | — |
+| Mild allergy cuisine hit | −0.2 each | −4 each |
+| Same ZIP or borough as home address | +0.1, tag “Nearby” | +2 |
+| Liked place with same cuisine | +0.1 each (cap +0.3) | +2 each (max +6) |
+| 2+ Not interested in that cuisine | −0.2 | −4 |
 
-With MenuStat calorie score available, add a **10%** calorie weight and
-**renormalize** the other three to sum to 90% (same proportions):
+Strong allergies are a candidate exclusion, not a score delta. Today's mood /
+energy (`MoodLog`) is a separate overlay — see below; tags “Fits your energy” /
+“Comfort for your mood”.
 
-| Mode | Health | Grade | Rating | Calories |
-|---|---|---|---|---|
-| Default + calories | 45% | 22.5% | 22.5% | 10% |
-| Health focus + calories | 54% | 22.5% | 13.5% | 10% |
+### Mood / energy adjustments (today's NY check-in only)
 
-Final numeric score:
+Strictness = average of mood and energy (1–5). A missing side counts as **3**
+so a partial check-in still moves rankings. Implemented in `mood_overlay()`.
 
-```text
-100 × (weighted sum of available components) + profile adjustments
-```
-
-## Profile adjustments (logged-in)
-
-| Signal | Effect |
+| Strictness | Effect |
 |---|---|
-| Favorite foods (whole-word on cuisine/name) | +10, tag “Your favorite” |
-| Disliked foods | −15 |
-| Same ZIP or borough as home address | +5, tag “Nearby” |
-| Health goals | Extra healthy-review keywords (e.g. muscle-gain → protein) |
-| Allergies | Candidate exclusion only (not a score delta) |
+| High (avg ≥ 4) | Global tilt `12 × (nutrition − 0.5)`; +8 light/healthy cuisines; −6 heavy/fast-food |
+| Low (avg ≤ 2) | Laxer tilt `−6 × (nutrition − 0.5)`; +12 comfort cuisines; +8 hearty cuisines |
+| Mid (~3) | No cuisine/nutrition overlay |
+
+When a mood check-in exists, Claude “Picked for you” shortlists may still
+supply reasons, but **final card order follows** `pick_top` / `score_restaurant`
+(so mood/energy can change rankings). After check-in, the home page calls a
+cheap rerank endpoint that reapplies `mood_overlay` on a cached base pool
+(no Google / MenuStat / AI).
+
+### Distance × energy (user pin)
+
+When the viewer has a saved location pin (`UserProfile.location_lat/lng`) and a
+mood check-in, and the restaurant has coordinates (Google enrichment), a
+**distance adjustment** is added after mood:
+
+| Energy | Curve (miles) |
+|---|---|
+| ≤ 2 | `12 × exp(−mi / 0.75) − 3` (clipped); tag “Closer for your energy” within 1 mi |
+| 3 | `5 × exp(−mi / 1.2) − 1` |
+| ≥ 4 | `3 × exp(−mi / 2.5)` (flatter — near and far stay closer in score) |
+
+Missing pin, check-in, or place coords → no distance term.
 
 Home ZIP/borough and allergies are parsed heuristically from free-text profile
 fields (no structured ZIP field).
@@ -110,11 +219,12 @@ fields (no structured ZIP field).
 
 1. Your favorite  
 2. Nearby  
-3. Healthy reviews (≥2 healthy reviews and ≥40% of reviews)  
-4. **Lower-calorie menu** (MenuStat linked and calorie component ≥ 0.6, i.e. median ≤ 440 kcal)  
-5. Budget-friendly (Google price `$`)  
-6. Top rated (50+ votes, blended ≥ 4.5)  
-7. Grade A (Grade B / Grade C are shown too; the card has no other grade badge)  
+3. **Menu-based estimate** (MenuStat linked)  
+4. Healthy reviews (≥2 healthy reviews and ≥40% of reviews)  
+5. **Lower-calorie menu** (MenuStat linked and menu health ≥ 0.6, i.e. median ≤ 440 kcal)  
+6. Budget-friendly (Google price `$`)  
+7. Top rated (50+ votes, blended ≥ 4.5)  
+8. Grade A (Grade B / Grade C are shown too; the card has no other grade badge)  
 
 "Similar pick" (hover: "Because you liked …") / "You liked this" goes before
 all of these.
@@ -162,8 +272,8 @@ the most compared with an average place (a 0.5 component, no bonuses).
 | Healthy cuisine | Healthy cuisine (Salads) | health weight × 0.2 |
 | Rating | Highly rated (4.8★, 500 reviews) | rating weight × (rating − 0.5) |
 | MenuStat calories | Lighter menu choices | calorie weight × (calories − 0.5) |
-| Favorite food | Matches your favorite food (tacos) | +10 |
-| Home | Near your home | +5 |
+| Favorite food | Matches your favorite food (tacos) | 100 × w_p × 0.3 |
+| Home | Near your home | 100 × w_p × 0.1 |
 | Like | Similar to X, which you liked | like bonus |
 | Grade A | NYC health grade A | only if fewer than 2 other reasons |
 
@@ -221,6 +331,22 @@ as healthy with the most healthy words (goal words included); ties keep Google's
 relevance order. With no healthy review it falls back to the first 4–5 star
 review; with no 4–5 star review the card shows no review.
 
+## AI-estimated menus (Gemini)
+
+`python manage.py estimate_menus` (run locally; `--limit`, `--batch` default
+5 per call, `--sleep`, `--refresh`, `--dry-run`, `--model`) asks Gemini to
+guess 12–20 typical items with rough per-serving calories for every
+restaurant in the active database (the small `nyc_food_lite.db` by default)
+that has no MenuStat menu. Gemini gets only our own data: name, cuisine,
+borough and street. Results are stored in `community.MenuEstimate` with
+`model|PROMPT_VERSION`; bumping `PROMPT_VERSION` in `search/menu_estimate.py`
+makes old rows ignored until re-run. The command stops cleanly at the Gemini
+rate limit; re-running resumes.
+
+Uses: the Menu box (last fallback, labeled "Estimated by AI … not the real
+menu", with ~kcal per dish) and the low-confidence nutrition blend above. The
+web server only reads stored rows (no Gemini calls for estimates).
+
 ## MenuStat matching
 
 There is no shared ID between DOHMH `camis` and MenuStat `Restaurant_ID`.
@@ -231,85 +357,93 @@ We normalize names (casefold, strip punctuation/diacritics) and:
 3. Else accept an unambiguous contains match  
 
 Ambiguous matches (multiple candidates) are rejected → no calorie term / no
-detail-page menu.
+detail-page menu. Match kind feeds confidence (`exact` vs `prefix`/`contains`).
 
 Restaurant detail pages (`/restaurant/<camis>/`) show the top 5 lowest-calorie
 qualifying meals when a match succeeds, with a disclaimer.
 
-## Detail-page healthiness score
+## Detail-page UI
 
-`/restaurant/<camis>/` also shows the **same composite score** under the address
-(labeled “Healthiness score”), with a line-by-line calculation:
+`/restaurant/<camis>/` shows:
 
-- Each weighted part: value (0–1) × weight % = points  
-- Profile adjustments when logged in (favorite / disliked / nearby)  
-- Total  
+- **Health estimate** (nutrition/prior only) + confidence  
+- Line-by-line **ranking** parts: nutrition/prior, inspection safety, rating  
+- Profile adjustments when logged in  
+- Ranking total (used for Top Picks ordering)
 
-Inputs come from the latest inspection grade, cached Google enrichment (rating,
-reviews, price) when present, in-app ratings, MenuStat calorie score when linked,
-and the viewer’s profile for personalization. BMI is never displayed; health-focus
-mode is noted only as “personalized weights.”  
-`score_restaurant()` returns `(score, tags, breakdown)` for this UI.
+BMI is never displayed; health-focus mode is noted as “personalized weights.”  
+`score_restaurant()` returns `(sort_score, tags, breakdown)` with
+`health_estimate`, `confidence`, and labeled `parts`.
 
 ## Daily rotation, diversity, and feedback
 
 - **Daily rotation:** the candidates come from the top DB-score tier (about
   2,600 grade-A places with a healthy cuisine), shuffled with a seed of today's
   date (America/New_York) + user id + borough. Same day + same user = same picks;
-  the next day brings a new set. Google calls stay at about 9.
+  the next day brings a new set. Google is called once per uncached candidate
+  (up to 31, or 39 with mood extras); the scored pool is cached for 24 hours.
 - **Cuisine diversity:** the final 3 are taken by score, skipping a cuisine that
   is already chosen; skipped places refill the list if fewer than 3 remain.
+  Score ties prefer higher confidence, then Google rating.
 - **Like / Not interested** (logged-in, buttons on each Top pick card; pressing
   again undoes). Stored in `community.RecommendationFeedback` with the name and
   cuisine copied at press time. Star ratings count too: 4–5 = like, 1–2 = not
   interested; a button press wins over a star rating for the same place.
   - Not interested: that place is never shown to that user again. Two or more
-    of one cuisine → −5 for that cuisine.
-  - Like: +3 per liked place with the same cuisine (max +9) and the tag
+    of one cuisine → −0.2 personal fit (≈ −4 points) for that cuisine.
+  - Like: +0.1 personal fit (≈ +2 points) per liked place with the same
+    cuisine (max +0.3, ≈ +6) and the tag
     "Similar pick" (shown first; the tooltip says "Because you liked <name>").
   - Only 1 of the 3 picks may win thanks to a like bonus; other liked places
     compete with their score minus the bonus.
-  - Weights are unchanged, so health still dominates: +9 is less than the gap
-    between a salad place and a fast-food chain.
 - Users with no feedback get the normal score plus rotation and diversity.
 - **Borough:** when a borough is selected, all candidates (daily sample,
   favorite extras) come from that borough and the title reads "Today's Top
   Picks in <Borough>". Home-borough extras apply only if the home borough is the
   selected one. The seed includes the borough, so each borough has its own set.
+- **Mood / energy check-in** (logged-in, above Top Picks; also on `/profile/`):
+  stored in `accounts.MoodLog` with one row per user per America/New_York day
+  (re-submit updates today). Feeds the assistant and **Top Picks / detail
+  ranking adjustments** (see mood table above). Plan:
+  `md_guides/mood-energy-survey-plan.md`.
 
 ## Choices (why this design)
 
-- Calories only when linked, so local restaurants without MenuStat still use the
-  original three-part score.
-- 10% calorie weight keeps the term informative without dominating health/grade.
-- Renormalization keeps linked and unlinked scores on a similar 0–100 scale.
+- Menu nutrition dominates when linked (70%); cuisine stereotypes are soft priors.
+- Safety stays visible but is not confused with “healthy food.”
+- Confidence keeps sparse/stale MenuStat from looking precise.
+- Explore more keeps the cheap DB-only `explore_score` (no Google).
 - Median of filtered meals avoids drink/topping zeros and one extreme item.
-- Detail-page top-5 reuses the same filters for transparency.
 
 ## Concerns / limits
 
 - **Coverage:** MenuStat is mostly national chains; only a small share of NYC
   inspected restaurants name-match. Linked places can look systematically
   different in the ranking.
-- **Stale menus:** Historical MenuStat rows are often from **2017–2018** and may
-  not match today’s menu. Disclaimers appear on the detail page and in the README.
+- **Stale menus:** Historical MenuStat rows are often from **2017–2018** →
+  medium confidence + disclaimers.
 - **Fuzzy matching:** Name match can mis-link similarly named chains, renames, or
   food-hall locations. Prefer a durable CAMIS↔MenuStat map later.
-- **Overlap with fast-food penalty:** Many MenuStat hits are chains already
-  penalized in the health component; calorie weight can reinforce that.
-- **Keyword health:** Review health is word-count based, not semantic.
+- **Keyword health:** Without an AI score, the review prior is word-count based,
+  not semantic (capped ±0.3).
 - **Google review sample:** At most five relevance-ordered Google reviews.
-- **API cost:** Each Top Picks load may call Google for up to ~9–15 candidates
-  (`POOL_SIZE` in `search/views.py`).
+- **API cost:** An uncached Top Picks load may call Google for up to 31
+  candidates (39 with mood extras; `POOL_SIZE`, `MAX_CANDIDATES`,
+  `MOOD_POOL_EXTRA` in `search/views.py`). Results are cached; the post-check-in
+  rerank makes no Google calls.
 
 ## Code map
 
 | Module | Role |
 |---|---|
-| `search/recommend.py` | Pure scoring + tags |
-| `search/menustat.py` | Match, qualifying meals, median, top-5 |
+| `search/recommend.py` | Pure scoring + tags + confidence |
+| `search/menustat.py` | Match kind, qualifying meals, median, nutrition link |
 | `search/views.py` | `_top_picks`, `restaurant_detail` wiring |
 | `search/test_recommend.py` / `search/test_menustat.py` | Unit coverage |
 | `search/test_daily_feedback.py` | Rotation, diversity, Like / Not interested |
+| `md_guides/scoring-pipeline.md` | End-to-end pipeline + mermaid diagrams |
+| `md_guides/ranking-v2-plan.md` | Design plan / remaining phases |
 | `search/reason_writer.py` / `write_reasons` command | Gemini reason paragraph (local) |
+| `search/menu_estimate.py` / `estimate_menus` command | Gemini-estimated menus + calories (local) |
+| `search/test_menu_estimate.py` | Estimate parsing, command, blend, Menu box (fake Gemini) |
 | `search/test_reason_writer.py` | Prompt, cleanup, command (fake Gemini) |

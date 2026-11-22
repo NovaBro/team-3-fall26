@@ -11,9 +11,14 @@
 {% if score_breakdown %}
 <section class="healthiness-score" aria-labelledby="healthiness-score-title">
   <div class="healthiness-score__headline">
-    <h2 id="healthiness-score-title" class="healthiness-score__title">Healthiness score</h2>
+    <h2 id="healthiness-score-title" class="healthiness-score__title">Health estimate</h2>
     <p class="healthiness-score__value mono">{{ healthiness_score|floatformat:1 }}</p>
-    <p class="muted healthiness-score__sub">Top Picks formula{% if score_breakdown.mode == "personal" %} · includes your Personal fit{% endif %}</p>
+    <p class="muted healthiness-score__sub">
+      Top Picks formula{% if score_breakdown.mode == "personal" %} · includes your Personal fit{% endif %}
+      {% if score_breakdown.confidence %}· <span class="healthiness-score__confidence">{{ score_breakdown.confidence }} confidence</span>{% endif %}
+      {% if score_breakdown.has_menu %}· menu-based{% elif score_breakdown.estimated_menu_health is not None %}· prior + AI-estimated menu{% elif score_breakdown.has_calories == False %}· prior only (no MenuStat link){% endif %}
+      {% if score_breakdown.health_focus %}· personalized weights{% endif %}
+    </p>
   </div>
   {% if reason_tags %}
   <p class="healthiness-score__tags">
@@ -53,15 +58,19 @@
       </li>
     {% endfor %}
     <li class="healthiness-score__total">
-      <span class="healthiness-score__part-label">Total</span>
+      <span class="healthiness-score__part-label">Ranking total</span>
       <span class="mono">{{ score_breakdown.total|floatformat:1 }}</span>
     </li>
   </ul>
   {% if score_breakdown.allergy_warnings %}
   <p class="allergy-note" role="note">{{ score_breakdown.allergy_warnings|join:", " }} {% if score_breakdown.allergy_warnings|length > 1 %}are{% else %}is{% endif %} common in {{ cuisine }} food. Always confirm allergies with the restaurant.</p>
   {% endif %}
-  {% if not score_breakdown.has_calories %}
-  <p class="muted healthiness-score__note">No MenuStat menu match — calorie weight omitted.</p>
+  {% if score_breakdown.has_calories == False or score_breakdown.has_menu == False %}
+  {% if score_breakdown.estimated_menu_health is not None %}
+  <p class="muted healthiness-score__note">No MenuStat menu match — nutrition blends a soft prior with calories from an AI-estimated menu (a guess, not the real menu). Inspection grade is safety, not nutrition.</p>
+  {% else %}
+  <p class="muted healthiness-score__note">No MenuStat menu match — calorie/menu weight uses a soft prior. Inspection grade is safety, not nutrition.</p>
+  {% endif %}
   {% endif %}
 </section>
 {% endif %}

@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.core.validators import RegexValidator
 from django.db import models
+from django.utils import timezone
 
 from accounts.goal_icons import ENERGY_ICONS, MOOD_ICONS, icon
 from search.profile_options import GOAL_LABELS, normalize_goals
@@ -37,6 +38,9 @@ class UserProfile(models.Model):
         default=False, verbose_name="Send me promotions and updates"
     )
     home_address = models.CharField(max_length=255, blank=True)
+    location_lat = models.FloatField(null=True, blank=True)
+    location_lng = models.FloatField(null=True, blank=True)
+    location_updated_at = models.DateTimeField(null=True, blank=True)
     age = models.PositiveIntegerField(null=True, blank=True)
     gender = models.CharField(max_length=32, blank=True, choices=GENDER_CHOICES)
     weight_lbs = models.FloatField(null=True, blank=True)
@@ -59,7 +63,7 @@ class UserProfile(models.Model):
 
 
 class MoodLog(models.Model):
-    """One timestamped mood/energy check-in. Variable inputs logged over time."""
+    """One mood/energy check-in per user per America/New_York calendar day."""
 
     MOOD_CHOICES = [
         (1, "Awful"),
@@ -84,14 +88,32 @@ class MoodLog(models.Model):
     energy_level = models.PositiveSmallIntegerField(
         choices=ENERGY_CHOICES, null=True, blank=True
     )
+    log_date = models.DateField(
+        db_index=True,
+        help_text="America/New_York calendar day for this check-in.",
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = "mood log"
-        ordering = ["-created_at"]
+        ordering = ["-log_date", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "log_date"],
+                name="accounts_moodlog_user_log_date_uniq",
+            )
+        ]
 
     def __str__(self):
         return f"{self.user.username}: mood {self.mood}, energy {self.energy_level}"
+
+    def save(self, *args, **kwargs):
+        if self.log_date is None:
+            from accounts.mood import today_ny
+
+            self.log_date = today_ny(timezone.now())
+        super().save(*args, **kwargs)
 
     @property
     def mood_display_label(self):

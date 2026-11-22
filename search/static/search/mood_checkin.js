@@ -271,6 +271,40 @@
     }, 220);
   }
 
+  function rerankTopPicks() {
+    var url = window.TOP_PICKS_RERANK_URL;
+    if (!url || !window.fetch) return;
+    var boroSelect = document.getElementById("restaurant-boro");
+    var boro = boroSelect ? boroSelect.value : "";
+    var query = boro ? ("?boro=" + encodeURIComponent(boro)) : "";
+    fetch(url + query, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      credentials: "same-origin",
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error("rerank failed");
+        return response.json();
+      })
+      .then(function (data) {
+        var grid = document.querySelector(".top-picks__grid");
+        if (grid && typeof data.html === "string") {
+          grid.innerHTML = data.html;
+        }
+        var subtitle = document.querySelector(".top-picks__subtitle");
+        if (subtitle && data.subtitle) {
+          subtitle.textContent = data.subtitle;
+        }
+        var cookSlot = document.getElementById("cook-at-home-slot");
+        if (cookSlot && typeof data.cook_at_home_html === "string") {
+          cookSlot.innerHTML = data.cook_at_home_html;
+        }
+      })
+      .catch(function () {
+        // Check-in already saved; leave cards as-is on rerank failure.
+      });
+  }
+
   picker.querySelectorAll(".mood-pick__menu").forEach(function (form) {
     form.addEventListener("submit", function (event) {
       var choice = event.submitter;
@@ -301,6 +335,7 @@
           closeAll(null);
           button.focus();
           setHeadline(result.title, result.lede, result.value);
+          rerankTopPicks();
         })
         .catch(function () {
           // Let the server handle it the plain way.

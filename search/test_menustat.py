@@ -8,7 +8,9 @@ from search.menustat import (
     calorie_score_from_median,
     clear_menustat_cache,
     match_menustat_restaurant,
+    match_menustat_restaurant_detail,
     median_meal_calories,
+    menu_nutrition_for_name,
     qualifying_meals,
     top_low_calorie_meals,
 )
@@ -102,6 +104,14 @@ class MenuStatHelperTests(TestCase):
         clear_menustat_cache()
         self.assertEqual(match_menustat_restaurant("McDonald's"), "McDonald's")
         self.assertEqual(match_menustat_restaurant("McDonald's Midtown"), "McDonald's")
+        self.assertEqual(
+            match_menustat_restaurant_detail("McDonald's"),
+            ("McDonald's", "exact"),
+        )
+        self.assertEqual(
+            match_menustat_restaurant_detail("McDonald's Midtown"),
+            ("McDonald's", "prefix"),
+        )
         self.assertIsNone(match_menustat_restaurant("Joe's Pizza Shop"))
 
     def test_calorie_score_map_endpoints(self):
@@ -120,6 +130,11 @@ class MenuStatHelperTests(TestCase):
         score = calorie_score_for_name("Test Chain")
         self.assertIsNotNone(score)
         self.assertAlmostEqual(score, calorie_score_from_median(400))
+        info = menu_nutrition_for_name("Test Chain")
+        self.assertEqual(info["match_kind"], "exact")
+        self.assertEqual(info["menu_year"], 2018)
+        self.assertEqual(info["meal_count"], 3)
+        self.assertAlmostEqual(info["score"], score)
 
 
 class RestaurantDetailMenuStatTests(TestCase):

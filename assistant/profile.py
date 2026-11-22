@@ -7,13 +7,13 @@ because the model doesn't need them.
 """
 
 import re
-from datetime import timedelta
 from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 
-from accounts.models import MoodLog, UserProfile
+from accounts.models import UserProfile
+from accounts.mood import latest_check_in_for
 from search.find_food import ZIP_PATTERN
 from search.models import RestaurantInspection
 
@@ -49,8 +49,7 @@ def home_area(address):
 def preferences(user):
     """The saved preferences for a user."""
     profile = UserProfile.objects.filter(user=user).first()
-    since = timezone.now() - timedelta(hours=24)
-    mood = MoodLog.objects.filter(user=user, created_at__gte=since).first()
+    mood = latest_check_in_for(user)
     return {
         "favorite_foods": profile.favorite_foods.strip() if profile else "",
         "disliked_foods": profile.disliked_foods.strip() if profile else "",

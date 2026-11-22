@@ -8,7 +8,8 @@ from django.contrib.auth.models import User
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
-from accounts.models import UserProfile
+from accounts.models import MoodLog, UserProfile
+from accounts.mood import today_ny
 from community.keys import DOHMH, dohmh_key
 from community.models import CommunitySubject, RecommendationFeedback, UserRating
 from search import views
@@ -192,6 +193,67 @@ class FeedbackViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("accounts:login"), response["Location"])
         self.assertFalse(RecommendationFeedback.objects.exists())
+
+    def test_anonymous_hides_mood_pickers(self, _find):
+        response, _names = self.picks()
+        self.assertNotContains(response, "mood-pick__btn")
+        self.assertContains(response, "Down for a healthy bite?")
+
+    def test_quick_checkin_requires_login(self, _find):
+        response = self.client.post(
+            reverse("accounts:quick_checkin"),
+            {"kind": "mood", "value": "4"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("accounts:login"), response["Location"])
+        self.assertFalse(MoodLog.objects.exists())
+
+    def test_quick_checkin_upserts_for_today(self, _find):
+        self.client.force_login(self.user)
+        self.client.post(
+            reverse("accounts:quick_checkin"),
+            {"kind": "mood", "value": "2", "next": reverse("search:home")},
+        )
+        self.client.post(
+            reverse("accounts:quick_checkin"),
+            {"kind": "energy", "value": "1", "next": reverse("search:home")},
+        )
+        self.client.post(
+            reverse("accounts:quick_checkin"),
+            {"kind": "mood", "value": "5", "next": reverse("search:home")},
+        )
+        self.client.post(
+            reverse("accounts:quick_checkin"),
+            {"kind": "energy", "value": "4", "next": reverse("search:home")},
+        )
+        logs = MoodLog.objects.filter(user=self.user)
+        self.assertEqual(logs.count(), 1)
+        log = logs.get()
+        self.assertEqual(log.mood, 5)
+        self.assertEqual(log.energy_level, 4)
+        self.assertEqual(log.log_date, today_ny())
+        response, _names = self.picks()
+        self.assertContains(response, "mood-pick__btn")
+        self.assertContains(response, "Ready for something great?")
+
+    def test_home_and_profile_share_todays_mood(self, _find):
+        self.client.force_login(self.user)
+        self.client.post(
+            reverse("accounts:quick_checkin"),
+            {"kind": "mood", "value": "4", "next": reverse("search:home")},
+        )
+        self.client.post(
+            reverse("accounts:quick_checkin"),
+            {"kind": "energy", "value": "2", "next": reverse("search:home")},
+        )
+        self.client.post(
+            reverse("accounts:profile"),
+            {"action": "log_mood", "mood": "3", "energy_level": "5"},
+        )
+        self.assertEqual(MoodLog.objects.filter(user=self.user).count(), 1)
+        log = MoodLog.objects.get(user=self.user)
+        self.assertEqual(log.mood, 3)
+        self.assertEqual(log.energy_level, 5)
 
     def test_like_saves_and_pressing_again_undoes(self, _find):
         self.client.force_login(self.user)
@@ -585,6 +647,56 @@ class HealthyCandidateTests(TestCase):
         self.assertEqual(self.pool(profile), ["TAQUERIA"])
 
 
+class MoodPoolExtraTests(TestCase):
+    databases = {"default", "community"}
+
+    def test_mood_boost_cuisines_by_check_in(self):
+        self.assertEqual(views._mood_boost_cuisines(None), set())
+        low = SimpleNamespace(mood=1, energy_level=1)
+        high = SimpleNamespace(mood=5, energy_level=5)
+        # 2H: low → comfort/hearty; high → light/healthy.
+        self.assertTrue(views._mood_boost_cuisines(low) & views.COMFORT_MOOD_CUISINES)
+        self.assertTrue(views._mood_boost_cuisines(low) & views.HEARTY_ENERGY_CUISINES)
+        self.assertEqual(
+            views._mood_boost_cuisines(high), set(views.LIGHT_ENERGY_CUISINES)
+        )
+        self.assertIn("BBQ", views._mood_boost_cuisines(low))
+        self.assertNotIn("BBQ", views._mood_boost_cuisines(high))
+
+    def test_low_strictness_injects_hearty_into_healthy_pool(self):
+        # Fill the cuisine-capped pool with healthy places so BBQ is crowded out
+        # unless mood extras pull it in.
+        healthy = [
+            "Salads",
+            "Vegetarian",
+            "Vegan",
+            "Mediterranean",
+            "Japanese",
+        ]
+        n = 0
+        for cuisine in healthy:
+            for _ in range(views.MAX_PER_CUISINE):
+                inspection(str(9400 + n), f"{cuisine} {n}", cuisine, "A")
+                n += 1
+        inspection("9499", "RIB HOUSE", "BBQ", "A")
+        seed = "2026-11-10:0:"
+        without = {
+            row["name"]
+            for row in views._build_candidate_pool(None, None, seed, mood_check_in=None)
+        }
+        with_mood = {
+            row["name"]
+            for row in views._build_candidate_pool(
+                None,
+                None,
+                seed,
+                mood_check_in=SimpleNamespace(mood=1, energy_level=1),
+            )
+        }
+        self.assertNotIn("RIB HOUSE", without)
+        self.assertIn("RIB HOUSE", with_mood)
+
+
 class ClaudePicksTests(TestCase):
     databases = {"default", "community"}
 
@@ -609,6 +721,21 @@ class ClaudePicksTests(TestCase):
         page = self.get()
         self.assertEqual([p["camis"] for p in page.context["top_picks"]], ["50", "51"])
         self.assertContains(page, "Picked for you")
+
+    def test_claude_order_yields_to_scores_when_mood_check_in(self):
+        MoodLog.objects.create(
+            user=self.user, mood=5, energy_level=5, log_date=today_ny()
+        )
+        # Salad (52) should outrank Italian under high mood/energy (2H healthier).
+        self.ai = [
+            {"camis": "50", "reason": "Your favorite cuisine."},
+            {"camis": "52", "reason": "A salad spot."},
+            {"camis": "51", "reason": "Also Italian."},
+        ]
+        page = self.get()
+        camis = [p["camis"] for p in page.context["top_picks"]]
+        self.assertIn("52", camis)
+        self.assertLess(camis.index("52"), camis.index("50"))
 
     def test_not_interested_drops_a_claude_pick(self):
         RecommendationFeedback.objects.create(
