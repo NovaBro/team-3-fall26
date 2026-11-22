@@ -44,7 +44,7 @@ from community.models import (
 from restaurants.diet_filters import ALLERGY_CHOICES
 from restaurants.inspections import _latest, _match, _restaurants_in_zip, google_zip
 from restaurants.places import PlacesError, find_restaurant_place
-from search import ai_scores, find_food, reason_writer, what_to_order
+from search import ai_scores, find_food, menu_estimate, reason_writer, what_to_order
 from search.cook_at_home import (
     cook_at_home_picks,
     find_food_cook_url,
@@ -72,7 +72,6 @@ from search.models import RestaurantInspection, RestaurantSummary
 from search.summary import aggregate_inspections
 from search.summary_status import summary_ready
 from search.menustat import (
-    calorie_score_for_name,
     menu_nutrition_for_name,
     top_low_calorie_meals,
 )
@@ -407,9 +406,7 @@ def _build_candidate_pool(profile, prefs=None, seed="", boro="", mood_check_in=N
     hidden = prefs.hidden if prefs is not None else set()
     multiplier = _shuffle_multiplier(seed)
     # Room for mood extras beyond the usual favorite/nearby bump.
-    pool_cap = MAX_CANDIDATES + (
-        MOOD_POOL_EXTRA if mood_check_in is not None else 0
-    )
+    pool_cap = MAX_CANDIDATES + (MOOD_POOL_EXTRA if mood_check_in is not None else 0)
 
     def meal_places(in_boro=boro):
         # The viewer's ranking (as in Explore more), keeping places for a meal
@@ -490,6 +487,20 @@ def _app_rating_stats(camis):
         return None, 0
     stats = subject.ratings.aggregate(average=Avg("score"), count=Count("id"))
     return stats["average"], stats["count"] or 0
+
+
+def _estimate_kwargs(camis, nutrition):
+    """score_restaurant kwargs for a Gemini-estimated menu (only without MenuStat)."""
+    if nutrition is not None or not camis:
+        return {}
+    estimate = menu_estimate.estimate_nutrition_for_camis(str(camis))
+    if estimate is None:
+        return {}
+    return {
+        "estimated_menu_score": estimate["score"],
+        "estimated_median_kcal": estimate["median_calories"],
+        "estimated_meal_count": estimate["meal_count"],
+    }
 
 
 def _reviews_for_pick(google, camis_id):
@@ -647,6 +658,7 @@ def _top_picks(request, count=3, boro=""):
             ai_health=ai_health,
             ai_goals=ai_goals,
             nutrients=_goal_nutrients(profile, pick_name),
+            **_estimate_kwargs(camis_id or pick["camis"], nutrition),
         )
         base_score, base_tags, base_bd = score_restaurant(
             **score_kwargs, mood_check_in=None
@@ -918,9 +930,9 @@ def home(request):
             "location_map": map_bootstrap(
                 request.user if request.user.is_authenticated else None
             ),
-            "user_location": user_latlng(request.user)
-            if request.user.is_authenticated
-            else None,
+            "user_location": (
+                user_latlng(request.user) if request.user.is_authenticated else None
+            ),
             # Banner text, plus today's mood / energy dropdowns when logged in.
             **_checkin_context(request),
         },
@@ -982,9 +994,15 @@ def _top_picks_subtitle(personalized_picks, today_mood):
             "Ranked by AI using your profile. "
             "Always confirm allergies with the restaurant."
         )
-    if today_mood and today_mood.mood is not None and today_mood.energy_level is not None:
+    if (
+        today_mood
+        and today_mood.mood is not None
+        and today_mood.energy_level is not None
+    ):
         return "Ranked with today's mood and energy check-in."
-    if today_mood and (today_mood.mood is not None or today_mood.energy_level is not None):
+    if today_mood and (
+        today_mood.mood is not None or today_mood.energy_level is not None
+    ):
         return "Ranked with today's check-in."
     return "Your next unforgettable food experience starts here!"
 
@@ -1120,6 +1138,7 @@ def score_for_camis(
         feedback=feedback,
         camis=camis,
         mood_check_in=mood_check_in,
+        **_estimate_kwargs(camis, nutrition),
         user_lat=user_lat,
         user_lng=user_lng,
         place_lat=place_lat,
@@ -1238,9 +1257,7 @@ def restaurant_detail(request, camis):
     place = _place_for_detail(camis)
     menu_picks, menustat_name = top_low_calorie_meals(latest.dba, limit=5)
     back_url, back_label, from_top_picks = _back_link(request)
-    viewer_coords = (
-        user_latlng(request.user) if request.user.is_authenticated else None
-    )
+    viewer_coords = user_latlng(request.user) if request.user.is_authenticated else None
     healthiness_score, reason_tags, score_breakdown = score_for_camis(
         camis,
         latest,
@@ -1336,8 +1353,9 @@ def pick_feedback(request, camis):
 def restaurant_what_to_order(request, camis):
     """The Menu box of the detail page (loaded after the page).
 
-    Returns an HTML fragment. The menu comes from MenuStat or is read from the
-    restaurant's Google photos; nothing read from Google is stored.
+    Returns an HTML fragment. The menu comes from MenuStat, is read from the
+    restaurant's Google photos (nothing read from Google is stored), or falls
+    back to a stored Gemini-estimated menu (community.MenuEstimate).
     """
     latest = (
         RestaurantInspection.objects.filter(camis=camis)
@@ -1354,6 +1372,7 @@ def restaurant_what_to_order(request, camis):
         _profile_for(request),
         query,
         ai_scores.shared_encoder,
+        camis=camis,
     )
     return render(request, "search/_what_to_order.html", {"result": result})
 

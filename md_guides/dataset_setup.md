@@ -6,16 +6,19 @@ Filename suffix `YYYYMMDD` (e.g. `20261011`) is the **download date**, not a con
 
 ## Datasets on disk
 
-| File | Approx. size | Role | Key fields |
-|------|--------------|------|------------|
-| `restaurant_data_set_2_*.csv` | ~71M | DOHMH restaurant inspections | `CAMIS`, `DBA`, `BORO`, `STREET`, `ZIPCODE`, `INSPECTION DATE`, `VIOLATION CODE`, `VIOLATION DESCRIPTION`, `GRADE` |
-| `DOHMH_MenuStat_(Historical)_*.csv` | ~21M | Chain menu nutrition (MenuStat) | `Restaurant_ID`, `Menu_Item_ID`, nutrients per serving / per 100g, kids/LTO flags |
-| `Good_Food_Purchasing_Data_*.csv` | ~3.5M | Agency food purchases | agency, product, vendor, units / weight / cost |
-| `NYC_Farmers_Markets_*.csv` | ~297K | Farmers markets | name, borough, lat/long, hours, season, EBT |
-| `Recognized_Shop_Healthy_Stores_*.csv` | ~101K | Shop Healthy stores | store, address, lat/long, program wave, geo IDs |
-| `DPR_Eateries_001.json` | ~52K (142 rows) | Park eateries | `name`, `location`, `park_id`, `permit_number`, `website`, `type_name` |
+| File | Approx. size | Rows | Role | Key fields |
+|------|--------------|------|------|------------|
+| `restaurant_data_set_2_*.csv` | ~71M | ~297K | DOHMH restaurant inspections (one row per violation) | `CAMIS`, `DBA`, `BORO`, `STREET`, `ZIPCODE`, `INSPECTION DATE`, `VIOLATION CODE`, `VIOLATION DESCRIPTION`, `GRADE` |
+| `DOHMH_MenuStat_(Historical)_*.csv` | ~21M | ~65K | Chain menu nutrition (MenuStat) | `Restaurant_ID`, `Menu_Item_ID`, nutrients per serving / per 100g, kids/LTO flags |
+| `Good_Food_Purchasing_Data_*.csv` | ~3.5M | ~17K | Agency food purchases | agency, product, vendor, units / weight / cost |
+| `NYC_Farmers_Markets_*.csv` | ~300K | ~2.3K | Farmers markets | name, borough, lat/long, hours, season, EBT |
+| `Recognized_Shop_Healthy_Stores_*.csv` | ~104K | 712 | Shop Healthy stores | store, address, lat/long, program wave, geo IDs |
+| `DPR_Eateries_001.json` | ~52K | 142 | Park eateries | `name`, `location`, `park_id`, `permit_number`, `website`, `type_name` |
+| `restaurant_cuisines_*.csv` | ~688K | ~31.5K | CAMIS → cuisine lookup (from Open Data `43nn-pn8j`) | `camis`, `cuisine_description` |
 
-There is **no shared primary key** across sources: inspection `CAMIS` and MenuStat `Restaurant_ID` are distinct ID spaces.
+Total: about 97 MB / 414K rows.
+
+There is **no shared primary key** across sources: inspection `CAMIS` and MenuStat `Restaurant_ID` are distinct ID spaces. Inspections are linked to MenuStat by fuzzy name match (`search/menustat.py`).
 
 ## Import / ETL
 
@@ -26,6 +29,28 @@ Rebuild the database anytime:
 ```
 
 Implemented in `search/management/commands/import_datasets.py`. The command is idempotent.
+
+`import_datasets` always targets the **full** DB. If `database/nyc_food_lite.db`
+exists, prefix it with `NYCFOOD_FULL_DATA=1` (it refuses to run otherwise).
+
+### Lite DB
+
+`manage.py build_lite_db [--limit 500] [--force]`
+(`search/management/commands/build_lite_db.py`) writes `database/nyc_food_lite.db`:
+a copy of the full DB pruned to the top 500 restaurants (spread by borough), 500
+Shop Healthy stores, and ≤500 farmers markets per year.
+
+- **Ranking:** places are ranked by a Bayesian-average Google rating from
+  `community_placeenrichment`: `(v·R + 50·C) / (v + 50)`, where `v` is the number
+  of reviews, `R` the place's rating and `C` the mean rating. Places without Google
+  data rank last; restaurants among them are ordered by grade A first, then the
+  newest inspection.
+- **Excluded:** places Google lists as closed, and restaurants whose latest grade
+  is C.
+- **Which DB the site uses:** settings use the lite file when it exists;
+  `NYCFOOD_FULL_DATA=1` switches back. Nothing is deleted.
+- **Speed:** measured locally as an anonymous user, the home/Top Picks page went
+  from ~0.35 s to ~0.085 s and an empty search from ~0.7 s to ~0.28 s.
 
 ### Flow
 
@@ -39,6 +64,7 @@ Implemented in `search/management/commands/import_datasets.py`. The command is i
 | Dataset | Model (`search/models.py`) |
 |---------|----------------------------|
 | `restaurant_data_set_2_*.csv` | `RestaurantInspection` |
+| `restaurant_cuisines_*.csv` | `RestaurantInspection.cuisine` (matched on CAMIS) |
 | `DOHMH_MenuStat_(Historical)_*.csv` | `MenuItem` |
 | `Good_Food_Purchasing_Data_*.csv` | `AgencyPurchase` |
 | `NYC_Farmers_Markets_*.csv` | `FarmersMarket` |
@@ -68,8 +94,11 @@ located through `PlaceEnrichment`, then `community.LocationLookup`, then a
 Google Places Text Search for the visible page (`search/locations.py`). The
 `locate_places` command backfills `LocationLookup`.
 
-The MenuStat, agency purchase, and park eatery tables are still imported but are
-no longer shown in the UI (the Explore datasets tab was removed in issue #109).
+The agency purchase and park eatery tables are still imported but are no
+longer shown in the UI (the Explore datasets tab was removed in issue #109).
+MenuStat is not listed on its own, but it feeds Top Picks ranking, health-goal
+fit, the "what to order" menu box, and lower-calorie items on restaurant detail
+pages (`search/recommend.py`, `search/goal_fit.py`, `search/what_to_order.py`).
 
 ### Not from local datasets
 
@@ -131,8 +160,7 @@ Open http://127.0.0.1:8000/.
 
 ## Gaps and caveats
 
-- Datasets are not joined to each other (`CAMIS` vs MenuStat `Restaurant_ID` never linked).
+- No ID-based joins: inspections link to MenuStat only by fuzzy name match, so links can be wrong or missing.
 - MenuStat is only partially imported (many CSV columns dropped).
 - Google enrichment is on-demand (detail-page click or CLI), not automatic for all restaurants.
 - Two Places paths exist: cached enrichment in `search` vs live search in `restaurants`; they do not share storage or the same env-key naming (`GOOGLE_PLACES_API_KEY` vs `GOOGLE_API_KEY` / `GOOGLE_MAPS_JS_KEY`).
-- `AGENTS.md` may still describe a pre-Django repo state; prefer this guide and `README.md` for current architecture.

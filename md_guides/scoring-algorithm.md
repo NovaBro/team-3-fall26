@@ -52,7 +52,10 @@ of one cuisine.
 3. Exclude cuisines that are risky for the user’s free-text allergies (via
    `diet_filters.risky_cuisines` after keyword → `nuts` / `shellfish` mapping).
 4. For logged-in users with a profile, add up to 3 favorite-food matches and up
-   to 3 same-borough-as-home places (15 candidates max).
+   to 3 same-borough-as-home places (31 candidates max). With a mood check-in
+   today, add up to 8 more grade-A places in cuisines that suit the mood
+   (`MOOD_POOL_EXTRA`, 39 candidates max) so the mood overlay can change the
+   top 3.
 5. Enrich with Google Places (rating, price, up to 5 reviews), DOHMH grade, and
    in-app ratings; optionally resolve MenuStat calories by **fuzzy name match**
    (with match kind + menu year for confidence).
@@ -85,9 +88,12 @@ Base 0.5, then soft priors (capped):
 
 | Signal | Effect |
 |---|---|
-| Healthy / unhealthy cuisine lists | ±0.1 |
-| Review keyword share (healthy − unhealthy) | ×0.1 → ±0.1 |
-| Known fast-food chain name | −0.15 |
+| Healthy / unhealthy cuisine lists | ±0.2 |
+| AI review score (when present) | `1.0 × (ai − 0.5)` → ±0.5 |
+| Review keyword share (healthy − unhealthy), no AI score | ×0.3 → ±0.3 |
+| Known fast-food chain name | −0.2 |
+
+Result clipped to [0, 1] (`health_parts` / `prior_health_score`).
 
 ### Confidence
 
@@ -100,8 +106,8 @@ Base 0.5, then soft priors (capped):
 ## Ranking sort score (Top Picks)
 
 ```text
-100 × (nutrition_or_prior × w_n + safety × w_s + rating × w_r)
-  + profile / feedback / mood-energy adjustments
+100 × (nutrition_or_prior × w_n + safety × w_s + rating × w_r [+ personal × w_p])
+  + mood_overlay (mood/energy + distance points)
 ```
 
 ### Components (0–1)
@@ -126,6 +132,26 @@ Base 0.5, then soft priors (capped):
 
 Health focus: BMI ≥ 25 or `weight-loss` goal. Mood/energy check-in adjusts the sort score separately.
 
+### AI-estimated menus (no MenuStat link)
+
+Restaurants without a MenuStat menu can have a **Gemini-estimated menu**
+(`community.MenuEstimate`, see "AI-estimated menus" below). Its median
+main-dish calories go through the same `(800 − kcal) / 600` mapping, then are
+blended with the prior:
+
+```text
+nutrition = 0.5 × estimated_menu_health + 0.5 × prior_health   (ESTIMATE_SHARE)
+```
+
+Not applied to non-meal cuisines (donuts, coffee, bakery/desserts, …): per-item
+calories there look "light" next to full meals. Their estimated menus still
+show in the Menu box.
+
+Weights stay **unlinked**, confidence stays **low**, and the MenuStat-only
+tags (Menu-based estimate, Lower-calorie menu) are not given. The detail
+headline reads "prior + AI-estimated menu"; the Health part shows the median
+kcal and the blend. Reason sentence: "Lighter dishes on its estimated menu".
+
 ### Qualifying MenuStat meals
 
 - Categories: Entrees, Sandwiches, Salads, Burgers, Pizza, Soup
@@ -134,16 +160,26 @@ Health focus: BMI ≥ 25 or `weight-loss` goal. Mood/energy check-in adjusts the
 - One row per `item_name` (lowest calories kept)
 - Need at least **3** qualifying meals or the place is treated as unlinked
 
-## Profile adjustments (logged-in)
+## Personal fit (logged-in)
 
-| Signal | Effect |
-|---|---|
-| Favorite foods (whole-word on cuisine/name) | +10, tag “Your favorite” |
-| Disliked foods | −15 |
-| Same ZIP or borough as home address | +5, tag “Nearby” |
-| Health goals | Extra healthy-review keywords (e.g. muscle-gain → protein) |
-| Allergies | Candidate exclusion only (not a score delta) |
-| Today's mood / energy (`MoodLog`) | See table below; tags “Fits your energy” / “Comfort for your mood” |
+Profile and feedback signals build one **personal fit** value (start 0.5,
+clipped to [0, 1]) that enters the blend at 20% weight (`personal_fit`).
+Points below are at that 20% weight (fit change × 100 × 0.20).
+
+| Signal | Fit change | ≈ Points |
+|---|---|---|
+| Favorite foods (whole-word on cuisine/name) | +0.3, tag “Your favorite” | +6 |
+| Disliked foods | −0.4 | −8 |
+| Health goals (AI goal scores + MenuStat nutrients) | `1.2 × (avg_fit − 0.5)` | up to ±12 |
+| BMI ≥ 25 | half-strength weight-loss goal fit | — |
+| Mild allergy cuisine hit | −0.2 each | −4 each |
+| Same ZIP or borough as home address | +0.1, tag “Nearby” | +2 |
+| Liked place with same cuisine | +0.1 each (cap +0.3) | +2 each (max +6) |
+| 2+ Not interested in that cuisine | −0.2 | −4 |
+
+Strong allergies are a candidate exclusion, not a score delta. Today's mood /
+energy (`MoodLog`) is a separate overlay — see below; tags “Fits your energy” /
+“Comfort for your mood”.
 
 ### Mood / energy adjustments (today's NY check-in only)
 
@@ -236,8 +272,8 @@ the most compared with an average place (a 0.5 component, no bonuses).
 | Healthy cuisine | Healthy cuisine (Salads) | health weight × 0.2 |
 | Rating | Highly rated (4.8★, 500 reviews) | rating weight × (rating − 0.5) |
 | MenuStat calories | Lighter menu choices | calorie weight × (calories − 0.5) |
-| Favorite food | Matches your favorite food (tacos) | +10 |
-| Home | Near your home | +5 |
+| Favorite food | Matches your favorite food (tacos) | 100 × w_p × 0.3 |
+| Home | Near your home | 100 × w_p × 0.1 |
 | Like | Similar to X, which you liked | like bonus |
 | Grade A | NYC health grade A | only if fewer than 2 other reasons |
 
@@ -295,6 +331,22 @@ as healthy with the most healthy words (goal words included); ties keep Google's
 relevance order. With no healthy review it falls back to the first 4–5 star
 review; with no 4–5 star review the card shows no review.
 
+## AI-estimated menus (Gemini)
+
+`python manage.py estimate_menus` (run locally; `--limit`, `--batch` default
+5 per call, `--sleep`, `--refresh`, `--dry-run`, `--model`) asks Gemini to
+guess 12–20 typical items with rough per-serving calories for every
+restaurant in the active database (the small `nyc_food_lite.db` by default)
+that has no MenuStat menu. Gemini gets only our own data: name, cuisine,
+borough and street. Results are stored in `community.MenuEstimate` with
+`model|PROMPT_VERSION`; bumping `PROMPT_VERSION` in `search/menu_estimate.py`
+makes old rows ignored until re-run. The command stops cleanly at the Gemini
+rate limit; re-running resumes.
+
+Uses: the Menu box (last fallback, labeled "Estimated by AI … not the real
+menu", with ~kcal per dish) and the low-confidence nutrition blend above. The
+web server only reads stored rows (no Gemini calls for estimates).
+
 ## MenuStat matching
 
 There is no shared ID between DOHMH `camis` and MenuStat `Restaurant_ID`.
@@ -328,7 +380,8 @@ BMI is never displayed; health-focus mode is noted as “personalized weights.�
 - **Daily rotation:** the candidates come from the top DB-score tier (about
   2,600 grade-A places with a healthy cuisine), shuffled with a seed of today's
   date (America/New_York) + user id + borough. Same day + same user = same picks;
-  the next day brings a new set. Google calls stay at about 9.
+  the next day brings a new set. Google is called once per uncached candidate
+  (up to 31, or 39 with mood extras); the scored pool is cached for 24 hours.
 - **Cuisine diversity:** the final 3 are taken by score, skipping a cuisine that
   is already chosen; skipped places refill the list if fewer than 3 remain.
   Score ties prefer higher confidence, then Google rating.
@@ -337,8 +390,9 @@ BMI is never displayed; health-focus mode is noted as “personalized weights.�
   cuisine copied at press time. Star ratings count too: 4–5 = like, 1–2 = not
   interested; a button press wins over a star rating for the same place.
   - Not interested: that place is never shown to that user again. Two or more
-    of one cuisine → −5 for that cuisine.
-  - Like: +3 per liked place with the same cuisine (max +9) and the tag
+    of one cuisine → −0.2 personal fit (≈ −4 points) for that cuisine.
+  - Like: +0.1 personal fit (≈ +2 points) per liked place with the same
+    cuisine (max +0.3, ≈ +6) and the tag
     "Similar pick" (shown first; the tooltip says "Because you liked <name>").
   - Only 1 of the 3 picks may win thanks to a like bonus; other liked places
     compete with their score minus the bonus.
@@ -370,10 +424,13 @@ BMI is never displayed; health-focus mode is noted as “personalized weights.�
   medium confidence + disclaimers.
 - **Fuzzy matching:** Name match can mis-link similarly named chains, renames, or
   food-hall locations. Prefer a durable CAMIS↔MenuStat map later.
-- **Keyword health:** Review prior is word-count based, not semantic (capped ±0.1).
+- **Keyword health:** Without an AI score, the review prior is word-count based,
+  not semantic (capped ±0.3).
 - **Google review sample:** At most five relevance-ordered Google reviews.
-- **API cost:** Each Top Picks load may call Google for up to ~9–15 candidates
-  (`POOL_SIZE` in `search/views.py`).
+- **API cost:** An uncached Top Picks load may call Google for up to 31
+  candidates (39 with mood extras; `POOL_SIZE`, `MAX_CANDIDATES`,
+  `MOOD_POOL_EXTRA` in `search/views.py`). Results are cached; the post-check-in
+  rerank makes no Google calls.
 
 ## Code map
 
@@ -387,4 +444,6 @@ BMI is never displayed; health-focus mode is noted as “personalized weights.�
 | `md_guides/scoring-pipeline.md` | End-to-end pipeline + mermaid diagrams |
 | `md_guides/ranking-v2-plan.md` | Design plan / remaining phases |
 | `search/reason_writer.py` / `write_reasons` command | Gemini reason paragraph (local) |
+| `search/menu_estimate.py` / `estimate_menus` command | Gemini-estimated menus + calories (local) |
+| `search/test_menu_estimate.py` | Estimate parsing, command, blend, Menu box (fake Gemini) |
 | `search/test_reason_writer.py` | Prompt, cleanup, command (fake Gemini) |

@@ -5,7 +5,7 @@
       {% for dish in group.preview %}
         <li class="what-to-order__dish">
           <span class="what-to-order__name">{{ dish.name }}</span>
-          {% if dish.description %}<span class="what-to-order__note">{{ dish.description }}</span>{% endif %}
+          {% if dish.description %}<span class="what-to-order__note">{{ dish.description }}</span>{% endif %}{% if dish.calories %}<span class="what-to-order__note mono">~{{ dish.calories }} kcal</span>{% endif %}
         </li>
       {% endfor %}
     </ul>
@@ -16,7 +16,7 @@
           {% for dish in group.rest %}
             <li class="what-to-order__dish">
               <span class="what-to-order__name">{{ dish.name }}</span>
-              {% if dish.description %}<span class="what-to-order__note">{{ dish.description }}</span>{% endif %}
+              {% if dish.description %}<span class="what-to-order__note">{{ dish.description }}</span>{% endif %}{% if dish.calories %}<span class="what-to-order__note mono">~{{ dish.calories }} kcal</span>{% endif %}
             </li>
           {% endfor %}
         </ul>
@@ -26,6 +26,8 @@
   <p class="what-to-order__source">
     {% if result.source == "menustat" %}
       Source: MenuStat (NYC Health Department menu data in our database). May be out of date.
+    {% elif result.source == "estimate" %}
+      Estimated by AI (Gemini) from the restaurant's name and cuisine — not the restaurant's real menu. Dishes and calories are guesses.
     {% else %}
       Source: Google Maps photos, read by AI (Gemini). May be incomplete or out of date.
     {% endif %}

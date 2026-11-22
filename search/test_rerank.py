@@ -16,7 +16,6 @@ from search.views import (
     _store_top_picks_pool,
 )
 
-
 User = get_user_model()
 
 

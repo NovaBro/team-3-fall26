@@ -121,9 +121,7 @@ def _quality_markets(markets: list[FarmersMarket]) -> list[FarmersMarket]:
 
 
 def _quality_stores(stores: list[HealthyStore]) -> list[HealthyStore]:
-    keys = [
-        grocery_key(s.store_name, s.street_address, s.zip_code) for s in stores
-    ]
+    keys = [grocery_key(s.store_name, s.street_address, s.zip_code) for s in stores]
     enrich = _enrichment_map(GROCERY, keys)
     kept = []
     for store, key in zip(stores, keys):

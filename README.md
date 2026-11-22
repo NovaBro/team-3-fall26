@@ -139,15 +139,19 @@ star rating, and whether the place is open now.
 The SQLite database (`database/nyc_food.db`) is generated, not committed. Rebuild it
 any time with `import_datasets`; the command is idempotent.
 
-| Dataset | Imported as |
-|---|---|
-| `restaurant_data_set_2_*.csv` | `RestaurantInspection` |
-| `restaurant_cuisines_*.csv` | `RestaurantInspection.cuisine` (matched on CAMIS) |
-| `DOHMH_MenuStat_(Historical)_*.csv` | `MenuItem` |
-| `Good_Food_Purchasing_Data_*.csv` | `AgencyPurchase` |
-| `NYC_Farmers_Markets_*.csv` | `FarmersMarket` |
-| `Recognized_Shop_Healthy_Stores_*.csv` | `HealthyStore` |
-| `DPR_Eateries_001.json` | `ParkEatery` |
+| Dataset | Size | Rows | Imported as |
+|---|---|---|---|
+| `restaurant_data_set_2_*.csv` | ~71 MB | ~297K | `RestaurantInspection` |
+| `restaurant_cuisines_*.csv` | ~688 KB | ~31.5K | `RestaurantInspection.cuisine` (matched on CAMIS) |
+| `DOHMH_MenuStat_(Historical)_*.csv` | ~21 MB | ~65K | `MenuItem` |
+| `Good_Food_Purchasing_Data_*.csv` | ~3.5 MB | ~17K | `AgencyPurchase` |
+| `NYC_Farmers_Markets_*.csv` | ~300 KB | ~2.3K | `FarmersMarket` |
+| `Recognized_Shop_Healthy_Stores_*.csv` | ~104 KB | 712 | `HealthyStore` |
+| `DPR_Eateries_001.json` | ~52 KB | 142 | `ParkEatery` |
+
+Total is about 97 MB / 414K rows. Inspection rows are per violation, not per
+restaurant. The `YYYYMMDD` filename suffix is the download date, not the period
+the data covers.
 
 **MenuStat caveats:** menus are historical (often **2017–2018**) and may not match
 today’s offerings. Linking inspections to MenuStat is **fuzzy name match**, not
@@ -173,9 +177,36 @@ curl -G -o database/datasets/restaurant_cuisines_$(date +%Y%m%d).csv \
 After pulling changes to the models or datasets, rebuild your local database:
 
 ```bash
-.venv/bin/python manage.py migrate
-.venv/bin/python manage.py import_datasets
+NYCFOOD_FULL_DATA=1 .venv/bin/python manage.py migrate
+NYCFOOD_FULL_DATA=1 .venv/bin/python manage.py import_datasets
+.venv/bin/python manage.py build_lite_db --force   # then refresh the lite copy
 ```
+
+### Lite database (faster site)
+
+`build_lite_db` copies `nyc_food.db` to `database/nyc_food_lite.db`, keeping only
+the best places per type (default `--limit 500`):
+
+- **Restaurants:** 500, split across boroughs in proportion to their size, with at
+  least 40 each (about Manhattan 192, Brooklyn 122, Queens 106, Bronx 40, Staten
+  Island 40). They are ranked by a review-weighted Google rating from
+  `community.db`. Restaurants Google lists as closed, and those whose latest grade
+  is C, are dropped.
+- **Shop Healthy stores:** 500, ranked the same way.
+- **Farmers markets:** up to 500 per year (all 102 in the latest year).
+
+MenuStat, agency purchases, park eateries, and accounts are copied unchanged.
+`nyc_food.db` and `community.db` are only read, never modified.
+
+When the lite file exists, the site uses it automatically. Set
+`NYCFOOD_FULL_DATA=1` to switch back to the full DB without deleting anything.
+`import_datasets` refuses to run against the lite DB.
+
+Note: accounts and profiles live in `nyc_food.db`, so the lite copy has the
+accounts that existed when it was built. Rebuilding with `--force` replaces any
+accounts created since. Ratings, comments, and Google data are in the shared
+`community.db`. Production is unaffected: deploys download only `nyc_food.db`
+from S3.
 
 ## Tests
 

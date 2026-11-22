@@ -96,10 +96,19 @@ WSGI_APPLICATION = "nycfood.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# The site uses the small nyc_food_lite.db (best ~500 places per type, built by
+# `manage.py build_lite_db`) when it exists, for speed. NYCFOOD_FULL_DATA=1 forces
+# the full nyc_food.db. Neither file is ever deleted by switching.
+FULL_DB_PATH = BASE_DIR / "database" / "nyc_food.db"
+LITE_DB_PATH = BASE_DIR / "database" / "nyc_food_lite.db"
+USE_FULL_DATA = os.environ.get("NYCFOOD_FULL_DATA") == "1"
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "database" / "nyc_food.db",
+        "NAME": (
+            FULL_DB_PATH if USE_FULL_DATA or not LITE_DB_PATH.exists() else LITE_DB_PATH
+        ),
     },
     "community": {
         "ENGINE": "django.db.backends.sqlite3",

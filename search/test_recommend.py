@@ -570,7 +570,9 @@ class MoodEnergyAdjustmentTests(TestCase):
         tilt = LOW_NUTRITION_TILT * (base_bd["health_estimate"] / 100.0 - 0.5)
         self.assertAlmostEqual(pizza, base + LOW_COMFORT_BONUS + tilt, places=1)
         self.assertIn(TAG_COMFORT_MOOD, tags)
-        self.assertAlmostEqual(breakdown["mood_delta"], LOW_COMFORT_BONUS + tilt, places=1)
+        self.assertAlmostEqual(
+            breakdown["mood_delta"], LOW_COMFORT_BONUS + tilt, places=1
+        )
 
     def test_high_strictness_tilt_prefers_high_nutrition(self):
         check_in = SimpleNamespace(mood=5, energy_level=4)

@@ -289,3 +289,24 @@ class ReasonBlurb(models.Model):
 
     def __str__(self):
         return f"{self.camis} {self.text[:40]}"
+
+
+class MenuEstimate(models.Model):
+    """Gemini-estimated menu for a DOHMH restaurant without a MenuStat menu.
+
+    Filled by ``python manage.py estimate_menus`` from the restaurant's name,
+    cuisine and borough only (see search/menu_estimate.py). These are guesses,
+    not the real menu: the Menu box labels them, and ranking uses their
+    calories only as a low-confidence nutrition input blended with the prior.
+    """
+
+    camis = models.CharField(max_length=32, unique=True)
+    # [{"name", "description", "kind": main|side|drink|dessert, "calories"}]
+    items = models.JSONField(default=list)
+    median_calories = models.FloatField(null=True, blank=True)
+    meal_count = models.PositiveIntegerField(default=0)
+    model_name = models.CharField(max_length=128, blank=True)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.camis} ({len(self.items)} items)"

@@ -56,9 +56,7 @@ def _with_personal(base):
 LINKED_PERSONAL_WEIGHTS = _with_personal(LINKED_WEIGHTS)  # .56 .16 .08 .20
 UNLINKED_PERSONAL_WEIGHTS = _with_personal(UNLINKED_WEIGHTS)  # .32 .32 .16 .20
 LINKED_PERSONAL_HEALTH_FOCUS_WEIGHTS = _with_personal(LINKED_HEALTH_FOCUS_WEIGHTS)
-UNLINKED_PERSONAL_HEALTH_FOCUS_WEIGHTS = _with_personal(
-    UNLINKED_HEALTH_FOCUS_WEIGHTS
-)
+UNLINKED_PERSONAL_HEALTH_FOCUS_WEIGHTS = _with_personal(UNLINKED_HEALTH_FOCUS_WEIGHTS)
 PERSONAL_WEIGHTS = UNLINKED_PERSONAL_WEIGHTS  # no-menu personal weights
 
 # Confidence: menu year / meal count thresholds (match MenuStat helpers).
@@ -858,7 +856,9 @@ def mood_overlay(
     if strictness >= STRICTNESS_HIGH:
         tilt = HIGH_NUTRITION_TILT * centered
         delta += tilt
-        rows.append({"label": "High mood/energy prefers healthier picks", "delta": tilt})
+        rows.append(
+            {"label": "High mood/energy prefers healthier picks", "delta": tilt}
+        )
         if is_light:
             delta += HIGH_LIGHT_BONUS
             rows.append(
@@ -878,9 +878,7 @@ def mood_overlay(
     elif strictness <= STRICTNESS_LOW:
         tilt = LOW_NUTRITION_TILT * centered
         delta += tilt
-        rows.append(
-            {"label": "Low mood/energy is laxer on healthiness", "delta": tilt}
-        )
+        rows.append({"label": "Low mood/energy is laxer on healthiness", "delta": tilt})
         if is_comfort:
             delta += LOW_COMFORT_BONUS
             rows.append(
@@ -908,9 +906,12 @@ def mood_overlay(
         and place_lng is not None
     ):
         try:
-            distance_mi = distance_m(
-                float(user_lat), float(user_lng), float(place_lat), float(place_lng)
-            ) / METERS_PER_MILE
+            distance_mi = (
+                distance_m(
+                    float(user_lat), float(user_lng), float(place_lat), float(place_lng)
+                )
+                / METERS_PER_MILE
+            )
         except (TypeError, ValueError):
             distance_mi = None
         dist_delta, dist_tags, dist_rows = distance_energy_adjustment(
@@ -1125,6 +1126,34 @@ def personal_fit(
     return fit, steps, info
 
 
+# AI-estimated menus (community.MenuEstimate, Gemini guesses from name and
+# cuisine): their calorie score is blended with the health prior at this share.
+# Weights stay "no menu" and confidence stays low.
+ESTIMATE_SHARE = 0.5
+
+
+def _estimate_steps(h_steps, h, e, nutrition, median_kcal=None, meal_count=None):
+    """Health-part lines when an AI-estimated menu is blended with the prior."""
+    steps = list(h_steps)
+    if steps and steps[-1][0] == "Health":
+        steps[-1] = ("Prior health", steps[-1][1])
+    label = "AI-estimated menu"
+    if median_kcal is not None:
+        label += f": median ~{float(median_kcal):.0f} kcal"
+        if meal_count:
+            label += f" ({int(meal_count)} mains)"
+    steps.append((label, f"{e:.2f}"))
+    share = int(round(ESTIMATE_SHARE * 100))
+    steps.append(
+        (
+            f"Blend: {share}% estimated menu + {100 - share}% prior",
+            f"{ESTIMATE_SHARE:.2f} × {e:.2f} + {1 - ESTIMATE_SHARE:.2f} × {h:.2f}"
+            f" = {nutrition:.2f}",
+        )
+    )
+    return steps
+
+
 def _menu_steps(c, match_kind=None, menu_year=None, meal_count=None):
     """Lines showing how the menu nutrition part was worked out (detail page)."""
     steps = []
@@ -1167,6 +1196,9 @@ def score_restaurant(
     user_lng=None,
     place_lat=None,
     place_lng=None,
+    estimated_menu_score=None,
+    estimated_median_kcal=None,
+    estimated_meal_count=None,
 ):
     """Return (sort_score, reason tags, breakdown) for one restaurant.
 
@@ -1181,7 +1213,11 @@ def score_restaurant(
     ``nutrients`` (MenuStat medians) feed the health-goal fit. ``mood_check_in``
     is today's mood/energy log (optional). ``user_lat``/``user_lng`` and
     ``place_lat``/``place_lng`` enable distance × energy adjustments when a
-    check-in exists. Breakdown includes ``health_estimate`` and ``confidence``.
+    check-in exists. ``estimated_menu_score`` (0–1, from a Gemini-estimated
+    menu's median main-dish calories) is used only without a MenuStat link:
+    it is blended with the prior (``ESTIMATE_SHARE``), weights stay "no menu"
+    and confidence stays low; ignored for non-meal cuisines (donuts, coffee…).
+    Breakdown includes ``health_estimate`` and ``confidence``.
     """
     goal_words = _goal_words(profile)
     h_parts = health_parts(cuisine, reviews, name, goal_words, ai_score=ai_health)
@@ -1202,7 +1238,19 @@ def score_restaurant(
     else:
         c = None
         nutrition = h
-        health_estimate = 100.0 * h
+    e = None
+    # Per-item calories of donuts, coffee or desserts look "light" next to
+    # full meals, so estimates only count for places that serve meals.
+    meal_place = (cuisine or "").strip() not in NON_MEAL_CUISINES
+    if not has_menu and meal_place and estimated_menu_score is not None:
+        try:
+            e = max(0.0, min(1.0, float(estimated_menu_score)))
+        except (TypeError, ValueError):
+            e = None
+        if e is not None:
+            nutrition = ESTIMATE_SHARE * e + (1 - ESTIMATE_SHARE) * h
+    if not has_menu:
+        health_estimate = 100.0 * nutrition
 
     confidence = nutrition_confidence(
         has_menu=has_menu,
@@ -1314,6 +1362,22 @@ def score_restaurant(
             "nutrition",
             _menu_steps(c, menu_match_kind, menu_year, meal_count),
         )
+    elif e is not None:
+        nutrition_part = _part(
+            "health",
+            "Health + estimated menu",
+            nutrition,
+            w_n,
+            "nutrition",
+            _estimate_steps(
+                health_steps(h_parts, h, cuisine, ai_health),
+                h,
+                e,
+                nutrition,
+                estimated_median_kcal,
+                estimated_meal_count,
+            ),
+        )
     else:
         nutrition_part = _part(
             "health",
@@ -1344,6 +1408,14 @@ def score_restaurant(
     if has_menu:
         contributions.append((100 * w_n * (c - 0.5), "Lighter menu choices", False))
     else:
+        if e is not None and e > 0.5:
+            contributions.append(
+                (
+                    100 * w_n * ESTIMATE_SHARE * (e - 0.5),
+                    "Lighter dishes on its estimated menu",
+                    False,
+                )
+            )
         if h_parts["cuisine"] > 0:
             contributions.append(
                 (
@@ -1427,6 +1499,8 @@ def score_restaurant(
         "health_estimate": health_estimate,
         "prior_health": h,
         "menu_health": c,
+        "estimated_menu_health": e,
+        "estimated_median_kcal": estimated_median_kcal if e is not None else None,
         "ai_health": ai_health,
         "health_parts": h_parts,
         "reasons": reasons,

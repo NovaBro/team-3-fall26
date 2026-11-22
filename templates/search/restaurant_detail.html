@@ -16,7 +16,7 @@
     <p class="muted healthiness-score__sub">
       Top Picks formula{% if score_breakdown.mode == "personal" %} · includes your Personal fit{% endif %}
       {% if score_breakdown.confidence %}· <span class="healthiness-score__confidence">{{ score_breakdown.confidence }} confidence</span>{% endif %}
-      {% if score_breakdown.has_menu %}· menu-based{% elif score_breakdown.has_calories == False %}· prior only (no MenuStat link){% endif %}
+      {% if score_breakdown.has_menu %}· menu-based{% elif score_breakdown.estimated_menu_health is not None %}· prior + AI-estimated menu{% elif score_breakdown.has_calories == False %}· prior only (no MenuStat link){% endif %}
       {% if score_breakdown.health_focus %}· personalized weights{% endif %}
     </p>
   </div>
@@ -66,7 +66,11 @@
   <p class="allergy-note" role="note">{{ score_breakdown.allergy_warnings|join:", " }} {% if score_breakdown.allergy_warnings|length > 1 %}are{% else %}is{% endif %} common in {{ cuisine }} food. Always confirm allergies with the restaurant.</p>
   {% endif %}
   {% if score_breakdown.has_calories == False or score_breakdown.has_menu == False %}
+  {% if score_breakdown.estimated_menu_health is not None %}
+  <p class="muted healthiness-score__note">No MenuStat menu match — nutrition blends a soft prior with calories from an AI-estimated menu (a guess, not the real menu). Inspection grade is safety, not nutrition.</p>
+  {% else %}
   <p class="muted healthiness-score__note">No MenuStat menu match — calorie/menu weight uses a soft prior. Inspection grade is safety, not nutrition.</p>
+  {% endif %}
   {% endif %}
 </section>
 {% endif %}

@@ -7,6 +7,9 @@ Where the menu comes from:
    and one Gemini call finds the menu photos and reads the dish names.
 Nothing from step 2 is saved. Google's terms don't allow storing Places
 content (only place IDs), so the menu is read again on each visit.
+3. Otherwise a stored Gemini-estimated menu (``community.MenuEstimate``,
+   made offline by ``manage.py estimate_menus`` from name and cuisine only),
+   labeled as an estimate.
 
 For now the page shows the whole menu, grouped into food, drinks and
 desserts. ``score_dishes`` and ``pick`` (MiniLM health score per dish, the
@@ -84,6 +87,7 @@ class Dish:
     name: str
     description: str = ""
     kind: str = "food"
+    calories: int | None = None
     health: float | None = None
     goals: dict = field(default_factory=dict)
     rank: float = 0.0
@@ -110,7 +114,7 @@ class Group:
 
 @dataclass
 class Result:
-    source: str = ""  # "menustat", "photos" or "" (no menu)
+    source: str = ""  # "menustat", "photos", "estimate" or "" (no menu)
     groups: list = field(default_factory=list)
     picks: list = field(default_factory=list)
     scored: int = 0
@@ -250,6 +254,33 @@ def read_dishes(images):
         return []
 
 
+ESTIMATE_KINDS = {
+    "main": "food",
+    "side": "food",
+    "drink": "drink",
+    "dessert": "dessert",
+}
+
+
+def estimated_dishes(camis):
+    """Dishes from a stored Gemini-estimated menu, or []."""
+    from search import menu_estimate
+
+    dishes = []
+    for item in menu_estimate.estimated_items(camis):
+        kind = ESTIMATE_KINDS.get(item.get("kind"))
+        if kind:
+            dishes.append(
+                Dish(
+                    item.get("name") or "",
+                    item.get("description") or "",
+                    kind,
+                    item.get("calories"),
+                )
+            )
+    return clean(dishes)
+
+
 def _can_read():
     return bool(settings.GOOGLE_AUTO_FETCH and settings.GEMINI_API_KEY)
 
@@ -275,7 +306,9 @@ def clean(dishes):
         if key in seen:
             continue
         seen.add(key)
-        result.append(Dish(name, " ".join(dish.description.split()), dish.kind))
+        result.append(
+            Dish(name, " ".join(dish.description.split()), dish.kind, dish.calories)
+        )
     return result[:MAX_DISHES]
 
 
@@ -366,19 +399,28 @@ def pick(dishes, profile):
     return choices[:PICKS]
 
 
-def build(name, place, profile, query, get_encoder=None):
+def build(name, place, profile, query, get_encoder=None, camis=None):
     """The menu for one restaurant, grouped by kind (never raises).
 
-    ``profile`` and ``get_encoder`` are for the dish picks (next step); the
-    menu is shown as read for now.
+    Order: MenuStat, then the Google photos, then a stored AI-estimated menu
+    for *camis*. ``profile`` and ``get_encoder`` are for the dish picks (next
+    step); the menu is shown as read for now.
     """
+    failed = False
     try:
         source, dishes = "menustat", menustat_dishes(name)
         if not dishes:
             source, dishes = "photos", photo_dishes(place, query)
     except Exception:
         logger.warning("Menu lookup failed for %s", name, exc_info=True)
-        return Result(message="Menu not available right now.")
+        failed, dishes = True, []
+    if not dishes and camis:
+        try:
+            source, dishes = "estimate", estimated_dishes(camis)
+        except Exception:
+            logger.warning("Estimated menu lookup failed for %s", camis, exc_info=True)
+            dishes = []
     if not dishes:
-        return Result(message="Menu not available.")
+        message = "Menu not available right now." if failed else "Menu not available."
+        return Result(message=message)
     return Result(source=source, groups=group(dishes))

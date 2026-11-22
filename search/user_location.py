@@ -53,9 +53,7 @@ def save_user_latlng(user, lat, lng):
     profile.location_lat = lat
     profile.location_lng = lng
     profile.location_updated_at = timezone.now()
-    profile.save(
-        update_fields=["location_lat", "location_lng", "location_updated_at"]
-    )
+    profile.save(update_fields=["location_lat", "location_lng", "location_updated_at"])
     return profile
 
 
@@ -67,9 +65,7 @@ def clear_user_latlng(user):
     profile.location_lat = None
     profile.location_lng = None
     profile.location_updated_at = timezone.now()
-    profile.save(
-        update_fields=["location_lat", "location_lng", "location_updated_at"]
-    )
+    profile.save(update_fields=["location_lat", "location_lng", "location_updated_at"])
     return profile
 
 

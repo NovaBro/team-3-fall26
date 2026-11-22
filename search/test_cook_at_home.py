@@ -264,8 +264,12 @@ class CookAtHomeHomeViewTests(TestCase):
         self.assertIn(
             "types=farmers_market", response.context["cook_at_home"]["find_food_url"]
         )
-        self.assertIn("types=grocery", response.context["cook_at_home"]["find_food_url"])
-        self.assertIn("area=Brooklyn", response.context["cook_at_home"]["find_food_url"])
+        self.assertIn(
+            "types=grocery", response.context["cook_at_home"]["find_food_url"]
+        )
+        self.assertIn(
+            "area=Brooklyn", response.context["cook_at_home"]["find_food_url"]
+        )
 
     def test_high_mood_with_only_weak_enrichment_shows_cta_empty_lists(self, _find):
         PlaceEnrichment.objects.all().delete()

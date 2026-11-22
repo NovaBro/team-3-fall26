@@ -20,15 +20,19 @@ flowchart TD
     D -->|yes| E["+ up to 3 favorite matches<br/>+ up to 3 near-home"]
     D -->|no| F["Pool max 25"]
     E --> F2["Pool max 31"]
-    F --> G["Drop Not interested<br/>Drop strong allergy cuisines"]
-    F2 --> G
+    F --> MX{Mood check-in today?}
+    F2 --> MX
+    MX -->|yes| MY["+ up to 8 mood-matched cuisines<br/>pool max 39"]
+    MX -->|no| G
+    MY --> G["Drop Not interested<br/>Drop strong allergy cuisines"]
   end
 
   subgraph enrich [2. Enrich each candidate]
     G --> H["Google Places<br/>rating, price, up to 5 reviews, photo"]
     H --> I[DOHMH latest grade]
     I --> J["MenuStat fuzzy name match<br/>median qualifying-meal calories"]
-    J --> K["AI health score<br/>HealthScore or MiniLM live"]
+    J --> J2["No MenuStat: Gemini-estimated menu<br/>stored MenuEstimate median kcal"]
+    J2 --> K["AI health score<br/>HealthScore or MiniLM live"]
     K --> L[In-app ratings]
   end
 
@@ -69,9 +73,12 @@ flowchart TD
     REV -->|no| KW["reviews = 0.3 x keyword share"]
   end
 
+  AI --> EST{Estimated menu stored?}
+  KW --> EST
+  EST -->|yes| MIX["nutrition = 0.5 x estimated menu_health<br/>+ 0.5 x prior_health (low confidence)"]
+  EST -->|no| BLEND
+  MIX --> BLEND
   MENU --> BLEND
-  AI --> BLEND
-  KW --> BLEND
 
   subgraph other [Other components 0-1]
     SAFE["Safety: grade A=1, B=0.5, C=0, missing=0.3"]
@@ -144,7 +151,9 @@ Qualifying meal filters and match rules: `search/menustat.py`.
 ## 4. AI health score path (not an LLM API)
 
 Numeric store health scores use **MiniLM sentence embeddings**, not Gemini or
-Claude. Those APIs write reason prose / chat / optional re-order only.
+Claude. Gemini's only effect on scores is the offline estimated-menu calories
+(blended into nutrition when there is no MenuStat menu); otherwise the LLM
+APIs write reason prose / read menus / chat / optional re-order.
 
 ```mermaid
 flowchart TD
@@ -179,6 +188,8 @@ flowchart TD
 |---|---|---|
 | MiniLM (`search/health_ai.py`) | Health + goal floats 0–1 | Yes — feeds prior / personal fit |
 | Gemini (`search/reason_writer.py`) | Detail “why” paragraph | No |
+| Gemini (`search/what_to_order.py`) | Reads menu photos for the Menu box (live, not stored) | No |
+| Gemini (`search/menu_estimate.py`) | Estimated menu + kcal per dish (offline, stored) | Yes — 50% of nutrition when no MenuStat |
 | Anthropic (`assistant/llm.py`) | Chat; optional Claude Top Picks order | Order only when used; still runs `score_restaurant` for tags |
 
 Fallback when AI missing: review **keyword** counts in `health_parts`.
@@ -200,15 +211,16 @@ flowchart TD
     N --> PF["Personal fit clipped to 0-1<br/>enters blend at weight w_p"]
   end
 
-  subgraph mood [Mood / energy - absolute points after the blend]
-    CHECK["Today MoodLog check-in"] --> E1["Energy 1-2: +5 light / -4 heavy<br/>MenuStat +3 if light / -3 if heavy"]
-    CHECK --> E2["Energy 4-5: +3 hearty cuisines"]
-    CHECK --> M1["Mood 1-2: +5 comfort cuisines"]
-    CHECK --> M2["Mood 4-5: +3 light cuisines"]
-    E1 --> MD["mood_delta added to sort_score"]
-    E2 --> MD
-    M1 --> MD
-    M2 --> MD
+  subgraph mood [mood_overlay - absolute points after the blend]
+    CHECK["Today MoodLog check-in"] --> STR["Strictness = avg(mood, energy)<br/>missing side counts as 3"]
+    STR --> HI["High, avg >= 4:<br/>12 x (nutrition - 0.5)<br/>+8 light / -6 heavy or fast food"]
+    STR --> MID["Mid: no cuisine/nutrition overlay"]
+    STR --> LO["Low, avg <= 2:<br/>-6 x (nutrition - 0.5)<br/>+12 comfort / +8 hearty"]
+    CHECK --> DIST["With user pin + place coords:<br/>distance x energy curve"]
+    HI --> MD["mood_delta added to sort_score"]
+    MID --> MD
+    LO --> MD
+    DIST --> MD
   end
 
   PF --> SORT["sort_score"]
@@ -218,6 +230,10 @@ flowchart TD
 Strong allergy cuisines are **excluded from the candidate pool**, not scored as
 a soft penalty. Mood/energy rows appear under `breakdown["adjustments"]`; they
 do not change `health_estimate`.
+
+After a check-in, the home page calls `rerank/`, which reapplies
+`mood_overlay` to the cached scored pool (no Google / MenuStat / AI calls) and
+swaps in new Top Picks cards.
 
 When mood and energy are both ≥ 4, home also shows a separate **Cook at home
 today** strip (`search/cook_at_home.py`) with farmers markets and Shop Healthy
@@ -259,6 +275,7 @@ general reasons only — never personal facts, never review text.
 | Candidate pool / Explore score | `search/views.py` (`_build_candidate_pool`, `_scored_restaurants`) |
 | Google enrichment | `search/services/places.py`, `restaurants/places.py` |
 | MenuStat link + calories | `search/menustat.py` |
+| Gemini-estimated menus | `search/menu_estimate.py`, `manage.py estimate_menus` |
 | MiniLM health / goals | `search/health_ai.py`, `search/ai_scores.py` |
 | Pure score | `search/recommend.py` (`score_restaurant`, `health_parts`, `personal_fit`, `pick_top`) |
 | Goal nutrient fit | `search/goal_fit.py` |
