@@ -176,6 +176,9 @@ GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 # Fetch and store a restaurant's Google data the first time its detail page is
 # opened (needs the key above). Always off under `manage.py test`.
 GOOGLE_AUTO_FETCH = sys.argv[1:2] != ["test"]
+# Top picks fetch (and store) a missing restaurant photo reference from Google
+# (search/services/places.py ensure_photos). Always off under `manage.py test`.
+GOOGLE_PHOTO_FETCH = sys.argv[1:2] != ["test"]
 
 # Auth redirects for the profile tab.
 # The AI assistant stays hidden until ANTHROPIC_API_KEY is set.

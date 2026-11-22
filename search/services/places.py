@@ -11,9 +11,13 @@ stores) are enriched with ``enrich_subject``.
 Docs: https://developers.google.com/maps/documentation/places/web-service/op-overview
 """
 
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
+
 import requests
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from community.keys import GOOGLE, google_key
@@ -43,6 +47,10 @@ DISCOVER_FIELD_MASK = (
     + ",nextPageToken"
 )
 REQUEST_TIMEOUT = 15
+# Top picks fetch missing photos while the page renders: keep it short.
+PHOTO_FIELD_MASK = "photos"
+PHOTO_TIMEOUT = 3
+PHOTO_RECHECK_DAYS = 30  # a place Google had no photo for is asked again after
 
 # Bias text searches toward the five boroughs so "Joe's Pizza" resolves locally.
 NYC_LOCATION_BIAS = {
@@ -66,7 +74,7 @@ def _api_key():
     return key
 
 
-def _request(method, url, field_mask, **kwargs):
+def _request(method, url, field_mask, timeout=REQUEST_TIMEOUT, **kwargs):
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": _api_key(),
@@ -74,7 +82,7 @@ def _request(method, url, field_mask, **kwargs):
     }
     try:
         response = requests.request(
-            method, url, headers=headers, timeout=REQUEST_TIMEOUT, **kwargs
+            method, url, headers=headers, timeout=timeout, **kwargs
         )
     except requests.RequestException as exc:
         raise PlacesAPIError(f"Could not reach the Places API: {exc}") from exc
@@ -121,6 +129,77 @@ def find_place_with_details(query):
     )
     places = data.get("places") or []
     return places[0] if places else None
+
+
+def fetch_photo_name(place_id):
+    """The first Google photo reference for a place ("" when it has none).
+
+    A Place Details request that asks for ``photos`` only, the cheapest way to
+    get one. Raises PlacesAPIError (also when no API key is set).
+    """
+    data = _request(
+        "GET",
+        f"{PLACES_BASE_URL}/places/{place_id}",
+        PHOTO_FIELD_MASK,
+        timeout=PHOTO_TIMEOUT,
+    )
+    return ((data.get("photos") or [{}])[0].get("name") or "")[:512]
+
+
+def _photo_or_none(place_id):
+    try:
+        return fetch_photo_name(place_id)
+    except PlacesAPIError:
+        return None  # Google down or no key: try again on a later page load
+
+
+def ensure_photos(place_ids):
+    """{place_id: photo reference} for these places, asking Google only when
+    the stored ``photo_name`` is empty.
+
+    Places checked within PHOTO_RECHECK_DAYS that had no photo are not asked
+    again. Requests run in parallel with a short timeout; failures are left
+    unrecorded so a later load retries. Google's terms allow storing the photo
+    reference, not the image: the image is served by restaurants:photo.
+    """
+    place_ids = [place_id for place_id in dict.fromkeys(place_ids) if place_id]
+    rows = list(
+        Restaurant.objects.filter(place_id__in=place_ids).values_list(
+            "place_id", "photo_name", "photo_checked_at"
+        )
+    )
+    photos = {place_id: name for place_id, name, _checked in rows if name}
+    cutoff = timezone.now() - timedelta(days=PHOTO_RECHECK_DAYS)
+    todo = [
+        place_id
+        for place_id, name, checked in rows
+        if not name and (checked is None or checked < cutoff)
+    ]
+    if not todo or not getattr(settings, "GOOGLE_PHOTO_FETCH", False):
+        return photos
+    if not getattr(settings, "GOOGLE_PLACES_API_KEY", ""):
+        return photos
+    with ThreadPoolExecutor(max_workers=len(todo)) as pool:
+        results = list(zip(todo, pool.map(_photo_or_none, todo)))
+    now = timezone.now()
+    for place_id, name in results:
+        if name is None:
+            continue
+        # update(), not save(): fetched_at tracks full refreshes, not photos.
+        Restaurant.objects.filter(place_id=place_id).update(
+            photo_name=name, photo_checked_at=now
+        )
+        if name:
+            photos[place_id] = name
+    return photos
+
+
+def forget_photo(photo_name):
+    """Clear a photo reference Google no longer accepts, so it is re-fetched."""
+    if photo_name:
+        Restaurant.objects.filter(photo_name=photo_name).update(
+            photo_name="", photo_checked_at=None
+        )
 
 
 def get_place_details(place_id):

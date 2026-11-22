@@ -52,6 +52,10 @@ class Restaurant(models.Model):
     business_status = models.CharField(max_length=32, blank=True)
     maps_url = models.CharField(max_length=512, blank=True)
     photo_name = models.CharField(max_length=512, blank=True)
+    # When Top picks last asked Google for a photo (search/services/places.py
+    # ensure_photos). Set even when Google had none, so a place without
+    # photos is not asked again on every page load.
+    photo_checked_at = models.DateTimeField(null=True, blank=True)
     shuffle_seed = models.BigIntegerField(default=0)
     # In the ranked pool. ``manage.py curate_pool`` keeps the best rated
     # places per borough active; the rest stay stored (their Google data cost

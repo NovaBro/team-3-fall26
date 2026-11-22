@@ -97,7 +97,7 @@ from search.profile_options import (
     parse_foods,
     strong_allergy_cuisines,
 )
-from search.services.places import PlacesAPIError, enrich_place_id
+from search.services.places import PlacesAPIError, enrich_place_id, ensure_photos
 
 PAGE_SIZE = 25
 # Top picks candidates: the first POOL_SIZE places for a meal in the viewer's
@@ -656,8 +656,20 @@ def _top_picks(request, count=3, boro=""):
     # With a mood check-in, rule-based scores (including mood/energy) win the
     # final order; Claude may still have shortlisted and attached ai_reason.
     if ranked_by_claude and mood_check_in is None:
-        return picks[:count]
-    return pick_top(picks, count)
+        return _attach_photos(picks[:count])
+    return _attach_photos(pick_top(picks, count))
+
+
+def _attach_photos(picks):
+    """Give the shown picks their photo: the stored Google reference, or one
+    fetched now (and stored) when the place has none yet. See ensure_photos."""
+    photos = ensure_photos([pick["place_id"] for pick in picks])
+    for pick in picks:
+        name = photos.get(pick["place_id"])
+        if name:
+            pick["google"]["photo"] = name
+            pick["photo_url"] = _photo_url_for(pick["google"])
+    return picks
 
 
 SHUFFLE_MODULUS = 2_147_483_647  # prime, so each daily multiplier is a new order
@@ -974,7 +986,7 @@ def rerank_top_picks(request):
     user_lng = user_coords[1] if user_coords else None
     if pool:
         scored = _apply_mood_overlay_to_pool(pool, today_mood, user_lat, user_lng)
-        top_picks = pick_top(scored, 3)
+        top_picks = _attach_photos(pick_top(scored, 3))
     else:
         top_picks = []
     request.session[TOP_PICKS_SESSION_KEY] = {
