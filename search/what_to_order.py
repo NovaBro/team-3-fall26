@@ -5,18 +5,23 @@ Where the menu comes from:
 1. MenuStat (chains in our DB): read from our own table, no API cost.
 2. Otherwise the restaurant's Google photos: up to 10 photos are downloaded
    and one Gemini call finds the menu photos and reads the dish names.
-Nothing from step 2 is saved. Google's terms don't allow storing Places
-content (only place IDs), so the menu is read again on each visit.
+Nothing from step 2 is saved in the database: Google's terms don't allow
+storing Places content (only place IDs). The menu read from the photos is
+kept in the cache for PLACES_CACHE_SECONDS (1 hour), the same as Google
+search results, so reloading shows the same menu and costs nothing.
 
-For now the page shows the whole menu, grouped into food, drinks and
-desserts. ``score_dishes`` and ``pick`` (MiniLM health score per dish, the
-user's goals, dislikes and allergies) are kept for the next step but not
-shown yet.
+The page shows the whole menu, grouped into food, drinks and desserts, and
+highlights a few food picks above it (never removing anything from the
+list). ``score_dishes`` gives each dish a MiniLM health score and goal
+scores; ``pick`` chooses from the healthy dishes (health >= HEALTHY_AT),
+leaving out dishes that list one of the user's allergens and ranking down
+dishes they dislike. Small menus get fewer or no picks (``pick_count``).
 """
 
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -33,7 +38,7 @@ from search import health_ai
 from search.menustat import match_menustat_restaurant
 from search.profile_options import (
     GOAL_LABELS,
-    allergens_in,
+    allergen_words_in,
     name_pattern,
     normalize_goals,
     parse_allergies,
@@ -56,15 +61,22 @@ MIN_ITEMS_FOR_SHARE = 10
 HEALTHY_AT = 0.6
 GOAL_FITS_AT = 0.6
 LIKE_BONUS = 0.1
+DISLIKE_PENALTY = 0.15  # disliked dishes are ranked down, not removed
+CALORIE_WEIGHT = 0.1  # weight loss: lower calories within this menu rank higher
 
 READ_PROMPT = (
     "These are photos of one restaurant. Find the photos that show a menu "
     "(printed menu, menu board or menu page; not just a plate of food) and "
-    "list every item you can read on them. Skip words cut off at the photo "
-    "edge. For each item give its name exactly as written, its description "
-    'if one is printed, and a kind: "food", "drink", "dessert" or "header" '
-    "(section titles like APPETIZERS). Reply ONLY with JSON: "
-    '{"items": [{"name": "...", "description": "...", "kind": "food"}]}. '
+    "list every item you can read on all of them, drinks included. Skip "
+    "words cut off at the photo "
+    "edge. For each item give its name exactly as written (without the "
+    "price), its description if one is printed, its price as printed (like "
+    '"$12.95") or "", its calories as a number if printed or null, and a '
+    'kind: "food", "drink" (coffee, tea, juices, smoothies, shakes, shots, '
+    'sodas), "dessert" or "header" (section titles like APPETIZERS). Reply '
+    "ONLY with JSON: "
+    '{"items": [{"name": "...", "description": "...", "price": "$12.95", '
+    '"calories": 450, "kind": "food"}]}. '
     'If no photo shows a menu, reply {"items": []}.'
 )
 
@@ -84,10 +96,13 @@ class Dish:
     name: str
     description: str = ""
     kind: str = "food"
+    price: str = ""
+    calories: int | None = None
     health: float | None = None
     goals: dict = field(default_factory=dict)
     rank: float = 0.0
     notes: list = field(default_factory=list)
+    picked: bool = False  # highlighted in the menu list
 
     @property
     def text(self):
@@ -113,6 +128,8 @@ class Result:
     source: str = ""  # "menustat", "photos" or "" (no menu)
     groups: list = field(default_factory=list)
     picks: list = field(default_factory=list)
+    skipped: list = field(default_factory=list)  # [(dish name, [allergen words])]
+    goal_labels: list = field(default_factory=list)  # the user's goals, for the box
     scored: int = 0
     healthy: int = 0
     message: str = ""
@@ -137,13 +154,15 @@ def menustat_dishes(name):
     rows = (
         MenuItem.objects.filter(restaurant=chain, year=latest)
         .order_by("food_category", "item_name")
-        .values_list("item_name", "item_description", "food_category")
+        .values_list("item_name", "item_description", "food_category", "calories")
     )
     dishes = []
-    for item, desc, category in rows:
+    for item, desc, category, calories in rows:
         kind = MENUSTAT_KINDS.get(category, "food")
         if kind:
-            dishes.append(Dish(item or "", desc or "", kind))
+            dishes.append(
+                Dish(item or "", desc or "", kind, calories=_calories(calories))
+            )
     return clean(dishes)
 
 
@@ -214,7 +233,10 @@ def read_menu(images):
         headers={"x-goog-api-key": settings.GEMINI_API_KEY},
         json={
             "contents": [{"parts": parts}],
-            "generationConfig": {"responseMimeType": "application/json"},
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "temperature": 0,  # read the same menu the same way each visit
+            },
         },
         timeout=GEMINI_TIMEOUT,
     )
@@ -233,9 +255,41 @@ def _dishes_from(items):
     for item in items:
         kind = str(item.get("kind") or "").lower()
         if kind in kinds:  # headers and anything else are dropped
-            name = str(item.get("name") or "")
-            dishes.append(Dish(name, str(item.get("description") or ""), kind))
+            dishes.append(
+                Dish(
+                    str(item.get("name") or ""),
+                    str(item.get("description") or ""),
+                    kind,
+                    price=_price(item.get("price")),
+                    calories=_calories(item.get("calories")),
+                )
+            )
     return clean(dishes)
+
+
+_PRICE = re.compile(r"\$\s?\d{1,4}(?:\.\d{1,2})?")
+_TRAILING_PRICE = re.compile(r"\s*\$\s?\d{1,4}(?:\.\d{1,2})?\s*$")
+# "432 cal", "(432 kcal)", "432 calories"; "432 call" is a common misread.
+_CALORIES = re.compile(
+    r"\s*\(?\b(\d{2,4})\s*(?:kcal|calories|cals?|call)\b\)?", re.IGNORECASE
+)
+
+
+def _price(value):
+    """A printed price as "$12.95", or ""."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"${value:.2f}" if value > 0 else ""
+    match = _PRICE.search(str(value or ""))
+    return match.group(0).replace(" ", "") if match else ""
+
+
+def _calories(value):
+    """Calories as a whole number (10-5000), or None."""
+    try:
+        number = round(float(value))
+    except (TypeError, ValueError):
+        return None
+    return number if 10 <= number <= 5000 else None
 
 
 def read_dishes(images):
@@ -254,29 +308,93 @@ def _can_read():
     return bool(settings.GOOGLE_AUTO_FETCH and settings.GEMINI_API_KEY)
 
 
+MENU_FIELDS = ("name", "description", "kind", "price", "calories")
+
+
+def _menu_cache_key(place, query):
+    place_id = getattr(place, "place_id", "") or ""
+    key = place_id or " ".join((query or "").casefold().split())
+    return "menu-photos:" + hashlib.sha256(key.encode()).hexdigest()
+
+
 def photo_dishes(place, query):
-    """Dishes read from the restaurant's Google photos, or []."""
+    """Dishes read from the restaurant's Google photos, or [].
+
+    A menu that was read is cached for PLACES_CACHE_SECONDS; an empty read
+    (no menu photo, quota, errors) is not, so it is tried again next time.
+    Fresh Dish objects are made from the cache each time, so one viewer's
+    picks never show up for another."""
+    seconds = getattr(settings, "PLACES_CACHE_SECONDS", 0)
+    key = _menu_cache_key(place, query)
+    if seconds:
+        hit = cache.get(key)
+        if hit:
+            return [Dish(**dict(zip(MENU_FIELDS, row))) for row in hit]
     if not (_can_read() and _google_key()) or cache.get(GEMINI_PAUSE_KEY):
         return []
-    return read_dishes(download_photos(photo_names(place, query)))
+    dishes = read_dishes(download_photos(photo_names(place, query)))
+    if dishes and seconds:
+        rows = [tuple(getattr(d, f) for f in MENU_FIELDS) for d in dishes]
+        cache.set(key, rows, seconds)
+    return dishes
 
 
 _LETTERS = re.compile(r"[A-Za-z]")
 
 
 def clean(dishes):
-    """Drop blank, very short, all-caps-header-like and repeated names."""
+    """Drop blank, very short, all-caps-header-like and repeated names; move a
+    price or calories written into the name or description to their fields."""
     seen, result = set(), []
     for dish in dishes:
         name = " ".join(dish.name.split())
-        if len(name) < 3 or not _LETTERS.search(name):
+        dish = _split_extras(
+            Dish(**{**dish.__dict__, "name": name, "goals": {}, "notes": []})
+        )
+        if len(dish.name) < 3 or not _LETTERS.search(dish.name):
             continue
-        key = name.casefold()
+        key = dish.name.casefold()
         if key in seen:
             continue
         seen.add(key)
-        result.append(Dish(name, " ".join(dish.description.split()), dish.kind))
+        result.append(dish)
     return result[:MAX_DISHES]
+
+
+def _balanced(text):
+    """*text* without empty "()" and without ")" that close nothing (left
+    behind when "(432 cal" was cut out of "(432 cal, add croutons (+3))")."""
+    text = text.replace("()", "")
+    kept, depth = [], 0
+    for char in text:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            if depth == 0:
+                continue
+            depth -= 1
+        kept.append(char)
+    return "".join(kept)
+
+
+def _split_extras(dish):
+    """Move a price left in the name, or calories left in the description
+    (like "(432 cal)"), into their own fields."""
+    description = " ".join(dish.description.split())
+    if not dish.price:
+        match = _TRAILING_PRICE.search(dish.name)
+        if match and match.start() >= 3:
+            dish.price = _price(match.group(0))
+            dish.name = dish.name[: match.start()].strip()
+    match = _CALORIES.search(description)
+    if match:
+        if dish.calories is None:
+            dish.calories = _calories(match.group(1))
+        start, end = match.span()
+        description = _balanced(description[:start] + description[end:])
+        description = " ".join(description.split()).strip(" ,;")
+    dish.description = description
+    return dish
 
 
 def group(dishes):
@@ -333,44 +451,80 @@ def _mentions(option, text):
     return bool(name_pattern(words).search(text))
 
 
-def pick(dishes, profile):
-    """Top dishes for this user, with short notes on why."""
+def pick_count(food_count):
+    """How many picks a menu with *food_count* dishes gets: none for 3 or
+    fewer (picking most of a short menu says little), 2 for 4-5, else PICKS."""
+    if food_count <= 3:
+        return 0
+    if food_count <= 5:
+        return 2
+    return PICKS
+
+
+def _calorie_scores(dishes):
+    """{dish index: 0-1} (1 = fewest calories on this menu), only when every
+    dish lists calories, so dishes are compared on the same footing."""
+    calories = [d.calories for d in dishes]
+    if not calories or any(c is None for c in calories):
+        return {}
+    low, high = min(calories), max(calories)
+    if high == low:
+        return {}
+    return {i: (high - c) / (high - low) for i, c in enumerate(calories)}
+
+
+def pick(dishes, profile, count=PICKS, skipped=None):
+    """Top healthy dishes for this user, with short notes on why.
+
+    Only dishes with health >= HEALTHY_AT are picked. A dish listing one of
+    the user's allergens is left out (added to *skipped* as (name, words));
+    a disliked dish is ranked down, not removed."""
     goals, likes, dislikes, allergies = _profile_lists(profile)
+    calorie_scores = _calorie_scores(dishes)
+    lightest = max(calorie_scores.values()) if calorie_scores else None
     choices = []
-    for dish in dishes:
-        if dish.health is None:
+    for index, dish in enumerate(dishes):
+        if dish.health is None or dish.health < HEALTHY_AT:
             continue
-        if allergens_in(allergies, dish.text):
-            continue
-        if any(_mentions(option, dish.text) for option in dislikes):
+        words = allergen_words_in(allergies, dish.text)
+        if words:
+            if skipped is not None:
+                skipped.append((dish.name, words))
             continue
         goal_scores = [dish.goals.get(goal, 0.5) for goal in goals]
         rank = dish.health
         if goal_scores:
             rank = 0.6 * dish.health + 0.4 * sum(goal_scores) / len(goal_scores)
+        if "weight-loss" in goals and calorie_scores:
+            rank += CALORIE_WEIGHT * calorie_scores[index]
         liked = next((o for o in likes if _mentions(o, dish.text)), None)
         if liked:
             rank += LIKE_BONUS
-        notes = [
-            f"Fits {GOAL_LABELS[goal].lower()}"
-            for goal in goals
-            if dish.goals.get(goal, 0) >= GOAL_FITS_AT
-        ][:1]
+        if any(_mentions(option, dish.text) for option in dislikes):
+            rank -= DISLIKE_PENALTY
+        fitting = [g for g in goals if dish.goals.get(g, 0) >= GOAL_FITS_AT]
+        notes = []
+        if fitting:
+            best = max(fitting, key=lambda g: dish.goals[g])
+            notes.append(f"Fits {GOAL_LABELS[best].lower()}")
         if liked:
-            notes.append(f"you like {liked.label.lower()}")
-        if not notes and dish.health >= 0.75:
+            notes.append(f"You like {liked.label.lower()}")
+        if not notes:
             notes.append("Lighter choice")
+        if calorie_scores and calorie_scores[index] == lightest:
+            notes.append("Lightest here")
         dish.rank, dish.notes = rank, notes
         choices.append(dish)
     choices.sort(key=lambda d: -d.rank)
-    return choices[:PICKS]
+    return choices[:count]
 
 
 def build(name, place, profile, query, get_encoder=None):
-    """The menu for one restaurant, grouped by kind (never raises).
+    """The menu for one restaurant, grouped by kind, with food picks for
+    this user highlighted (never raises).
 
-    ``profile`` and ``get_encoder`` are for the dish picks (next step); the
-    menu is shown as read for now.
+    ``get_encoder`` returns the MiniLM encoder (or None); without it the
+    menu is shown with no picks.
     """
     try:
         source, dishes = "menustat", menustat_dishes(name)
@@ -381,4 +535,28 @@ def build(name, place, profile, query, get_encoder=None):
         return Result(message="Menu not available right now.")
     if not dishes:
         return Result(message="Menu not available.")
-    return Result(source=source, groups=group(dishes))
+    result = Result(source=source, groups=group(dishes))
+    try:
+        _add_picks(result, dishes, profile, get_encoder)
+    except Exception:
+        logger.warning("Menu picks failed for %s", name, exc_info=True)
+        for dish in dishes:
+            dish.picked = False
+        result.picks, result.skipped = [], []
+    return result
+
+
+def _add_picks(result, dishes, profile, get_encoder):
+    goals = _profile_lists(profile)[0]
+    result.goal_labels = [GOAL_LABELS[goal] for goal in goals]
+    food = [dish for dish in dishes if dish.kind == "food"]
+    count = pick_count(len(food))
+    encoder = get_encoder() if (count and get_encoder) else None
+    if encoder is None:
+        return
+    score_dishes(food, encoder, goals)
+    skipped = []
+    result.picks = pick(food, profile, count, skipped)
+    result.skipped = skipped[:3]
+    for dish in result.picks:
+        dish.picked = True

@@ -1331,12 +1331,34 @@ button.panel-edge-tab:focus-visible {
 .what-to-order__head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 0.9rem; }
 .what-to-order__share { font-weight: 600; }
 .what-to-order__list { list-style: none; margin: 0; padding: 0; }
-.what-to-order__dish { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.what-to-order__dish { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-top: 1px solid var(--border); }
+.what-to-order__dish--picked { margin: 0 -10px; padding: 10px; background: var(--pick-row); border-radius: 6px; }
 .what-to-order__note { color: var(--muted); font-size: 0.85rem; }
 .what-to-order__group { margin: 14px 0 4px; font-size: 1rem; }
 .what-to-order__group:first-child { margin-top: 0; }
 .what-to-order__more summary { cursor: pointer; padding: 8px 0; color: var(--accent, inherit); font-size: 0.9rem; }
 .what-to-order__source, .what-to-order__empty { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); }
+
+/* Menu picks: a few healthy dishes highlighted above the full menu. */
+:root { --pick-box: #ebf5ee; --pick-row: #f5faf6; --pick-border: #c4dfcc; --pick-badge: #2f6b45; --on-pick-badge: #ffffff; }
+:root[data-theme="dark"] { --pick-box: #16241b; --pick-row: #131f17; --pick-border: #2c4636; --pick-badge: #4ade80; --on-pick-badge: #0e1116; }
+.menu-dish__top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.menu-dish__name { font-weight: 500; }
+.menu-dish__meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.menu-dish__price { color: var(--ink-soft); }
+.menu-dish__kcal { padding: 2px 8px; border-radius: 6px; background: var(--raised); font-size: 0.8rem; font-weight: 500; white-space: nowrap; }
+.menu-picks { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; padding: 16px 18px; background: var(--pick-box); border-radius: 12px; }
+.menu-picks__head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 12px; }
+.menu-picks__title { margin: 0; font-family: var(--font-serif, Georgia, serif); font-size: 1.1rem; }
+.menu-picks__basis { font-size: 0.85rem; color: var(--ink-soft); }
+a.menu-picks__basis { color: var(--accent); }
+.menu-picks__list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.menu-picks__card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--pick-border); border-radius: 10px; }
+.menu-picks__tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.menu-picks__skipped { margin: 0; font-size: 0.85rem; color: var(--ink-soft); }
+.menu-tag { padding: 3px 9px; border-radius: 999px; background: var(--raised); color: var(--ink-soft); font-size: 0.75rem; }
+.menu-tag--fit { background: var(--pick-badge); color: var(--on-pick-badge); }
+.menu-tag--small { padding: 2px 7px; font-size: 0.7rem; vertical-align: 2px; }
 
 /* Profile page: the user's own liked places. */
 .liked-places { margin-top: 24px; }

@@ -1,6 +1,6 @@
-"""Menu box: menu from MenuStat or Google photos; dish scoring for later.
+"""Menu box: menu from MenuStat or Google photos, with food picks highlighted.
 
-GOOGLE_MAPS_JS_KEY=dummy python manage.py test search.test_what_to_order
+python manage.py test search.test_what_to_order
 """
 
 import json
@@ -84,22 +84,29 @@ class CleanAndPickTests(TestCase):
         ]
         self.assertEqual(names, ["Kale salad"])
 
-    def test_healthy_dishes_come_first_and_unrelated_ones_are_left_out(self):
+    def test_only_healthy_dishes_are_picked(self):
         dishes = self.dishes(
             "Fried chicken basket", "Moo goo gai pan", "Grilled salmon salad"
         )
         picks = wto.pick(dishes, None)
-        self.assertEqual(
-            [d.name for d in picks], ["Grilled salmon salad", "Fried chicken basket"]
-        )
-        self.assertIsNone(dishes[1].health)
+        self.assertEqual([d.name for d in picks], ["Grilled salmon salad"])
+        self.assertIsNone(dishes[1].health)  # not about food health
+        self.assertLess(dishes[0].health, wto.HEALTHY_AT)
+        self.assertEqual(picks[0].notes, ["Lighter choice"])
 
-    def test_allergens_and_dislikes_are_skipped(self):
-        dishes = self.dishes(
-            "Grilled fish salad", "Fresh salmon sushi", "Steamed vegetable bowl"
-        )
-        picks = wto.pick(dishes, profile(allergies="Fish", disliked_foods="Sushi"))
+    def test_allergens_are_skipped_and_reported(self):
+        dishes = self.dishes("Grilled fish salad", "Steamed vegetable bowl")
+        skipped = []
+        picks = wto.pick(dishes, profile(allergies="Fish"), skipped=skipped)
         self.assertEqual([d.name for d in picks], ["Steamed vegetable bowl"])
+        self.assertEqual(skipped, [("Grilled fish salad", ["fish"])])
+
+    def test_dislikes_are_ranked_down_not_removed(self):
+        dishes = self.dishes("Grilled chicken salad", "Steamed vegetable bowl")
+        picks = wto.pick(dishes, profile(disliked_foods="Chicken"))
+        self.assertEqual(
+            [d.name for d in picks], ["Steamed vegetable bowl", "Grilled chicken salad"]
+        )
 
     def test_liked_food_gets_a_boost_and_a_note(self):
         dishes = self.dishes("Grilled tofu salad", "Grilled chicken salad")
@@ -107,7 +114,7 @@ class CleanAndPickTests(TestCase):
         if picks[0].name != "Grilled chicken salad":
             # "Chicken" may not be a food option label; then no boost is fine.
             self.skipTest("Chicken is not a profile food option")
-        self.assertIn("you like", picks[0].notes[-1])
+        self.assertIn("You like", picks[0].notes[-1])
 
     def test_goal_scores_feed_the_rank_and_note(self):
         dishes = wto.clean(
@@ -117,6 +124,80 @@ class CleanAndPickTests(TestCase):
         picks = wto.pick(dishes, profile(health_goals=["muscle-gain"]))
         self.assertEqual(picks[0].name, "Grilled lean protein bowl")
         self.assertIn("muscle-gain", picks[0].goals)
+
+    def test_pick_count_by_menu_size(self):
+        self.assertEqual(
+            [wto.pick_count(n) for n in (0, 3, 4, 5, 6, 40)], [0, 0, 2, 2, 3, 3]
+        )
+
+    def test_weight_loss_uses_calories_when_every_dish_has_them(self):
+        dishes = [
+            wto.Dish("Grilled chicken salad", calories=650),
+            wto.Dish("Fresh garden salad", calories=300),
+        ]
+        wto.score_dishes(dishes, fake_encoder, ["weight-loss"])
+        picks = wto.pick(dishes, profile(health_goals=["weight-loss"]))
+        self.assertEqual(picks[0].name, "Fresh garden salad")
+        self.assertIn("Lightest here", picks[0].notes)
+        self.assertNotIn("Lightest here", picks[1].notes)
+
+    def test_calories_are_ignored_unless_every_dish_has_them(self):
+        dishes = [
+            wto.Dish("Grilled chicken salad", calories=650),
+            wto.Dish("Fresh garden salad"),
+        ]
+        self.assertEqual(wto._calorie_scores(dishes), {})
+
+
+class PriceAndCalorieTests(TestCase):
+    def test_price_and_calories_move_out_of_name_and_description(self):
+        dish = wto.clean(
+            [
+                wto.Dish(
+                    "Kale Caesar Salad $13.95",
+                    "shredded kale & romaine, creamy caesar dressing (432 cal) "
+                    "add croutons (+3)",
+                )
+            ]
+        )[0]
+        self.assertEqual(dish.name, "Kale Caesar Salad")
+        self.assertEqual(dish.price, "$13.95")
+        self.assertEqual(dish.calories, 432)
+        self.assertEqual(
+            dish.description,
+            "shredded kale & romaine, creamy caesar dressing add croutons (+3)",
+        )
+
+    def test_calorie_misreads_leave_clean_text(self):
+        cases = {
+            "creamy caesar dressing (432 call add croutons (+3)": (
+                "creamy caesar dressing add croutons (+3)"
+            ),
+            "caesar dressing (432 cal, add croutons (+3))": (
+                "caesar dressing, add croutons (+3)"
+            ),
+            "romaine, feta (495 Calories)": "romaine, feta",
+        }
+        for text, expected in cases.items():
+            dish = wto.clean([wto.Dish("Kale Caesar Salad", text)])[0]
+            self.assertEqual(dish.description, expected, text)
+            self.assertIn(dish.calories, (432, 495))
+
+    def test_gemini_fields_are_normalised(self):
+        dishes = wto._dishes_from(
+            [
+                {"name": "Soup", "price": 6.5, "calories": "210", "kind": "food"},
+                {"name": "Tea", "price": "about $3", "calories": None, "kind": "drink"},
+                {"name": "Pie", "price": "", "calories": 99999, "kind": "dessert"},
+            ]
+        )
+        self.assertEqual(
+            [(d.name, d.price, d.calories) for d in dishes],
+            [("Soup", "$6.50", 210), ("Tea", "$3", None), ("Pie", "", None)],
+        )
+
+    def test_a_name_that_is_only_a_price_is_dropped(self):
+        self.assertEqual(wto.clean([wto.Dish("$12")]), [])
 
 
 @override_settings(
@@ -178,6 +259,33 @@ class PhotoMenuTests(TestCase):
         food = result.groups[0]
         self.assertEqual(len(food.preview), wto.GROUP_PREVIEW)
         self.assertEqual(len(food.rest), 14 - wto.GROUP_PREVIEW)
+
+    @override_settings(PLACES_CACHE_SECONDS=3600)
+    def test_a_read_menu_is_cached_for_an_hour(self):
+        calls = []
+
+        def gemini(*args, **kwargs):
+            calls.append(1)
+            return gemini_answer([{"name": "Kale salad", "kind": "food"}])
+
+        first = self.build(gemini)
+        first.groups[0].dishes[0].picked = True  # one viewer's highlight
+        second = self.build(gemini)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(second.groups[0].dishes[0].name, "Kale salad")
+        self.assertFalse(second.groups[0].dishes[0].picked)
+
+    @override_settings(PLACES_CACHE_SECONDS=3600)
+    def test_an_empty_read_is_not_cached(self):
+        calls = []
+
+        def gemini(*args, **kwargs):
+            calls.append(1)
+            return gemini_answer([])
+
+        self.build(gemini)
+        self.build(gemini)
+        self.assertEqual(len(calls), 2)
 
     def test_quota_pauses_gemini(self):
         result = self.build(lambda *a, **k: Resp({"error": "quota"}, status=429))
@@ -300,6 +408,55 @@ class ViewTests(TestCase):
         photos = wto.Result(source="photos", groups=groups)
         html = render_to_string("search/_what_to_order.html", {"result": photos})
         self.assertIn("Source: Google Maps photos", html)
+
+    def test_picks_are_highlighted_above_the_full_menu(self):
+        url = reverse("search:what_to_order", args=["1"])
+        menu = [
+            wto.Dish("Fresh kale salad", "lemon dressing", calories=400),
+            wto.Dish("Grilled salmon bowl", "steamed greens", calories=520),
+            wto.Dish("Fried chicken basket", calories=1100),
+            wto.Dish("Walnut and fresh greens salad", calories=450),
+            wto.Dish("Iced latte", kind="drink"),
+        ]
+        with patch.object(wto, "menustat_dishes", return_value=menu), patch(
+            "search.views.ai_scores.shared_encoder", return_value=fake_encoder
+        ), patch("search.views._profile_for", return_value=profile(allergies="Nuts")):
+            html = self.client.get(url).content.decode()
+        self.assertIn("Picked for you", html)
+        self.assertIn("Add a health goal", html)
+        self.assertIn("Not suggested: Walnut and fresh greens salad lists walnut", html)
+        self.assertEqual(html.count("what-to-order__dish--picked"), 2)
+        self.assertIn("400 kcal", html)
+        self.assertIn("Fried chicken basket", html)  # never removed from the list
+        self.assertIn("Iced latte", html)
+
+    def test_small_menus_get_no_picks(self):
+        url = reverse("search:what_to_order", args=["1"])
+        menu = [wto.Dish("Fresh kale salad"), wto.Dish("Grilled salmon bowl")]
+        with patch.object(wto, "menustat_dishes", return_value=menu), patch(
+            "search.views.ai_scores.shared_encoder", return_value=fake_encoder
+        ):
+            html = self.client.get(url).content.decode()
+        self.assertNotIn("Picked for you", html)
+        self.assertIn("Fresh kale salad", html)
+
+    def test_no_encoder_shows_the_menu_without_picks(self):
+        menu = [wto.Dish(f"Fresh salad {n}") for n in range(6)]
+        with patch.object(wto, "menustat_dishes", return_value=menu):
+            result = wto.build("LEAF BAR", None, None, "q", lambda: None)
+        self.assertEqual(result.picks, [])
+        self.assertEqual(len(result.groups[0].dishes), 6)
+
+    def test_picks_failure_still_shows_the_menu(self):
+        def broken():
+            raise RuntimeError("model down")
+
+        menu = [wto.Dish(f"Fresh salad {n}") for n in range(6)]
+        with patch.object(wto, "menustat_dishes", return_value=menu):
+            result = wto.build("LEAF BAR", None, None, "q", broken)
+        self.assertEqual(result.picks, [])
+        self.assertEqual(len(result.groups[0].dishes), 6)
+        self.assertFalse(any(d.picked for d in menu))
 
     def test_no_menu_message(self):
         url = reverse("search:what_to_order", args=["1"])
