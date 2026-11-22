@@ -1,4 +1,7 @@
-"""Load the raw NYC Open Data CSV/JSON files in database/datasets/ into SQLite.
+"""Load the NYC Open Data CSV files in database/datasets/ into SQLite.
+
+Three datasets: MenuStat chain menus, farmers markets and Shop Healthy
+stores. Restaurants come from Google Places (``manage.py sync_restaurants``).
 
 Usage:
     python manage.py import_datasets
@@ -11,18 +14,10 @@ from pathlib import Path
 
 import pandas as pd
 from django.conf import settings
-from django.core.management.base import BaseCommand, CommandError
-from django.db import connection, transaction
+from django.core.management.base import BaseCommand
+from django.db import transaction
 
-from search.models import (
-    FarmersMarket,
-    HealthyStore,
-    MenuItem,
-    RestaurantInspection,
-    RestaurantSummary,
-)
-from search import signals as summary_signals
-from search.summary import rebuild_all
+from search.models import FarmersMarket, HealthyStore, MenuItem
 
 DATASETS_DIR = Path(settings.BASE_DIR) / "database" / "datasets"
 
@@ -66,38 +61,24 @@ def _bool(value):
         return False
 
 
-def _date(value):
-    parsed = pd.to_datetime(_text(value), errors="coerce")
-    return None if pd.isna(parsed) else parsed.date()
-
-
 class Command(BaseCommand):
     help = "Import the raw NYC food datasets into the SQLite database."
 
     def handle(self, *args, **options):
-        if str(connection.settings_dict["NAME"]) == str(settings.LITE_DB_PATH):
-            raise CommandError(
-                "The site is using the lite DB. Import into the full DB with "
-                "NYCFOOD_FULL_DATA=1, then run build_lite_db --force."
-            )
         if not DATASETS_DIR.exists():
             self.stderr.write(f"Datasets directory not found: {DATASETS_DIR}")
             return
 
         importers = [
-            ("restaurant inspections", RestaurantInspection, self._import_restaurants),
             ("menu items", MenuItem, self._import_menu_items),
             ("farmers markets", FarmersMarket, self._import_markets),
             ("healthy stores", HealthyStore, self._import_stores),
         ]
 
-        with summary_signals.paused():
-            for label, model, importer in importers:
-                model.objects.all().delete()
-                count = importer()
-                self.stdout.write(self.style.SUCCESS(f"Imported {count:,} {label}"))
-        count = rebuild_all(RestaurantInspection, RestaurantSummary)
-        self.stdout.write(self.style.SUCCESS(f"Summarised {count:,} restaurants"))
+        for label, model, importer in importers:
+            model.objects.all().delete()
+            count = importer()
+            self.stdout.write(self.style.SUCCESS(f"Imported {count:,} {label}"))
 
     def _find(self, pattern):
         matches = sorted(DATASETS_DIR.glob(pattern))
@@ -114,30 +95,6 @@ class Command(BaseCommand):
         with transaction.atomic():
             model.objects.bulk_create(records, batch_size=2000)
         return len(records)
-
-    def _import_restaurants(self):
-        # Cuisine comes from a separate CAMIS -> cuisine lookup file.
-        lookup = pd.read_csv(self._find("restaurant_cuisines_*.csv"), dtype=str)
-        cuisines = {
-            _text(camis): _text(cuisine)
-            for camis, cuisine in zip(lookup["camis"], lookup["cuisine_description"])
-        }
-        records = [
-            RestaurantInspection(
-                camis=_text(row["CAMIS"]),
-                dba=_text(row["DBA"]),
-                boro=_text(row["BORO"]),
-                street=_text(row["STREET"]),
-                zipcode=_zipcode(row["ZIPCODE"]),
-                cuisine=cuisines.get(_text(row["CAMIS"]), ""),
-                inspection_date=_date(row["INSPECTION DATE"]),
-                violation_code=_text(row["VIOLATION CODE"]),
-                violation_description=_text(row["VIOLATION DESCRIPTION"]),
-                grade=_text(row["GRADE"]),
-            )
-            for row in self._read_csv("restaurant_data_set_2_*.csv")
-        ]
-        return self._bulk(RestaurantInspection, records)
 
     def _import_menu_items(self):
         records = [

@@ -2,7 +2,9 @@
 
 Usage:
     python manage.py locate_places                 # markets + grocery stores
-    python manage.py locate_places --type restaurant --limit 200
+    python manage.py locate_places --type grocery --limit 200
+
+Restaurants come from Google with coordinates, so they are never looked up.
 
 Results are saved to ``LocationLookup`` (found or not), so the Find food map
 shows these places without asking Google on page load. Each lookup is one
@@ -14,20 +16,20 @@ from django.core.management.base import BaseCommand, CommandError
 
 from restaurants.places import has_api_key
 from search import find_food
-from search.forms import FARMERS_MARKET, GROCERY, RESTAURANT
+from search.forms import FARMERS_MARKET, GROCERY
 from search.locations import resolve
 
 BATCH = 25
 
 
 class Command(BaseCommand):
-    help = "Find Google coordinates for farmers markets, stores and restaurants."
+    help = "Find Google coordinates for farmers markets and grocery stores."
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--type",
             action="append",
-            choices=[FARMERS_MARKET, GROCERY, RESTAURANT],
+            choices=[FARMERS_MARKET, GROCERY],
             help="Store type to locate (repeatable). Default: markets and grocery.",
         )
         parser.add_argument(
@@ -56,16 +58,6 @@ class Command(BaseCommand):
             )
 
     def _batches(self, store_type):
-        if store_type == RESTAURANT:
-            rows = find_food.restaurant_rows({})
-            for start in range(0, rows.count(), BATCH * 4):
-                items = [
-                    find_food.restaurant_item(row)
-                    for row in rows[start : start + BATCH * 4]  # noqa: E203
-                ]
-                resolve(items, fetch=False)
-                yield items
-            return
         builder = (
             find_food.farmers_market_items
             if store_type == FARMERS_MARKET

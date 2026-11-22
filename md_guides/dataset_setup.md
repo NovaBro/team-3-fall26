@@ -1,148 +1,155 @@
 # Dataset setup and website usage
 
-Raw NYC Open Data files live in `database/datasets/`, get bulk-loaded into SQLite by `import_datasets`, and power the `search` app. A separate `/restaurants/` flow uses live Google Places only and does not read the imported tables.
+Two sources feed the site:
+
+- **NYC Open Data** files in `database/datasets/`, bulk-loaded into SQLite by
+  `import_datasets`: MenuStat chain menus, farmers markets and Shop Healthy
+  stores.
+- **Google Places**: every restaurant. They are stored in `community.Restaurant`
+  (keyed by Google place id) and kept fresh by `sync_restaurants`.
 
 Filename suffix `YYYYMMDD` (e.g. `20261011`) is the **download date**, not a content/coverage date. Dataset contents may reference older periods (e.g. 2017–2026).
+
+## Databases
+
+| File | Alias | Holds |
+|------|-------|-------|
+| `database/nyc_food.db` | `default` | Open Data tables below; rebuilt by `import_datasets` |
+| `database/community.db` | `community` | Google restaurants (`Restaurant`), Google details and reviews (`PlaceEnrichment`, `PlaceReview`), ratings, comments, photos, likes, AI scores |
+| `database/users.db` | `users` | Accounts, profiles, mood logs, sessions |
+
+Routers: `nycfood/routers.py` (users) and `community/router.py`. None of the
+files are committed.
 
 ## Datasets on disk
 
 | File | Approx. size | Rows | Role | Key fields |
 |------|--------------|------|------|------------|
-| `restaurant_data_set_2_*.csv` | ~71M | ~297K | DOHMH restaurant inspections (one row per violation) | `CAMIS`, `DBA`, `BORO`, `STREET`, `ZIPCODE`, `INSPECTION DATE`, `VIOLATION CODE`, `VIOLATION DESCRIPTION`, `GRADE` |
 | `DOHMH_MenuStat_(Historical)_*.csv` | ~21M | ~65K | Chain menu nutrition (MenuStat) | `Restaurant_ID`, `Menu_Item_ID`, nutrients per serving / per 100g, kids/LTO flags |
 | `NYC_Farmers_Markets_*.csv` | ~300K | ~2.3K | Farmers markets | name, borough, lat/long, hours, season, EBT |
 | `Recognized_Shop_Healthy_Stores_*.csv` | ~104K | 712 | Shop Healthy stores | store, address, lat/long, program wave, geo IDs |
-| `restaurant_cuisines_*.csv` | ~688K | ~31.5K | CAMIS → cuisine lookup (from Open Data `43nn-pn8j`) | `camis`, `cuisine_description` |
 
-Total: about 93 MB / 397K rows.
+Total: about 22 MB / 68K rows.
 
-There is **no shared primary key** across sources: inspection `CAMIS` and MenuStat `Restaurant_ID` are distinct ID spaces. Inspections are linked to MenuStat by fuzzy name match (`search/menustat.py`).
+Dropped: the DOHMH restaurant inspection results (and its CAMIS → cuisine
+lookup), Good Food Purchasing and DPR park eateries. Restaurants come from
+Google; nothing read the other two after issue #109.
+
+There is **no shared key** between MenuStat `Restaurant_ID` and Google place
+ids. A restaurant is linked to MenuStat by fuzzy name match
+(`search/menustat.py`).
 
 ## Import / ETL
 
-Rebuild the database anytime:
+Rebuild the dataset database anytime:
 
 ```bash
 .venv/bin/python manage.py import_datasets
 ```
 
-Implemented in `search/management/commands/import_datasets.py`. The command is idempotent.
-
-`import_datasets` always targets the **full** DB. If `database/nyc_food_lite.db`
-exists, prefix it with `NYCFOOD_FULL_DATA=1` (it refuses to run otherwise).
-
-### Lite DB
-
-`manage.py build_lite_db [--limit 500] [--force]`
-(`search/management/commands/build_lite_db.py`) writes `database/nyc_food_lite.db`:
-a copy of the full DB pruned to the top 500 restaurants (spread by borough), 500
-Shop Healthy stores, and ≤500 farmers markets per year.
-
-- **Ranking:** places are ranked by a Bayesian-average Google rating from
-  `community_placeenrichment`: `(v·R + 50·C) / (v + 50)`, where `v` is the number
-  of reviews, `R` the place's rating and `C` the mean rating. Places without Google
-  data rank last; restaurants among them are ordered by grade A first, then the
-  newest inspection.
-- **Excluded:** places Google lists as closed, and restaurants whose latest grade
-  is C.
-- **Which DB the site uses:** settings use the lite file when it exists;
-  `NYCFOOD_FULL_DATA=1` switches back. Nothing is deleted.
-- **Speed:** measured locally as an anonymous user, the home/Top Picks page went
-  from ~0.35 s to ~0.085 s and an empty search from ~0.7 s to ~0.28 s.
+Implemented in `search/management/commands/import_datasets.py`. The command is
+idempotent and never touches `community.db` or `users.db`.
 
 ### Flow
 
 1. Resolve the latest file matching each glob under `database/datasets/`
 2. Delete all rows in the target model (full reload)
-3. Read CSV via pandas; normalize text, zip codes, numbers, dates, and booleans
-4. `bulk_create` in batches of 2000 into SQLite at `database/nyc_food.db` (generated, not committed)
+3. Read CSV via pandas; normalize text, zip codes, numbers and booleans
+4. `bulk_create` in batches of 2000 into `database/nyc_food.db`
 
 ### Source → Django model
 
 | Dataset | Model (`search/models.py`) |
 |---------|----------------------------|
-| `restaurant_data_set_2_*.csv` | `RestaurantInspection` |
-| `restaurant_cuisines_*.csv` | `RestaurantInspection.cuisine` (matched on CAMIS) |
 | `DOHMH_MenuStat_(Historical)_*.csv` | `MenuItem` |
 | `NYC_Farmers_Markets_*.csv` | `FarmersMarket` |
 | `Recognized_Shop_Healthy_Stores_*.csv` | `HealthyStore` |
 
 **Partial MenuStat import:** most `*_100g` nutrients (except `Calories_100g`), serving-size helper columns, and `*_text` nutrient columns are dropped at import time.
 
-## How the website uses the data
+## Restaurants (Google Places)
 
-### Restaurant inspections (first-class UI)
+`community.Restaurant` holds one row per place: name, address, street, ZIP,
+borough, cuisine, primary type, coordinates, rating and review count, price
+level, business status, Maps link, photo name, and a `shuffle_seed` used to
+rotate rankings in SQL. Its Google details and up to 5 reviews are in
+`PlaceEnrichment` / `PlaceReview` (kind `restaurant_google`, key
+`google:<place_id>`); ratings, comments and photos hang off the same key.
+
+- **Cuisine** comes from Google place types (`restaurants/cuisines.py`), mapped
+  onto the labels the ranking code uses ("Chinese", "Coffee/Tea", "Juice,
+  Smoothies, Fruit Salads", ...). Generic types ("restaurant") never overwrite a
+  stored cuisine.
+- **Borough** comes from the address components, else the ZIP code
+  (`restaurants/boroughs.py`). Places outside the five boroughs are skipped.
+- **Writes:** `search/services/places.py` (`enrich_place_id`,
+  `save_restaurant`). The detail page fetches a place the first time it is
+  opened (so live Find food results become saved restaurants), and
+  **Refresh Google data** re-fetches it.
+
+### `sync_restaurants`
+
+```bash
+.venv/bin/python manage.py sync_restaurants --dry-run
+.venv/bin/python manage.py sync_restaurants --limit 200 --sleep 0.2
+```
+
+- **Refresh:** places older than `--max-age-days` (30) get one Place Details
+  call each (details and reviews).
+- **Discover:** a Text Search per borough × term (`DISCOVERY_TERMS`), up to
+  `--pages` pages of 20 results, restricted to restaurants in the NYC box.
+- `--limit` caps Google requests per run. `--boro`, `--term`, `--place-id`,
+  `--refresh-only` and `--discover-only` narrow a run.
+
+Storing Google data beyond place ids goes against Google's terms; the project
+accepts this and refreshes rows within 30 days.
+
+### Upgrade from inspection records
+
+`community/migrations/0011_google_restaurants.py` (code in
+`community/dohmh_conversion.py`) re-keyed every restaurant row from CAMIS to
+its Google place id and created a `Restaurant` for each place that had Google
+data, taking cuisine and borough from the inspection summary. It must run
+before `search/0008`, which deletes the inspection tables, so migrate the
+`community` database first.
+
+## How the website uses the data
 
 | Path | Behavior |
 |------|----------|
-| `/` | Filter by name, borough, ZIP, or grade; one result row per `camis` with the latest grade |
-| `/restaurant/<camis>/` | Full inspection / violation history for that restaurant |
-| `POST /restaurant/<camis>/refresh-google/` | Fetch and cache Google Places data, then redirect to the detail page |
+| `/` (Find food) | Farmers markets (latest year), Shop Healthy stores and saved restaurants on one map and list; or live Google results for restaurants |
+| `/home/` | Top picks and Explore more, ranked from saved restaurants with no Google calls |
+| `/restaurant/<place_id>/` | Score breakdown, Menu box, lower-calorie MenuStat items |
+| `POST /restaurant/<place_id>/refresh-google/` | Re-fetch the place from Google |
 
-Logic lives in `search/views.py` (`index`, `restaurant_detail`, `refresh_place`).
-
-### Find food page (`/`)
-
-Farmers markets (latest year), Shop Healthy stores, and restaurants (one row per
-`camis`, newest grade) are shown together on one map and paginated list
-(`search/find_food.py`, `search/views.py:index`). Rows without coordinates are
-located through `PlaceEnrichment`, then `community.LocationLookup`, then a
-Google Places Text Search for the visible page (`search/locations.py`). The
-`locate_places` command backfills `LocationLookup`.
+Markets and stores without coordinates are located through
+`community.LocationLookup`, then a Google Text Search for the visible page
+(`search/locations.py`); `locate_places` backfills them. Restaurants always
+have coordinates.
 
 MenuStat is not listed on its own, but it feeds Top Picks ranking, health-goal
 fit, the "what to order" menu box, and lower-calorie items on restaurant detail
 pages (`search/recommend.py`, `search/goal_fit.py`, `search/what_to_order.py`).
-The Good Food Purchasing and DPR park eatery datasets were dropped: nothing
-read them after the Explore datasets tab was removed in issue #109.
 
-Accounts are not in this database: they live in `database/users.db`
-(`nycfood/routers.py`), so rebuilding `nyc_food.db` never touches them.
-
-### Not from local datasets
-
-Choosing **Google Places (live)** for restaurants on `/` queries Google Places at request time for area, price, diet, rating, open-now, and distance filters. Those results are **not** stored.
-
-## Google Places enrichment (cached)
-
-Separate from the live `/restaurants/` search:
-
-- **Service:** `search/services/places.py` (`enrich_camis`)
-- **Bulk CLI:** `search/management/commands/enrich_places.py`
-- **Models:** `PlaceEnrichment` and `PlaceReview`, keyed by `camis`
-
-Flow for one restaurant:
-
-1. Load the latest `RestaurantInspection` for the `camis`
-2. Text Search (`dba` + address) with NYC bias → place id
-3. Place Details → rating, price, website, reviews, lat/long
-4. Persist to `PlaceEnrichment` and replace related `PlaceReview` rows
-
-Needs `GOOGLE_PLACES_API_KEY`. UI: **Get Google data** on the restaurant detail page. CLI example:
-
-```bash
-export GOOGLE_PLACES_API_KEY="your-key"
-.venv/bin/python manage.py enrich_places --limit 25 --sleep 0.5
-```
-
-`--refresh` overwrites existing enrichments. Each restaurant costs two API calls (Text Search + Place Details); afterward, detail pages serve cached data from SQLite.
+Farmers markets and Shop Healthy stores get Google details with
+`enrich_places --type farmers_market --type grocery`.
 
 ## Data flow
 
 ```
-database/datasets/*
+database/datasets/*.csv
         │
         ▼
-  import_datasets  ──►  SQLite (database/nyc_food.db)
-                              │
-                              ├── /  (Find food map + list)
-                              └── /restaurant/<camis>/
+  import_datasets  ──►  nyc_food.db (MenuItem, FarmersMarket, HealthyStore)
 
 Google Places API
         │
-        ├── enrich_places / refresh-google  ──►  PlaceEnrichment (+ reviews on detail)
-        ├── / with Google Places source (request-time only, not stored)
-        └── / missing locations ──►  LocationLookup (30-day cache)
+        ├── sync_restaurants / detail page ──► community.Restaurant
+        │                                      + PlaceEnrichment, PlaceReview
+        ├── Find food "Google Places (live)" (request time; stored when opened)
+        └── missing market/store locations ──► LocationLookup (30-day cache)
+
+community.Restaurant ──► /home/ Top picks + Explore more, Find food, assistant
 ```
 
 ## Setup reminder
@@ -150,8 +157,11 @@ Google Places API
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python manage.py migrate --database=community
+.venv/bin/python manage.py migrate --database=users
 .venv/bin/python manage.py migrate
-.venv/bin/python manage.py import_datasets   # loads CSVs/JSON into database/nyc_food.db
+.venv/bin/python manage.py import_datasets
+.venv/bin/python manage.py sync_restaurants --limit 200
 .venv/bin/python manage.py runserver
 ```
 
@@ -159,7 +169,8 @@ Open http://127.0.0.1:8000/.
 
 ## Gaps and caveats
 
-- No ID-based joins: inspections link to MenuStat only by fuzzy name match, so links can be wrong or missing.
+- No ID-based joins: restaurants link to MenuStat only by fuzzy name match, so links can be wrong or missing.
 - MenuStat is only partially imported (many CSV columns dropped).
-- Google enrichment is on-demand (detail-page click or CLI), not automatic for all restaurants.
-- Two Places paths exist: cached enrichment in `search` vs live search in `restaurants`; they do not share storage or the same env-key naming (`GOOGLE_PLACES_API_KEY` vs `GOOGLE_API_KEY` / `GOOGLE_MAPS_JS_KEY`).
+- The pool is only as complete as discovery: places no query surfaced are missing until someone opens them from a live search.
+- No food-safety signal: inspection grades are gone, so scores use nutrition and ratings only.
+- Two key names exist: `GOOGLE_PLACES_API_KEY` (stored data) vs `GOOGLE_API_KEY` (live search, photos).

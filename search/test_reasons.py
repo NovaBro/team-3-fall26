@@ -1,14 +1,13 @@
 """'Why this pick' sentences built from the score breakdown."""
 
 from types import SimpleNamespace
-from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
-from search.models import RestaurantInspection
+from community.models import Restaurant
 from search.recommend import FeedbackPrefs, explain_reasons, score_restaurant
-from nycfood.test_utils import ALL_DATABASES
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 
 def profile(**fields):
@@ -38,11 +37,11 @@ class ExplainReasonsTests(SimpleTestCase):
         )
         self.assertEqual(reasons, ["A", "B", "C"])
 
-    def test_grade_is_only_a_fallback(self):
-        both = explain_reasons([(12.5, "Grade", True), (5.0, "X", False)])
-        self.assertEqual(both, ["X", "Grade"])
+    def test_fallback_reasons_only_fill_in(self):
+        both = explain_reasons([(12.5, "Generic", True), (5.0, "X", False)])
+        self.assertEqual(both, ["X", "Generic"])
         plenty = explain_reasons(
-            [(12.5, "Grade", True), (5.0, "X", False), (4.0, "Y", False)]
+            [(12.5, "Generic", True), (5.0, "X", False), (4.0, "Y", False)]
         )
         self.assertEqual(plenty, ["X", "Y"])
 
@@ -55,7 +54,6 @@ class ScoreReasonsTests(SimpleTestCase):
         _s, _t, breakdown = score_restaurant(
             name="GREEN LEAF",
             cuisine="Salads",
-            grade="A",
             google_rating=4.8,
             google_count=500,
             ai_health=0.9,
@@ -78,18 +76,16 @@ class ScoreReasonsTests(SimpleTestCase):
         _s, _t, breakdown = score_restaurant(
             name="THAI TERMINAL",
             cuisine="Thai",
-            grade="A",
             google_rating=4.2,
             google_count=382,
             ai_health=0.56,
         )
-        self.assertEqual(breakdown["reasons"], ["NYC health grade A"])
+        self.assertEqual(breakdown["reasons"], [])
 
     def test_clear_ai_signal_and_high_rating(self):
         _s, _t, breakdown = score_restaurant(
             name="NIZZA",
             cuisine="Italian",
-            grade="A",
             google_rating=4.7,
             google_count=2425,
             ai_health=0.62,
@@ -108,23 +104,21 @@ class ScoreReasonsTests(SimpleTestCase):
         )
         self.assertEqual(breakdown["reasons"], ["Reviews mention healthy dishes"])
 
-    def test_fast_food_falls_back_to_the_grade(self):
+    def test_fast_food_gets_no_reason(self):
         _s, _t, breakdown = score_restaurant(
             name="MCDONALD'S",
             cuisine="Hamburgers",
-            grade="A",
             google_rating=3.5,
             google_count=900,
         )
-        self.assertEqual(breakdown["reasons"], ["NYC health grade A"])
+        self.assertEqual(breakdown["reasons"], [])
 
     def test_profile_and_like_reasons(self):
         _s, _t, breakdown = score_restaurant(
             name="TACO SPOT",
             cuisine="Mexican",
-            grade="A",
             boro="Queens",
-            camis="1",
+            place_id="1",
             profile=profile(favorite_foods="mexican", home_address="Astoria, Queens"),
             feedback=FeedbackPrefs(liked={"Mexican": [("9", "OLD TAQUERIA")]}),
         )
@@ -137,8 +131,8 @@ class ScoreReasonsTests(SimpleTestCase):
             ],
         )
 
-    def test_grade_b_with_nothing_else(self):
-        _s, _t, breakdown = score_restaurant(name="X", cuisine="Mexican", grade="B")
+    def test_nothing_stands_out(self):
+        _s, _t, breakdown = score_restaurant(name="X", cuisine="Mexican")
         self.assertEqual(breakdown["reasons"], [])
 
 
@@ -146,18 +140,15 @@ class PickReasonsTests(TestCase):
     databases = ALL_DATABASES
 
     def test_top_picks_carry_reasons(self):
-        RestaurantInspection.objects.create(
-            camis="88",
-            dba="GREEN LEAF",
+        make_restaurant(
+            "88",
+            "GREEN LEAF",
             boro="Queens",
             street="1 Main St",
             zipcode="11101",
             cuisine="Salads",
-            inspection_date="2024-07-01",
-            grade="A",
         )
-        with patch("search.views.find_restaurant_place", return_value=None):
-            page = self.client.get(reverse("search:home"))
+        page = self.client.get(reverse("search:home"))
         pick = page.context["top_picks"][0]
         self.assertEqual(pick["reasons"][0], "Healthy cuisine (Salads)")
 
@@ -166,15 +157,13 @@ class DetailWhyTests(TestCase):
     databases = ALL_DATABASES
 
     def setUp(self):
-        RestaurantInspection.objects.create(
-            camis="99",
-            dba="GREEN LEAF",
+        make_restaurant(
+            "99",
+            "GREEN LEAF",
             boro="Queens",
             street="1 Main St",
             zipcode="11101",
             cuisine="Salads",
-            inspection_date="2024-07-01",
-            grade="A",
         )
 
     def test_detail_page_lists_the_reasons(self):
@@ -183,8 +172,6 @@ class DetailWhyTests(TestCase):
         self.assertContains(page, "<li>Healthy cuisine (Salads)</li>", html=True)
 
     def test_no_section_without_reasons(self):
-        RestaurantInspection.objects.filter(camis="99").update(
-            cuisine="Mexican", grade="B"
-        )
+        Restaurant.objects.filter(place_id="99").update(cuisine="Mexican", rating=None)
         page = self.client.get(reverse("search:restaurant_detail", args=["99"]))
         self.assertNotContains(page, "Why we recommend it")

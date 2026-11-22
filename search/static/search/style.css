@@ -328,7 +328,6 @@ tbody tr:hover { background: var(--raised); }
 /* Match the marker colors in combined_map.js. */
 .swatch--farmers_market { background: #1f5fbf; }
 .swatch--grocery { background: #2e8b57; }
-.swatch--restaurant_dohmh { background: #e67e22; }
 .swatch--restaurant_google { background: #9b59b6; }
 
 .google-load-controls {

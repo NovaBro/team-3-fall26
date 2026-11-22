@@ -14,12 +14,11 @@ from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
-from community.keys import DOHMH
+from community.keys import GOOGLE
 from community.models import HealthScore, PlaceEnrichment, PlaceReview
 from search import ai_scores, health_ai
-from search.models import RestaurantInspection
 from search.test_health_ai import fake_encoder
-from nycfood.test_utils import ALL_DATABASES
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 HEALTHY = ["Fresh vegetables and grilled chicken, very light and healthy."]
 
@@ -32,7 +31,9 @@ class AiHealthForTests(TestCase):
         cache.clear()
 
     def test_stored_score_is_reused(self):
-        HealthScore.objects.create(camis="1", score=0.9, goal_scores={"low-carb": 0.6})
+        HealthScore.objects.create(
+            place_id="1", score=0.9, goal_scores={"low-carb": 0.6}
+        )
         with patch.object(ai_scores, "shared_encoder") as encoder:
             self.assertEqual(ai_scores.ai_health_for("1", "X", HEALTHY), 0.9)
             self.assertEqual(
@@ -41,15 +42,15 @@ class AiHealthForTests(TestCase):
         encoder.assert_not_called()
 
     def test_old_row_without_goal_scores_gets_them(self):
-        HealthScore.objects.create(camis="8", score=0.9)  # made before goals
+        HealthScore.objects.create(place_id="8", score=0.9)  # made before goals
         with patch.object(ai_scores, "shared_encoder", return_value=fake_encoder):
             health, goals = ai_scores.ai_scores_for("8", "X", HEALTHY)
         self.assertIsNotNone(health)
         self.assertIn("weight-loss", goals)
-        self.assertEqual(HealthScore.objects.get(camis="8").goal_scores, goals)
+        self.assertEqual(HealthScore.objects.get(place_id="8").goal_scores, goals)
 
     def test_old_row_is_used_as_is_when_live_scoring_is_off(self):
-        HealthScore.objects.create(camis="9", score=0.8)
+        HealthScore.objects.create(place_id="9", score=0.8)
         with override_settings(AI_LIVE_SCORING=False):
             self.assertEqual(ai_scores.ai_scores_for("9", "X", HEALTHY), (0.8, {}))
 
@@ -57,7 +58,7 @@ class AiHealthForTests(TestCase):
         with patch.object(ai_scores, "shared_encoder", return_value=fake_encoder):
             score = ai_scores.ai_health_for("2", "LEAF", HEALTHY)
         self.assertIsNotNone(score)
-        row = HealthScore.objects.get(camis="2")
+        row = HealthScore.objects.get(place_id="2")
         self.assertEqual(row.score, score)
         self.assertIsNotNone(row.goal_scores)
 
@@ -87,24 +88,22 @@ class AiHealthForTests(TestCase):
         encoder.assert_not_called()
 
     def test_detail_page_scores_its_reviews(self):
-        RestaurantInspection.objects.create(
-            camis="7",
-            dba="LEAF",
+        make_restaurant(
+            "7",
+            "LEAF",
             boro="Queens",
             street="1 Main St",
             zipcode="11101",
             cuisine="Salads",
-            inspection_date="2026-06-01",
-            grade="A",
         )
-        place = PlaceEnrichment.objects.create(kind=DOHMH, key="camis:7", camis="7")
+        place = PlaceEnrichment.objects.create(
+            kind=GOOGLE, key="google:7", place_id="7"
+        )
         PlaceReview.objects.create(place=place, text=HEALTHY[0], rating=5)
-        with patch.object(
-            ai_scores, "shared_encoder", return_value=fake_encoder
-        ), patch("search.views.find_restaurant_place", return_value=None):
+        with patch.object(ai_scores, "shared_encoder", return_value=fake_encoder):
             page = self.client.get(reverse("search:restaurant_detail", args=["7"]))
         self.assertIsNotNone(page.context["score_breakdown"]["ai_health"])
-        self.assertTrue(HealthScore.objects.filter(camis="7").exists())
+        self.assertTrue(HealthScore.objects.filter(place_id="7").exists())
 
 
 class SharedEncoderTests(SimpleTestCase):

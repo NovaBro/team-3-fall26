@@ -7,8 +7,8 @@ Run on your Mac (not on the server):
     python manage.py estimate_menus                       # all missing ones
     python manage.py estimate_menus --refresh             # redo saved ones
 
-Restaurants come from the active database (the small nyc_food_lite.db when
-it exists). MenuStat chains are skipped: they have a real menu. Several
+Restaurants come from the Google-backed pool (community.Restaurant). MenuStat
+chains are skipped: they have a real menu. Several
 restaurants go in one Gemini call (``--batch``); the command waits
 ``--sleep`` seconds between calls and stops cleanly at the rate limit, so a
 re-run picks up where it stopped.
@@ -19,10 +19,9 @@ import time
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from community.models import MenuEstimate
+from community.models import MenuEstimate, Restaurant
 from search import menu_estimate
 from search.menustat import match_menustat_restaurant
-from search.models import RestaurantSummary
 
 
 class Command(BaseCommand):
@@ -52,21 +51,21 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         model = options["model"] or settings.GEMINI_MODEL
         rows = list(
-            RestaurantSummary.objects.order_by("camis").values(
-                "camis", "name", "cuisine", "boro", "street"
-            )
+            Restaurant.objects.filter(business_status__in=(Restaurant.OPERATIONAL, ""))
+            .order_by("place_id")
+            .values("place_id", "name", "cuisine", "boro", "street")
         )
         menustat = [r for r in rows if match_menustat_restaurant(r["name"])]
         todo = [r for r in rows if not match_menustat_restaurant(r["name"])]
         if not options["refresh"]:
             done = {
-                camis
-                for camis, tag in MenuEstimate.objects.values_list(
-                    "camis", "model_name"
+                place_id
+                for place_id, tag in MenuEstimate.objects.values_list(
+                    "place_id", "model_name"
                 )
                 if menu_estimate.is_current(tag)
             }
-            todo = [r for r in todo if r["camis"] not in done]
+            todo = [r for r in todo if r["place_id"] not in done]
         if options["limit"]:
             todo = todo[: options["limit"]]
         self.stdout.write(
@@ -81,7 +80,7 @@ class Command(BaseCommand):
         saved = skipped = 0
         for start in range(0, len(todo), size):
             chunk = todo[start : start + size]  # noqa: E203 (black slice style)
-            batch = [{**r, "id": r["camis"]} for r in chunk]
+            batch = [{**r, "id": r["place_id"]} for r in chunk]
             if start and options["sleep"]:
                 time.sleep(options["sleep"])
             try:
@@ -96,7 +95,7 @@ class Command(BaseCommand):
                 skipped += len(batch)
                 continue
             for row in batch:
-                items = result.get(row["camis"])
+                items = result.get(row["place_id"])
                 if not items:
                     skipped += 1
                     continue
@@ -112,7 +111,7 @@ class Command(BaseCommand):
                         )
                     continue
                 MenuEstimate.objects.update_or_create(
-                    camis=row["camis"],
+                    place_id=row["place_id"],
                     defaults={
                         "items": items,
                         "median_calories": median,

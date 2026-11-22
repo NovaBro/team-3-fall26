@@ -1,54 +1,6 @@
 from django.db import models
 
 
-class RestaurantInspection(models.Model):
-    """One row per violation cited at a restaurant inspection (DOHMH)."""
-
-    camis = models.CharField(max_length=20, db_index=True)
-    dba = models.CharField(max_length=255, blank=True, db_index=True)
-    boro = models.CharField(max_length=50, blank=True, db_index=True)
-    street = models.CharField(max_length=255, blank=True)
-    zipcode = models.CharField(max_length=10, blank=True, db_index=True)
-    cuisine = models.CharField(max_length=100, blank=True, db_index=True)
-    inspection_date = models.DateField(null=True, db_index=True)
-    violation_code = models.CharField(max_length=20, blank=True)
-    violation_description = models.TextField(blank=True)
-    grade = models.CharField(max_length=2, blank=True, db_index=True)
-
-    class Meta:
-        verbose_name = "restaurant inspection"
-
-    def __str__(self):
-        return f"{self.dba} ({self.camis})"
-
-
-class RestaurantSummary(models.Model):
-    """One row per restaurant, worked out once from RestaurantInspection.
-
-    Top picks and Explore more rank about 31,000 restaurants on every visit;
-    grouping ~300,000 inspection rows each time took seconds. This table holds
-    the same per-restaurant values (see search/summary.py), filled by a
-    migration and kept in step when inspection rows are saved or deleted.
-    Rebuild it after a bulk import: python manage.py rebuild_restaurant_summary
-    """
-
-    camis = models.CharField(max_length=20, primary_key=True)
-    name = models.CharField(max_length=255, blank=True)
-    boro = models.CharField(max_length=50, blank=True, db_index=True)
-    street = models.CharField(max_length=255, blank=True)
-    zipcode = models.CharField(max_length=10, blank=True)
-    cuisine = models.CharField(max_length=100, blank=True, db_index=True)
-    last_date = models.DateField(null=True)
-    latest_grade = models.CharField(max_length=2, blank=True, db_index=True)
-
-    class Meta:
-        verbose_name = "restaurant summary"
-        verbose_name_plural = "restaurant summaries"
-
-    def __str__(self):
-        return f"{self.name} ({self.camis}) {self.latest_grade}"
-
-
 class MenuItem(models.Model):
     """One menu item per restaurant per year (DOHMH MenuStat)."""
 

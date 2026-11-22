@@ -12,17 +12,11 @@ and, for chains in MenuStat, its meal names and descriptions.
 """
 
 from django.core.management.base import BaseCommand
-from django.db.models import Max
 
-from community.keys import DOHMH
-from community.models import HealthScore, PlaceEnrichment
+from community.keys import GOOGLE
+from community.models import HealthScore, PlaceEnrichment, Restaurant
 from search import health_ai
 from search.ai_scores import menu_texts as _menu_texts
-from search.models import RestaurantInspection
-
-
-def _camis(key):
-    return key.split(":", 1)[1] if key.startswith("camis:") else ""
 
 
 class Command(BaseCommand):
@@ -43,7 +37,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         places = (
-            PlaceEnrichment.objects.filter(kind=DOHMH, key__startswith="camis:")
+            PlaceEnrichment.objects.filter(kind=GOOGLE)
+            .exclude(place_id="")
             .prefetch_related("reviews")
             .order_by("key")
         )
@@ -52,10 +47,10 @@ class Command(BaseCommand):
             # Rows made before goal scores existed are scored again.
             done = set(
                 HealthScore.objects.filter(goal_scores__isnull=False).values_list(
-                    "camis", flat=True
+                    "place_id", flat=True
                 )
             )
-        todo = [p for p in places if _camis(p.key) and _camis(p.key) not in done]
+        todo = [p for p in places if p.place_id not in done]
         if options["limit"]:
             todo = todo[: options["limit"]]
         if not todo:
@@ -63,25 +58,23 @@ class Command(BaseCommand):
             return
 
         names = dict(
-            RestaurantInspection.objects.filter(camis__in=[_camis(p.key) for p in todo])
-            .values("camis")
-            .annotate(name=Max("dba"))
-            .values_list("camis", "name")
+            Restaurant.objects.filter(
+                place_id__in=[p.place_id for p in todo]
+            ).values_list("place_id", "name")
         )
         self.stdout.write(f"Loading model {options['model']} ...")
         encoder = health_ai.load_encoder(options["model"], options["backend"])
 
         saved = skipped = 0
         for index, place in enumerate(todo, start=1):
-            camis = _camis(place.key)
             texts = [r.text for r in place.reviews.all() if (r.text or "").strip()]
-            texts += _menu_texts(names.get(camis) or place.display_name)
+            texts += _menu_texts(names.get(place.place_id) or place.display_name)
             score, used, goals = health_ai.all_scores(texts, encoder)
             if score is None:
                 skipped += 1
                 continue
             HealthScore.objects.update_or_create(
-                camis=camis,
+                place_id=place.place_id,
                 defaults={
                     "score": score,
                     "sentences_used": used,

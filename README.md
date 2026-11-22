@@ -12,10 +12,11 @@ NYC food / open-data search project. Raw datasets live in `database/datasets/`.
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
-.venv/bin/python manage.py migrate                        # datasets: nyc_food.db
-.venv/bin/python manage.py migrate --database=community   # community.db
+.venv/bin/python manage.py migrate --database=community   # community.db (first)
 .venv/bin/python manage.py migrate --database=users       # accounts: users.db
+.venv/bin/python manage.py migrate                        # datasets: nyc_food.db
 .venv/bin/python manage.py import_datasets   # loads CSVs into database/nyc_food.db
+.venv/bin/python manage.py sync_restaurants --limit 200   # Google restaurants
 .venv/bin/python manage.py runserver
 ```
 
@@ -26,12 +27,12 @@ Then open http://127.0.0.1:8000/.
 - `/` — **Find food**: farmers markets, Shop Healthy grocery stores, and
   restaurants on one map (MapLibre) with a shared filter sidebar: store type,
   name, borough, ZIP, distance from your location, market day, and restaurant
-  filters (cuisine, inspection grade, diet, allergies). Restaurant results come
-  from NYC inspection records by default, or live from Google Places, which
-  adds price, minimum rating, and open-now filters. Clicking a pin or result
+  filters (cuisine, diet, allergies, price, minimum rating). Restaurant results
+  come from the saved Google restaurants by default, or live from Google
+  Places, which adds an open-now filter. Clicking a pin or result
   opens community ratings, comments, and photos.
-- `/home/` — card view of NYC restaurants, filterable by borough, with a Google Places lookup on each card and scored **Today's Top Picks** on page 1 (pipeline diagrams: [`md_guides/scoring-pipeline.md`](md_guides/scoring-pipeline.md); full rules: [`md_guides/scoring-algorithm.md`](md_guides/scoring-algorithm.md)).
-- `/restaurant/<camis>/` — full inspection/violation history for one restaurant; when MenuStat name-matches, a top-5 lower-calorie meal table.
+- `/home/` — card view of NYC restaurants, filterable by borough, from the saved Google data (no API calls per card) and scored **Today's Top Picks** on page 1 (pipeline diagrams: [`md_guides/scoring-pipeline.md`](md_guides/scoring-pipeline.md); full rules: [`md_guides/scoring-algorithm.md`](md_guides/scoring-algorithm.md)).
+- `/restaurant/<place_id>/` — one restaurant by Google place id: score breakdown and Menu box; when MenuStat name-matches, a top-5 lower-calorie meal table. A place found live on Google is stored the first time it is opened.
 - The old `/restaurants/`, `/combined-map/`, `/farmers-markets/`, and `/explore/`
   tabs were merged into `/` (issue #109) and now redirect there.
 - `/admin-dashboard/` — superuser-only platform overview, searchable accounts,
@@ -42,15 +43,15 @@ Then open http://127.0.0.1:8000/.
 
 ### Missing locations
 
-Inspection records have no coordinates, and a few markets and stores don't
-either. For the rows on the page you're viewing, Find food asks Google Places
+Restaurants come from Google with coordinates, but a few markets and stores
+have none. For the rows on the page you're viewing, Find food asks Google Places
 Text Search (needs `GOOGLE_API_KEY`) and stores the answer in
 `community.LocationLookup`. Misses are stored too, and entries expire after 30
 days (Google's limit for caching coordinates). Backfill in bulk with:
 
 ```bash
 .venv/bin/python manage.py locate_places                    # markets + grocery
-.venv/bin/python manage.py locate_places --type restaurant --limit 200
+.venv/bin/python manage.py locate_places --type grocery --limit 200
 ```
 
 ## Google Places restaurant results
@@ -62,34 +63,49 @@ Cloud project). Copy `.env.example` to `.env` and fill in `GOOGLE_API_KEY`; add
 - Searches are limited to NYC unless you use "Use my location".
 - Distance filters need "Use my location"; results are then sorted by distance.
 - Invalid filter values (e.g. `?price=cheap`) show an error instead of searching.
-- Results come from Google at request time and are not stored (Google's terms
-  restrict caching Places data). Each search is one billable Text Search request.
+- Live results come from Google at request time. Each search is one billable
+  Text Search request. Opening a result stores it as a saved restaurant.
 
-## Google Places enrichment
+## Restaurants (Google Places)
 
-Set a Google Maps Platform API key (with the **Places API (New)** enabled) as an
-environment variable. The first visit to a restaurant page fetches its data
-(it feeds the score; the page doesn't show it), or seed in bulk. Enrichment is
-stored by pin `(kind, key)` for DOHMH restaurants, farmers markets, and Shop
-Healthy stores:
+Restaurants come only from Google Places. They are stored in
+`community.Restaurant` (keyed by Google place id) in `community.db`, with their
+details and reviews in `PlaceEnrichment`/`PlaceReview` (kind
+`restaurant_google`, key `google:<place_id>`). Top picks, Explore more, Find
+food and the assistant rank this stored pool, so page views make no Google
+calls. Cuisine labels come from Google place types
+(`restaurants/cuisines.py`), borough from the address.
+
+`sync_restaurants` keeps the pool filled (needs `GOOGLE_PLACES_API_KEY`):
 
 ```bash
 export GOOGLE_PLACES_API_KEY="your-key"
-# Markets + stores first (fits free monthly caps), then capped restaurants:
+.venv/bin/python manage.py sync_restaurants --dry-run          # show the plan
+.venv/bin/python manage.py sync_restaurants --limit 200 --sleep 0.2
+.venv/bin/python manage.py sync_restaurants --refresh-only     # re-fetch >30 days
+.venv/bin/python manage.py sync_restaurants --discover-only --boro Queens
+```
+
+Refresh re-fetches places older than `--max-age-days` (30, Google's limit for
+caching coordinates) with one Place Details call each; discovery runs a Text
+Search per borough × cuisine term (up to `--pages` pages of 20). `--limit` caps
+the total number of Google requests per run. Storing Google data beyond place
+ids goes against Google's terms; this class project accepts that and keeps the
+rows refreshed.
+
+Farmers markets and Shop Healthy stores are enriched separately:
+
+```bash
 .venv/bin/python manage.py enrich_places --type farmers_market --type grocery --sleep 0.5
-.venv/bin/python manage.py enrich_places --type restaurant --limit 4000 --sleep 0.5
 ```
 
 `enrich_places` skips pins that already have stored data; pass `--refresh` to
-overwrite. Restaurant targets prefer CAMIS that still lack coordinates. Each
-place costs two API calls (Text Search + Place Details); results go to
-`PlaceEnrichment`/`PlaceReview` in `community.db` and show in the Find food
-Reviews panel.
+overwrite. Each place is one Text Search request.
 
 ### Menu (detail page)
 
 The restaurant page loads a Menu box after the page itself
-(`/restaurant/<camis>/what-to-order/`). The menu comes from MenuStat for
+(`/restaurant/<place_id>/what-to-order/`). The menu comes from MenuStat for
 chains; otherwise up to 10 Google photos are downloaded and one Gemini call
 (`GEMINI_API_KEY`) reads the items on the menu photos. Items are shown grouped
 into food, drinks and desserts. Menus read from Google photos are never
@@ -158,69 +174,45 @@ Upgrading a checkout from before the split (accounts were in `nyc_food.db`):
 
 | Dataset | Size | Rows | Imported as |
 |---|---|---|---|
-| `restaurant_data_set_2_*.csv` | ~71 MB | ~297K | `RestaurantInspection` |
-| `restaurant_cuisines_*.csv` | ~688 KB | ~31.5K | `RestaurantInspection.cuisine` (matched on CAMIS) |
 | `DOHMH_MenuStat_(Historical)_*.csv` | ~21 MB | ~65K | `MenuItem` |
 | `NYC_Farmers_Markets_*.csv` | ~300 KB | ~2.3K | `FarmersMarket` |
 | `Recognized_Shop_Healthy_Stores_*.csv` | ~104 KB | 712 | `HealthyStore` |
 
-Total is about 93 MB / 397K rows. Inspection rows are per violation, not per
-restaurant. The `YYYYMMDD` filename suffix is the download date, not the period
-the data covers.
+Total is about 22 MB / 68K rows. The `YYYYMMDD` filename suffix is the
+download date, not the period the data covers. The DOHMH restaurant inspection
+data, Good Food Purchasing and DPR park eateries datasets were dropped:
+restaurants now come from Google Places.
 
 **MenuStat caveats:** menus are historical (often **2017–2018**) and may not match
-today’s offerings. Linking inspections to MenuStat is **fuzzy name match**, not
-CAMIS — there is no shared restaurant ID across the two datasets. Wrong or missing
+today’s offerings. Linking a Google restaurant to MenuStat is a **fuzzy name
+match** — there is no shared restaurant ID. Wrong or missing
 links are possible (renames, food halls, similar chain names). When a match has
 enough qualifying meals, Top Picks may use menu nutrition as the dominant
 weight and the detail page may show a top-5 lower-calorie menu. Pipeline
 diagrams: [`md_guides/scoring-pipeline.md`](md_guides/scoring-pipeline.md).
 Full rules: [`md_guides/scoring-algorithm.md`](md_guides/scoring-algorithm.md).
 
-`restaurant_cuisines_*.csv` is a small CAMIS → cuisine lookup from NYC Open Data
-("DOHMH New York City Restaurant Inspection Results", dataset `43nn-pn8j`). It is kept
-separate because the full export is too large for GitHub. To refresh it:
+After pulling changes to the models or datasets, migrate (community first) and
+reload the datasets:
 
 ```bash
-curl -G -o database/datasets/restaurant_cuisines_$(date +%Y%m%d).csv \
-  "https://data.cityofnewyork.us/resource/43nn-pn8j.csv" \
-  --data-urlencode '$select=camis,cuisine_description' \
-  --data-urlencode '$group=camis,cuisine_description' \
-  --data-urlencode '$limit=100000'
+.venv/bin/python manage.py migrate --database=community
+.venv/bin/python manage.py migrate --database=users
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py import_datasets
 ```
 
-After pulling changes to the models or datasets, rebuild your local database:
+### Upgrading from inspection-based restaurants
 
-```bash
-NYCFOOD_FULL_DATA=1 .venv/bin/python manage.py migrate
-NYCFOOD_FULL_DATA=1 .venv/bin/python manage.py import_datasets
-.venv/bin/python manage.py build_lite_db --force   # then refresh the lite copy
-```
-
-### Lite database (faster site)
-
-`build_lite_db` copies `nyc_food.db` to `database/nyc_food_lite.db`, keeping only
-the best places per type (default `--limit 500`):
-
-- **Restaurants:** 500, split across boroughs in proportion to their size, with at
-  least 40 each (about Manhattan 192, Brooklyn 122, Queens 106, Bronx 40, Staten
-  Island 40). They are ranked by a review-weighted Google rating from
-  `community.db`. Restaurants Google lists as closed, and those whose latest grade
-  is C, are dropped.
-- **Shop Healthy stores:** 500, ranked the same way.
-- **Farmers markets:** up to 500 per year (all 102 in the latest year).
-
-MenuStat is copied unchanged. `nyc_food.db` and `community.db` are only read,
-never modified.
-
-When the lite file exists, the site uses it automatically. Set
-`NYCFOOD_FULL_DATA=1` to switch back to the full DB without deleting anything.
-`import_datasets` refuses to run against the lite DB.
-
-Accounts live in `users.db` and ratings, comments, and Google data in
-`community.db`, so both modes share them and rebuilding the lite DB with
-`--force` loses nothing. Production is unaffected: deploys download only
-`nyc_food.db` from S3.
+`community/0011` re-keys every restaurant row from its NYC inspection id
+(CAMIS) to its Google place id: Google data, pins with their ratings, comments
+and photos, likes, health scores, reason paragraphs and estimated menus. Each
+restaurant that already had Google data becomes a saved restaurant, taking its
+cuisine and borough from the inspection summary. That summary is deleted by
+`search/0008`, so migrate `community` **before** the default database. Rows
+whose restaurant was never matched to Google are dropped. Afterwards run
+`sync_restaurants --refresh-only` to fill in Google place types, photos and
+fresh ratings. `nyc_food_lite.db` is no longer used and can be deleted.
 
 ## Tests
 

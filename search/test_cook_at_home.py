@@ -2,7 +2,6 @@
 
 from datetime import date
 from types import SimpleNamespace
-from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 from django.contrib.auth.models import User
@@ -19,8 +18,8 @@ from search.cook_at_home import (
     is_cook_at_home_check_in,
     passes_place_quality,
 )
-from search.models import FarmersMarket, HealthyStore, RestaurantInspection
-from nycfood.test_utils import ALL_DATABASES
+from search.models import FarmersMarket, HealthyStore
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 
 def enrich_market(market, rating=4.5, reviews=150):
@@ -212,26 +211,23 @@ class CookAtHomePickerTests(TestCase):
         self.assertEqual(query["area"], ["Brooklyn"])
 
 
-@patch("search.views.find_restaurant_place", return_value=None)
 class CookAtHomeHomeViewTests(TestCase):
     databases = ALL_DATABASES
 
     def setUp(self):
-        for camis, dba, cuisine, day in [
+        for place_id, name, cuisine, _day in [
             ("1", "GREEN LEAF", "Salads", "2024-07-04"),
             ("2", "LEAF AND CO", "Salads", "2024-07-03"),
             ("3", "TAQUERIA", "Mexican", "2024-07-02"),
             ("4", "THAI SPOT", "Thai", "2024-07-01"),
         ]:
-            RestaurantInspection.objects.create(
-                camis=camis,
-                dba=dba,
+            make_restaurant(
+                place_id,
+                name,
                 boro="Brooklyn",
                 street="1 Main St",
                 zipcode="11201",
                 cuisine=cuisine,
-                inspection_date=day,
-                grade="A",
             )
         self.market = FarmersMarket.objects.create(
             year=2026,
@@ -251,7 +247,7 @@ class CookAtHomeHomeViewTests(TestCase):
         enrich_store(self.store)
         self.user = User.objects.create_user("cook", "cook@example.com", "pw-12345!")
 
-    def test_high_mood_and_energy_shows_cook_at_home(self, _find):
+    def test_high_mood_and_energy_shows_cook_at_home(self):
         self.client.force_login(self.user)
         MoodLog.objects.create(
             user=self.user, mood=4, energy_level=4, log_date=today_ny()
@@ -272,7 +268,7 @@ class CookAtHomeHomeViewTests(TestCase):
             "area=Brooklyn", response.context["cook_at_home"]["find_food_url"]
         )
 
-    def test_high_mood_with_only_weak_enrichment_shows_cta_empty_lists(self, _find):
+    def test_high_mood_with_only_weak_enrichment_shows_cta_empty_lists(self):
         PlaceEnrichment.objects.all().delete()
         enrich_market(self.market, rating=3.5, reviews=50)
         enrich_store(self.store, rating=5.0, reviews=10)
@@ -287,7 +283,7 @@ class CookAtHomeHomeViewTests(TestCase):
         self.assertContains(response, "Browse markets and healthy stores")
         self.assertNotContains(response, "Home Test Market")
 
-    def test_low_mood_hides_cook_at_home(self, _find):
+    def test_low_mood_hides_cook_at_home(self):
         self.client.force_login(self.user)
         MoodLog.objects.create(
             user=self.user, mood=3, energy_level=5, log_date=today_ny()
@@ -296,7 +292,7 @@ class CookAtHomeHomeViewTests(TestCase):
         self.assertFalse(response.context["cook_at_home"]["show"])
         self.assertNotContains(response, "Cook at home today")
 
-    def test_anonymous_hides_cook_at_home(self, _find):
+    def test_anonymous_hides_cook_at_home(self):
         response = self.client.get(reverse("search:home"))
         self.assertFalse(response.context["cook_at_home"]["show"])
         self.assertNotContains(response, "Cook at home today")

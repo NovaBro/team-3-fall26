@@ -605,7 +605,7 @@ class SuperuserDashboardTests(TestCase):
             last_name="Example",
         )
         self.subject = CommunitySubject.objects.create(
-            kind="restaurant_dohmh", key="camis:1", name="Test Restaurant"
+            kind="restaurant_dohmh", key="google:1", name="Test Restaurant"
         )
         self.comment = UserComment.objects.create(
             subject=self.subject, user_id=self.user.pk, text="Helpful review"
@@ -720,7 +720,7 @@ class AdminDeleteCommentTests(TestCase):
             "target", "target@example.com", VALID_PASSWORD
         )
         self.subject = CommunitySubject.objects.create(
-            kind="restaurant_dohmh", key="camis:1", name="Test Restaurant"
+            kind="restaurant_dohmh", key="google:1", name="Test Restaurant"
         )
         self.comment = UserComment.objects.create(
             subject=self.subject, user_id=self.user.pk, text="Helpful review"

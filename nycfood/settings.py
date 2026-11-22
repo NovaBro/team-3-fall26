@@ -96,20 +96,13 @@ WSGI_APPLICATION = "nycfood.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# The site uses the small nyc_food_lite.db (best ~500 places per type, built by
-# `manage.py build_lite_db`) when it exists, for speed. NYCFOOD_FULL_DATA=1 forces
-# the full nyc_food.db. Neither file is ever deleted by switching.
-FULL_DB_PATH = BASE_DIR / "database" / "nyc_food.db"
-LITE_DB_PATH = BASE_DIR / "database" / "nyc_food_lite.db"
-USE_FULL_DATA = os.environ.get("NYCFOOD_FULL_DATA") == "1"
-
 DATABASES = {
+    # Open Data tables rebuilt by `manage.py import_datasets`.
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": (
-            FULL_DB_PATH if USE_FULL_DATA or not LITE_DB_PATH.exists() else LITE_DB_PATH
-        ),
+        "NAME": BASE_DIR / "database" / "nyc_food.db",
     },
+    # Google restaurants and enrichment, ratings, comments, photos, scores.
     "community": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "database" / "community.db",
@@ -183,10 +176,6 @@ GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 # Fetch and store a restaurant's Google data the first time its detail page is
 # opened (needs the key above). Always off under `manage.py test`.
 GOOGLE_AUTO_FETCH = sys.argv[1:2] != ["test"]
-# If the RestaurantSummary table is missing or empty (DB replaced without
-# migrate), repair it once in the background (see search/summary_status.py).
-# Off under `manage.py test`; tests turn it on where needed.
-RESTAURANT_SUMMARY_SELF_REPAIR = sys.argv[1:2] != ["test"]
 
 # Auth redirects for the profile tab.
 # The AI assistant stays hidden until ANTHROPIC_API_KEY is set.

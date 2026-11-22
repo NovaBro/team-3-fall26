@@ -12,22 +12,13 @@ STORE_TYPE_CHOICES = [
     (GROCERY, "Grocery (Shop Healthy)"),
 ]
 
-INSPECTIONS = "inspections"
+SAVED = "saved"
 GOOGLE = "google"
 SOURCE_CHOICES = [
-    (INSPECTIONS, "NYC inspection records"),
+    (SAVED, "Saved NYC restaurants"),
     (GOOGLE, "Google Places (live)"),
 ]
 
-GRADE_CHOICES = [
-    ("", "Any grade"),
-    ("A", "A"),
-    ("B", "B"),
-    ("C", "C"),
-    ("N", "N (not yet graded)"),
-    ("P", "P (pending)"),
-    ("Z", "Z (pending)"),
-]
 MARKET_DAYS = [
     "Monday",
     "Tuesday",
@@ -40,8 +31,8 @@ MARKET_DAYS = [
 DAY_CHOICES = [("", "Any day"), *((day, day) for day in MARKET_DAYS)]
 DIET_CHOICES = [("", "Any"), *((key, diet["label"]) for key, diet in DIETS.items())]
 
-# Filters only Google Places knows about; ignored for inspection records.
-GOOGLE_ONLY_FIELDS = ("price", "min_rating", "open_now")
+# Filters only a live Google search can apply; ignored for saved restaurants.
+GOOGLE_ONLY_FIELDS = ("open_now",)
 
 
 class FindFoodForm(RestaurantFilterForm):
@@ -74,11 +65,6 @@ class FindFoodForm(RestaurantFilterForm):
         widget=forms.RadioSelect,
         error_messages={"invalid_choice": "Choose where restaurant results come from."},
     )
-    grade = forms.ChoiceField(
-        required=False,
-        choices=GRADE_CHOICES,
-        error_messages={"invalid_choice": "%(value)s is not a valid grade."},
-    )
     day = forms.ChoiceField(
         required=False,
         choices=DAY_CHOICES,
@@ -87,7 +73,8 @@ class FindFoodForm(RestaurantFilterForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Inspection records support kosher, Google supports halal; offer both.
+        # Saved restaurants filter diets by cuisine (e.g. kosher), live Google
+        # results by place type (e.g. halal); offer both.
         self.fields["diet"].choices = DIET_CHOICES
 
     def clean(self):
@@ -95,13 +82,13 @@ class FindFoodForm(RestaurantFilterForm):
         data["types"] = data.get("types") or [
             value for value, _label in STORE_TYPE_CHOICES
         ]
-        data["source"] = data.get("source") or INSPECTIONS
-        if data["source"] == INSPECTIONS:
+        data["source"] = data.get("source") or SAVED
+        if data["source"] == SAVED:
             for name in GOOGLE_ONLY_FIELDS:
                 data[name] = self.fields[name].to_python(None)
         diet = data.get("diet")
         if diet and RESTAURANT in data["types"]:
-            if data["source"] == INSPECTIONS and not DIETS[diet]["cuisines"]:
+            if data["source"] == SAVED and not DIETS[diet]["cuisines"]:
                 self.add_error(
                     "diet",
                     f"{DIETS[diet]['label']} is only available with Google Places "
@@ -110,14 +97,14 @@ class FindFoodForm(RestaurantFilterForm):
             if data["source"] == GOOGLE and not DIETS[diet]["google"]:
                 self.add_error(
                     "diet",
-                    f"{DIETS[diet]['label']} is only available with NYC inspection "
-                    "records.",
+                    f"{DIETS[diet]['label']} is only available with saved "
+                    "restaurants.",
                 )
         return data
 
     @property
     def google_only_filters_ignored(self):
-        """True when Google-only filters were sent but inspection records are used."""
-        if self.cleaned_data.get("source") != INSPECTIONS:
+        """True when live-only filters were sent but saved restaurants are used."""
+        if self.cleaned_data.get("source") != SAVED:
             return False
         return any(self.data.get(name) for name in GOOGLE_ONLY_FIELDS)

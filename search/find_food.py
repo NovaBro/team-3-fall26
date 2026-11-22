@@ -7,26 +7,29 @@ are the community pin identity, so reviews, ratings and photos keep working.
 
 import re
 
-from django.db.models import Max, OuterRef, Subquery
+from django.db.models import Max, Q
 from django.urls import reverse
 from urllib.parse import urlencode
 
 from community.keys import (
-    DOHMH,
     FARMERS_MARKET,
     GOOGLE,
     GROCERY,
-    dohmh_key,
     farmers_market_key,
     google_key,
     grocery_key,
 )
+from community.models import PRICE_LEVEL_LABELS, Restaurant
+from restaurants.boroughs import zip_from_address
 from restaurants.diet_filters import DIETS, risky_cuisines
-from restaurants.inspections import attach_inspections, google_zip
-from restaurants.places import METERS_PER_MILE, distance_m, get_restaurants
+from restaurants.places import (
+    METERS_PER_MILE,
+    PRICE_LEVELS,
+    distance_m,
+    get_restaurants,
+)
 from search.forms import MARKET_DAYS
-from search.locations import cached_lookups, enrichment_coordinates, resolve
-from search.models import FarmersMarket, HealthyStore, RestaurantInspection
+from search.models import FarmersMarket, HealthyStore
 
 NYC_LATITUDE_RANGE = (40.3, 41.1)
 NYC_LONGITUDE_RANGE = (-74.3, -73.6)
@@ -43,7 +46,6 @@ BOROUGH_ALIASES = {"Manhattan": ["Manhattan", "New York"]}
 TYPE_LABELS = {
     FARMERS_MARKET: "Farmers market",
     GROCERY: "Grocery",
-    DOHMH: "Restaurant",
     GOOGLE: "Restaurant",
 }
 MARKET_DAY_PATTERN = re.compile(
@@ -108,9 +110,6 @@ def _item(kind, key, name, **fields):
         "url": "",
         "external_url": False,
         "details": [],
-        "grade": "",
-        "grade_url": "",
-        "has_inspection": None,
         "price": "",
         "rating": None,
         "rating_count": None,
@@ -227,21 +226,37 @@ def grocery_items(data):
     ]
 
 
-# --- Restaurants from inspection records -----------------------------------
+# --- Restaurants saved from Google (community.Restaurant) -------------------
+
+RESTAURANT_ROW_FIELDS = (
+    "place_id",
+    "name",
+    "address",
+    "boro",
+    "zipcode",
+    "cuisine",
+    "latitude",
+    "longitude",
+    "rating",
+    "rating_count",
+    "price_level",
+    "photo_name",
+)
 
 
 def restaurant_rows(data):
-    """One row per restaurant (camis) matching the filters.
+    """Saved restaurants matching the filters, as value dicts (name order).
 
-    The newest grade is only computed in SQL when filtering by grade (it is a
-    subquery per restaurant); otherwise ``fill_latest_grades`` adds it for the
-    rows actually shown.
+    Places Google lists as closed are left out.
     """
-    qs = RestaurantInspection.objects.exclude(dba="")
+    qs = Restaurant.objects.exclude(name="").filter(
+        business_status__in=(Restaurant.OPERATIONAL, "")
+    )
     if data.get("q"):
-        qs = qs.filter(dba__icontains=data["q"])
+        qs = qs.filter(name__icontains=data["q"])
     if data.get("area"):
-        qs = qs.filter(boro=data["area"])
+        area = data["area"]
+        qs = qs.filter(Q(boro__iexact=area) | Q(address__icontains=area))
     if data.get("zip"):
         qs = qs.filter(zipcode__startswith=data["zip"])
     if data.get("cuisine"):
@@ -250,80 +265,32 @@ def restaurant_rows(data):
         qs = qs.filter(cuisine__in=DIETS[data["diet"]]["cuisines"] or [])
     if data.get("avoid"):
         qs = qs.exclude(cuisine__in=risky_cuisines(data["avoid"]))
-
-    rows = qs.values("camis").annotate(
-        name=Max("dba"),
-        boro=Max("boro"),
-        street=Max("street"),
-        zip=Max("zipcode"),
-        cuisine_name=Max("cuisine"),
-        last_date=Max("inspection_date"),
-    )
-    if data.get("grade"):
-        graded = (
-            RestaurantInspection.objects.filter(camis=OuterRef("camis"))
-            .exclude(grade="")
-            .order_by("-inspection_date")
-        )
-        rows = rows.annotate(latest_grade=Subquery(graded.values("grade")[:1]))
-        rows = rows.filter(latest_grade=data["grade"])
-    return rows.order_by("name", "camis")
-
-
-def fill_latest_grades(items):
-    """Set the newest non-blank inspection grade on inspection-record items."""
-    camis = {
-        item["key"].split(":", 1)[1]: item for item in items if item["kind"] == DOHMH
-    }
-    if not camis:
-        return
-    seen = set()
-    rows = (
-        RestaurantInspection.objects.filter(camis__in=list(camis))
-        .exclude(grade="")
-        .order_by("camis", "-inspection_date")
-        .values_list("camis", "grade")
-    )
-    for key, grade in rows:
-        if key not in seen:
-            seen.add(key)
-            camis[key]["grade"] = grade
+    if data.get("price"):
+        qs = qs.filter(price_level__in=[PRICE_LEVELS[p] for p in data["price"]])
+    if data.get("min_rating"):
+        qs = qs.filter(rating__gte=float(data["min_rating"]))
+    return qs.values(*RESTAURANT_ROW_FIELDS).order_by("name", "place_id")
 
 
 def restaurant_item(row):
-    url = reverse("search:restaurant_detail", args=[row["camis"]])
-    details = [row["cuisine_name"]] if row["cuisine_name"] else []
-    if row["last_date"]:
-        details.append(f"Inspected {row['last_date']:%b %Y}")
+    """A Find food item for a saved restaurant (dict from restaurant_rows)."""
     return _item(
-        DOHMH,
-        dohmh_key(row["camis"]),
+        GOOGLE,
+        google_key(row["place_id"]),
         row["name"],
-        address=_query(row["street"], row["boro"], row["zip"]),
-        borough=row["boro"],
-        zipcode=row["zip"],
-        url=url,
-        details=details,
-        grade=row.get("latest_grade") or "",
-        grade_url=url,
-        has_inspection=True,
-        locate_query=_query(row["name"], row["street"], row["boro"], "NY", row["zip"]),
+        address=row.get("address") or "",
+        borough=row.get("boro") or "",
+        zipcode=row.get("zipcode") or "",
+        lat=row.get("latitude"),
+        lng=row.get("longitude"),
+        location_source="google",
+        url=reverse("search:restaurant_detail", args=[row["place_id"]]),
+        details=[row["cuisine"]] if row.get("cuisine") else [],
+        price=PRICE_LEVEL_LABELS.get(row.get("price_level") or "", ""),
+        rating=row.get("rating"),
+        rating_count=row.get("rating_count"),
+        photo_url=_photo_url(row.get("photo_name")),
     )
-
-
-def located_restaurant_items(rows):
-    """Matching restaurants whose coordinates are already stored (no API calls)."""
-    camis = set(enrichment_coordinates())
-    camis.update(
-        key.split(":", 1)[1]
-        for key, row in cached_lookups(DOHMH).items()
-        if row.found and key.startswith("camis:")
-    )
-    if not camis:
-        return []
-    items = [restaurant_item(row) for row in rows.filter(camis__in=camis)]
-    resolve(items, fetch=False)
-    return [item for item in items if item["lat"] is not None]
 
 
 # --- Restaurants from Google Places ----------------------------------------
@@ -337,55 +304,48 @@ def _photo_url(photo):
 
 def google_restaurant_items(data, radius_m):
     """Live Google Places results (raises PlacesError), filtered like the
-    inspection records where Google has no matching filter."""
-    places = attach_inspections(
-        get_restaurants(
-            cuisine=data["cuisine"],
-            area=data["area"],
-            prices=data["price"],
-            diet=data["diet"],
-            lat=data["lat"],
-            lng=data["lng"],
-            radius_m=radius_m,
-            avoid=data["avoid"],
-            open_now=data["open_now"],
-            min_rating=float(data["min_rating"]) if data["min_rating"] else None,
-        )
+    saved restaurants where Google has no matching filter. Each links to its
+    detail page, which stores the place the first time it is opened."""
+    places = get_restaurants(
+        cuisine=data["cuisine"],
+        area=data["area"],
+        prices=data["price"],
+        diet=data["diet"],
+        lat=data["lat"],
+        lng=data["lng"],
+        radius_m=radius_m,
+        avoid=data["avoid"],
+        open_now=data["open_now"],
+        min_rating=float(data["min_rating"]) if data["min_rating"] else None,
     )
     items = []
     for place in places:
-        inspection = place.get("inspection") or {}
-        zipcode = place.get("zipcode") or google_zip(place.get("address"))
+        zipcode = place.get("zipcode") or zip_from_address(place.get("address"))
         if data.get("q") and data["q"].casefold() not in place["name"].casefold():
             continue
         if data.get("zip") and not (zipcode or "").startswith(data["zip"]):
             continue
-        if data.get("grade") and inspection.get("grade") != data["grade"]:
-            continue
-        detail_url = (
-            reverse("search:restaurant_detail", args=[inspection["camis"]])
-            if inspection
-            else ""
-        )
         details = []
         if place.get("vegetarian") is True:
             details.append("Vegetarian options")
+        place_id = place.get("id") or ""
         items.append(
             _item(
                 GOOGLE,
-                google_key(place.get("id") or place["name"]),
+                google_key(place_id or place["name"]),
                 place["name"],
                 address=place.get("address", ""),
                 zipcode=zipcode or "",
                 lat=place.get("lat"),
                 lng=place.get("lng"),
                 location_source="google",
-                url=place.get("maps_url", ""),
-                external_url=bool(place.get("maps_url")),
+                url=(
+                    reverse("search:restaurant_detail", args=[place_id])
+                    if place_id
+                    else place.get("maps_url", "")
+                ),
+                external_url=not place_id and bool(place.get("maps_url")),
                 details=details,
-                grade=inspection.get("grade", ""),
-                grade_url=detail_url,
-                has_inspection=bool(inspection),
                 price=place.get("price", ""),
                 rating=place.get("rating"),
                 rating_count=place.get("rating_count"),

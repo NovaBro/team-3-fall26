@@ -3,11 +3,20 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from community.keys import DOHMH, FARMERS_MARKET, GROCERY, dohmh_key
-from community.models import PlaceEnrichment, PlaceReview
-from search.models import RestaurantInspection
-from search.services.places import PlacesAPIError, enrich_camis, enrich_subject
-from nycfood.test_utils import ALL_DATABASES
+from io import StringIO
+
+from django.core.management import call_command
+
+from community.keys import GOOGLE, FARMERS_MARKET, GROCERY, google_key
+from community.models import PlaceEnrichment, PlaceReview, Restaurant
+from search.services.places import (
+    PlacesAPIError,
+    enrich_place_id,
+    enrich_subject,
+    restaurant_fields,
+    save_restaurant,
+)
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 
 @patch.dict("os.environ", {"GOOGLE_API_KEY": ""})
@@ -16,55 +25,37 @@ class RestaurantSearchTests(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        RestaurantInspection.objects.create(
-            camis="1",
-            dba="Joe's Pizza",
+        make_restaurant(
+            "1",
+            "Joe's Pizza",
             boro="Brooklyn",
             street="1 Main St",
             zipcode="11201",
             cuisine="Pizza",
-            inspection_date="2024-01-01",
-            grade="A",
         )
-        RestaurantInspection.objects.create(
-            camis="1",
-            dba="Joe's Pizza",
-            boro="Brooklyn",
-            street="1 Main St",
-            zipcode="11201",
-            cuisine="Pizza",
-            inspection_date="2025-01-01",
-            grade="B",
-        )
-        RestaurantInspection.objects.create(
-            camis="3",
-            dba="Green Leaf",
+        make_restaurant(
+            "3",
+            "Green Leaf",
             boro="Manhattan",
             street="3 Main St",
             zipcode="10003",
             cuisine="Vegan",
-            inspection_date="2024-06-01",
-            grade="A",
         )
-        RestaurantInspection.objects.create(
-            camis="4",
-            dba="Thai Garden",
+        make_restaurant(
+            "4",
+            "Thai Garden",
             boro="Queens",
             street="4 Main St",
             zipcode="11101",
             cuisine="Thai",
-            inspection_date="2024-07-01",
-            grade="A",
         )
-        RestaurantInspection.objects.create(
-            camis="2",
-            dba="Taco Town",
+        make_restaurant(
+            "2",
+            "Taco Town",
             boro="Queens",
             street="2 Main St",
             zipcode="11101",
             cuisine="Mexican",
-            inspection_date="2024-05-01",
-            grade="A",
         )
 
     def get(self, params=None):
@@ -86,15 +77,10 @@ class RestaurantSearchTests(TestCase):
     def test_search_by_name(self):
         self.assertEqual(self.names({"q": "pizza"}), ["Joe's Pizza"])
 
-    def test_search_returns_latest_grade(self):
+    def test_search_result_links_to_the_detail_page(self):
         item = self.get({"q": "pizza"}).context["items"][0]
-        self.assertEqual(item["grade"], "B")
-        self.assertEqual(item["key"], "camis:1")
+        self.assertEqual(item["key"], "google:1")
         self.assertEqual(item["url"], reverse("search:restaurant_detail", args=["1"]))
-
-    def test_grade_filter_uses_latest_grade(self):
-        self.assertEqual(self.names({"grade": "B"}), ["Joe's Pizza"])
-        self.assertNotIn("Joe's Pizza", self.names({"grade": "A"}))
 
     def test_search_filter_by_borough(self):
         self.assertEqual(self.names({"area": "Queens", "q": "taco"}), ["Taco Town"])
@@ -120,28 +106,22 @@ class RestaurantSearchTests(TestCase):
         )
 
     def test_pescatarian_includes_seafood_and_vegetarian(self):
-        RestaurantInspection.objects.create(
-            camis="5", dba="Fish Shack", cuisine="Seafood"
-        )
+        make_restaurant("5", "Fish Shack", cuisine="Seafood")
         self.assertEqual(
             self.names({"diet": "pescatarian"}), ["Fish Shack", "Green Leaf"]
         )
 
     def test_keto_matches_low_carb_cuisines(self):
-        RestaurantInspection.objects.create(
-            camis="6", dba="Prime Cuts", cuisine="Steakhouse"
-        )
+        make_restaurant("6", "Prime Cuts", cuisine="Steakhouse")
         self.assertEqual(self.names({"diet": "keto"}), ["Prime Cuts"])
 
-    def test_halal_needs_google_places(self):
+    def test_halal_needs_live_google_results(self):
         response = self.get({"diet": "halal"})
         self.assertContains(response, "Halal is only available with Google Places")
         self.assertEqual(response.context["items"], [])
 
     def test_avoid_shellfish_excludes_shellfish_heavy_cuisines(self):
-        RestaurantInspection.objects.create(
-            camis="7", dba="Oyster Bar", cuisine="Seafood"
-        )
+        make_restaurant("7", "Oyster Bar", cuisine="Seafood")
         self.assertEqual(
             self.names({"avoid": "shellfish"}),
             ["Green Leaf", "Joe's Pizza", "Taco Town"],
@@ -152,12 +132,12 @@ class RestaurantSearchTests(TestCase):
         self.assertContains(response, "Always confirm allergies with the restaurant.")
 
     def test_results_show_cuisine(self):
-        self.assertContains(self.get({"q": "thai"}), "Thai · Inspected Jul 2024")
+        self.assertContains(self.get({"q": "thai"}), '<div class="result-details">Thai')
 
     def test_detail_has_no_inspection_history(self):
         response = self.client.get(reverse("search:restaurant_detail", args=["1"]))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["dba"], "Joe's Pizza")
+        self.assertEqual(response.context["name"], "Joe's Pizza")
         self.assertNotIn("inspections", response.context)
         self.assertNotContains(response, "Inspection history")
 
@@ -219,50 +199,55 @@ DETAILS_RESULT = {
 SEARCH_RESULT = {"places": [DETAILS_RESULT]}
 
 
+DETAILS_RESULT.update(
+    {
+        "primaryType": "pizza_restaurant",
+        "types": ["pizza_restaurant", "restaurant", "food"],
+        "addressComponents": [
+            {"longText": "1", "types": ["street_number"]},
+            {"longText": "Main Street", "types": ["route"]},
+            {"longText": "Brooklyn", "types": ["sublocality_level_1", "sublocality"]},
+            {"longText": "11201", "types": ["postal_code"]},
+        ],
+        "photos": [{"name": "places/ChIJtest/photos/p1"}],
+    }
+)
+
+
 @override_settings(GOOGLE_PLACES_API_KEY="test-key")
 class EnrichRestaurantTests(TestCase):
     databases = ALL_DATABASES
 
-    @classmethod
-    def setUpTestData(cls):
-        RestaurantInspection.objects.create(
-            camis="1",
-            dba="Joe's Pizza",
-            boro="Brooklyn",
-            street="1 Main St",
-            zipcode="11201",
-            inspection_date="2025-01-01",
-            grade="A",
-        )
-
     @patch("search.services.places.requests.request")
-    def test_enrich_saves_place_and_reviews(self, request):
-        request.return_value = _FakeResponse(SEARCH_RESULT)
-        enrichment = enrich_camis("1")
-        self.assertEqual(enrichment.kind, DOHMH)
-        self.assertEqual(enrichment.key, dohmh_key("1"))
-        self.assertEqual(enrichment.camis, "1")
+    def test_enrich_saves_restaurant_place_and_reviews(self, request):
+        request.return_value = _FakeResponse(DETAILS_RESULT)
+        enrichment = enrich_place_id("ChIJtest")
+        method, url = request.call_args.args
+        self.assertEqual((method, url.rsplit("/", 1)[-1]), ("GET", "ChIJtest"))
+        self.assertEqual(enrichment.kind, GOOGLE)
+        self.assertEqual(enrichment.key, google_key("ChIJtest"))
         self.assertEqual(enrichment.place_id, "ChIJtest")
         self.assertEqual(enrichment.rating, 4.5)
-        self.assertEqual(enrichment.user_rating_count, 3210)
         self.assertEqual(enrichment.price_level_display, "$")
-        self.assertEqual(enrichment.reviews.count(), 1)
         self.assertEqual(enrichment.reviews.first().author_name, "Sam")
+        restaurant = Restaurant.objects.get(place_id="ChIJtest")
+        self.assertEqual(restaurant.name, "Joe's Pizza")
+        self.assertEqual(restaurant.cuisine, "Pizza")
+        self.assertEqual(restaurant.boro, "Brooklyn")
+        self.assertEqual(restaurant.street, "1 Main Street")
+        self.assertEqual(restaurant.zipcode, "11201")
+        self.assertEqual(restaurant.price, "$")
+        self.assertEqual(restaurant.photo_name, "places/ChIJtest/photos/p1")
+        self.assertTrue(restaurant.shuffle_seed)
 
     @patch("search.services.places.requests.request")
     def test_refetch_replaces_reviews(self, request):
-        request.return_value = _FakeResponse(SEARCH_RESULT)
-        enrich_camis("1")
-        request.return_value = _FakeResponse(SEARCH_RESULT)
-        enrich_camis("1")
+        request.return_value = _FakeResponse(DETAILS_RESULT)
+        enrich_place_id("ChIJtest")
+        enrich_place_id("ChIJtest")
         self.assertEqual(PlaceEnrichment.objects.count(), 1)
         self.assertEqual(PlaceReview.objects.count(), 1)
-
-    @patch("search.services.places.requests.request")
-    def test_no_match_raises(self, request):
-        request.return_value = _FakeResponse({"places": []})
-        with self.assertRaises(PlacesAPIError):
-            enrich_camis("1")
+        self.assertEqual(Restaurant.objects.count(), 1)
 
     @patch("search.services.places.requests.request")
     def test_api_error_raises(self, request):
@@ -270,12 +255,110 @@ class EnrichRestaurantTests(TestCase):
             {"error": {"message": "denied"}}, status_code=403
         )
         with self.assertRaises(PlacesAPIError):
-            enrich_camis("1")
+            enrich_place_id("ChIJtest")
 
     @override_settings(GOOGLE_PLACES_API_KEY="")
     def test_missing_key_raises(self):
         with self.assertRaises(PlacesAPIError):
-            enrich_camis("1")
+            enrich_place_id("ChIJtest")
+
+
+class SaveRestaurantTests(TestCase):
+    databases = ALL_DATABASES
+
+    def test_generic_types_keep_the_stored_cuisine(self):
+        make_restaurant("ChIJtest", "Joe's", cuisine="Pizza")
+        save_restaurant({**DETAILS_RESULT, "primaryType": "restaurant", "types": []})
+        self.assertEqual(Restaurant.objects.get(place_id="ChIJtest").cuisine, "Pizza")
+
+    def test_borough_falls_back_to_the_zip_code(self):
+        fields = restaurant_fields(
+            {"formattedAddress": "5 Ave, Queens, NY 11372", "addressComponents": []}
+        )
+        self.assertEqual((fields["zipcode"], fields["boro"]), ("11372", "Queens"))
+
+    def test_outside_nyc_has_no_borough(self):
+        fields = restaurant_fields({"formattedAddress": "1 Rd, Hoboken, NJ 07030"})
+        self.assertEqual(fields["boro"], "")
+
+
+def _place(place_id, boro="Queens", zipcode="11101", **extra):
+    return {
+        "id": place_id,
+        "displayName": {"text": f"Place {place_id}"},
+        "formattedAddress": f"1 St, {boro}, NY {zipcode}",
+        "addressComponents": [{"longText": boro, "types": ["sublocality_level_1"]}],
+        "types": ["thai_restaurant"],
+        "rating": 4.3,
+        **extra,
+    }
+
+
+@override_settings(GOOGLE_PLACES_API_KEY="test-key")
+class SyncRestaurantsCommandTests(TestCase):
+    databases = ALL_DATABASES
+
+    def run_command(self, *args):
+        out = StringIO()
+        call_command("sync_restaurants", *args, stdout=out, stderr=StringIO())
+        return out.getvalue()
+
+    @patch("search.services.places.requests.request")
+    def test_discovery_follows_pages_and_skips_places_outside_nyc(self, request):
+        request.side_effect = [
+            _FakeResponse(
+                {
+                    "places": [
+                        _place("a"),
+                        _place("b", boro="Hoboken", zipcode="07030"),
+                    ],
+                    "nextPageToken": "next",
+                }
+            ),
+            _FakeResponse({"places": [_place("c")]}),
+        ]
+        out = self.run_command(
+            "--discover-only", "--boro", "Queens", "--term", "thai", "--pages", "3"
+        )
+        self.assertEqual(request.call_count, 2)
+        body = request.call_args_list[1].kwargs["json"]
+        self.assertEqual(body["pageToken"], "next")
+        self.assertEqual(body["textQuery"], "thai in Queens, NY")
+        self.assertEqual(
+            sorted(Restaurant.objects.values_list("place_id", flat=True)), ["a", "c"]
+        )
+        self.assertEqual(Restaurant.objects.get(place_id="a").cuisine, "Thai")
+        self.assertIn("Added 2", out)
+
+    @patch("search.services.places.requests.request")
+    def test_limit_caps_google_requests(self, request):
+        request.return_value = _FakeResponse({"places": [_place("a")]})
+        self.run_command("--discover-only", "--boro", "Queens", "--limit", "2")
+        self.assertEqual(request.call_count, 2)
+
+    @patch("search.services.places.requests.request")
+    def test_refresh_only_refetches_stale_rows(self, request):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        make_restaurant("ChIJtest", "Old")
+        make_restaurant("fresh", "New")
+        Restaurant.objects.filter(place_id="ChIJtest").update(
+            fetched_at=timezone.now() - timedelta(days=40)
+        )
+        request.return_value = _FakeResponse(DETAILS_RESULT)
+        self.run_command("--refresh-only")
+        self.assertEqual(request.call_count, 1)
+        self.assertEqual(
+            Restaurant.objects.get(place_id="ChIJtest").name, "Joe's Pizza"
+        )
+
+    @patch("search.services.places.requests.request")
+    def test_dry_run_makes_no_requests(self, request):
+        out = self.run_command("--dry-run", "--boro", "Bronx", "--term", "pizza")
+        request.assert_not_called()
+        self.assertIn("pizza in Bronx, NY", out)
 
 
 class RestaurantDetailGoogleTests(TestCase):
@@ -283,22 +366,15 @@ class RestaurantDetailGoogleTests(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        RestaurantInspection.objects.create(
-            camis="1",
-            dba="Joe's Pizza",
-            boro="Brooklyn",
-            street="1 Main St",
-            zipcode="11201",
-            inspection_date="2025-01-01",
-            grade="A",
+        make_restaurant(
+            "1", "Joe's Pizza", boro="Brooklyn", street="1 Main St", zipcode="11201"
         )
 
     def test_detail_shows_stored_google_data(self):
         place = PlaceEnrichment.objects.create(
-            kind=DOHMH,
-            key=dohmh_key("1"),
-            camis="1",
-            place_id="ChIJtest",
+            kind=GOOGLE,
+            key=google_key("1"),
+            place_id="1",
             display_name="Joe's Pizza",
             rating=4.5,
             user_rating_count=3210,
@@ -323,13 +399,13 @@ class RestaurantDetailGoogleTests(TestCase):
         self.assertNotContains(response, "No Google data stored yet")
         self.assertNotContains(response, "Get Google data")
 
-    @patch("search.views.enrich_camis")
+    @patch("search.views.enrich_place_id")
     def test_refresh_post_enriches_and_redirects(self, enrich):
         response = self.client.post(reverse("search:refresh_place", args=["1"]))
         self.assertRedirects(response, reverse("search:restaurant_detail", args=["1"]))
         enrich.assert_called_once_with("1")
 
-    @patch("search.views.enrich_camis", side_effect=PlacesAPIError("boom"))
+    @patch("search.views.enrich_place_id", side_effect=PlacesAPIError("boom"))
     def test_refresh_post_reports_error(self, enrich):
         response = self.client.post(
             reverse("search:refresh_place", args=["1"]), follow=True
@@ -344,139 +420,63 @@ class RestaurantDetailGoogleTests(TestCase):
 class HomeTopPicksTests(TestCase):
     databases = ALL_DATABASES
 
-    @patch("search.views.find_restaurant_place")
-    def test_home_page_shows_top_picks_with_google_review(self, mock_find_place):
-        RestaurantInspection.objects.create(
-            camis="999",
-            dba="Thai Garden",
+    def review(self, place_id, text, author="Tester"):
+        place = PlaceEnrichment.objects.create(
+            kind=GOOGLE, key=google_key(place_id), place_id=place_id
+        )
+        PlaceReview.objects.create(
+            place=place,
+            text=text,
+            author_name=author,
+            rating=5,
+            relative_time="2 weeks ago",
+        )
+
+    def test_home_page_shows_top_picks_with_google_review(self):
+        make_restaurant(
+            "999",
+            "Thai Garden",
+            address="4 Main St, Queens, NY 11101",
             boro="Queens",
-            street="4 Main St",
-            zipcode="11101",
             cuisine="Thai",
-            inspection_date="2024-07-01",
-            grade="A",
+            rating=4.8,
+            rating_count=150,
+            price_level="PRICE_LEVEL_MODERATE",
+            photo_name="places/ChIJ123/photos/abc",
         )
-        mock_find_place.return_value = {
-            "name": "Thai Garden",
-            "address": "4 Main St, Queens, NY 11101",
-            "street": "4 Main St",
-            "zipcode": "11101",
-            "price": "$$",
-            "rating": 4.8,
-            "rating_count": 150,
-            "photo": "places/ChIJ123/photos/abc",
-            "reviews": [
-                {
-                    "text": "Best pad thai in Queens! Must try.",
-                    "author_name": "Alice M.",
-                    "rating": 5,
-                    "relative_time": "2 weeks ago",
-                }
-            ],
-            "review": {
-                "text": "Best pad thai in Queens! Must try.",
-                "author_name": "Alice M.",
-                "rating": 5,
-                "relative_time": "2 weeks ago",
-            },
-        }
-        response = self.client.get(reverse("search:home"))
+        self.review("999", "Best pad thai in Queens! Must try.", "Alice M.")
+        with patch("search.views.enrich_place_id") as fetch:
+            response = self.client.get(reverse("search:home"))
+        fetch.assert_not_called()  # stored Google data only
         self.assertEqual(response.status_code, 200)
-        self.assertIn("top_picks", response.context)
-        top_picks = response.context["top_picks"]
-        self.assertTrue(len(top_picks) > 0)
-        first_pick = top_picks[0]
-        expected_comment = "Best pad thai in Queens! Must try."
-        self.assertEqual(first_pick["review"]["text"], expected_comment)
-        self.assertEqual(first_pick["review"]["author_name"], "Alice M.")
-        self.assertIn("reason_tags", first_pick)
-        # Every Top pick is grade A, so "Grade A" is not a tag.
-        self.assertNotIn("Grade A", first_pick["reason_tags"])
-        self.assertIn(
-            "restaurants/photo/?name=places%2FChIJ123%2Fphotos%2Fabc",
-            first_pick["photo_url"],
+        first_pick = response.context["top_picks"][0]
+        self.assertEqual(
+            first_pick["review"]["text"], "Best pad thai in Queens! Must try."
         )
+        self.assertEqual(first_pick["review"]["author_name"], "Alice M.")
+        self.assertEqual(first_pick["google"]["price"], "$$")
+        self.assertIn("reason_tags", first_pick)
+        expected_photo = "restaurants/photo/?name=places%2FChIJ123%2Fphotos%2Fabc"
+        self.assertIn(expected_photo, first_pick["photo_url"])
         content = response.content.decode("utf-8")
         self.assertIn("Best pad thai in Queens! Must try.", content)
         self.assertIn("Alice M.", content)
-        expected_photo = "restaurants/photo/?name=places%2FChIJ123%2Fphotos%2Fabc"
         self.assertIn(expected_photo, content)
+        self.assertIn('href="/restaurant/999/?from=home"', content)
 
-    @patch("search.views.find_restaurant_place")
-    def test_top_picks_are_score_ordered_not_date_ordered(self, mock_find_place):
-        # Newest inspection is pizza (unhealthy); older salad place should win.
-        RestaurantInspection.objects.create(
-            camis="901",
-            dba="Slice House",
-            boro="Brooklyn",
-            street="1 Pizza Ave",
-            zipcode="11201",
-            cuisine="Pizza",
-            inspection_date="2025-06-01",
-            grade="A",
-        )
-        RestaurantInspection.objects.create(
-            camis="902",
-            dba="Green Bowl",
-            boro="Manhattan",
-            street="2 Salad St",
-            zipcode="10003",
-            cuisine="Salads",
-            inspection_date="2024-01-01",
-            grade="A",
-        )
-        RestaurantInspection.objects.create(
-            camis="903",
-            dba="McDonald's Midtown",
-            boro="Manhattan",
-            street="3 Fast Ln",
-            zipcode="10001",
-            cuisine="Hamburgers",
-            inspection_date="2025-05-01",
-            grade="A",
-        )
-
-        def fake_place(name, zipcode, street):
-            healthy = (
-                "fresh healthy salad grilled organic" in name or name == "Green Bowl"
-            )
-            return {
-                "name": name,
-                "address": f"{street}, NY {zipcode}",
-                "street": street,
-                "zipcode": zipcode,
-                "price": "$" if "McDonald" in name else "$$",
-                "rating": 4.0,
-                "rating_count": 200,
-                "photo": "",
-                "reviews": (
-                    [{"text": "fresh healthy salad grilled organic"}]
-                    if healthy
-                    else [{"text": "greasy fried salty"}]
-                ),
-                "review": {
-                    "text": (
-                        "fresh healthy salad grilled organic"
-                        if healthy
-                        else "greasy fried salty"
-                    ),
-                    "author_name": "Tester",
-                    "rating": 4,
-                    "relative_time": "1 week ago",
-                },
-            }
-
-        mock_find_place.side_effect = fake_place
+    def test_top_picks_are_score_ordered(self):
+        for place_id, name, cuisine, text in (
+            ("901", "Slice House", "Pizza", "greasy fried salty"),
+            ("902", "Green Bowl", "Salads", "fresh healthy salad grilled organic"),
+            ("903", "McDonald's Midtown", "Hamburgers", "greasy fried salty"),
+        ):
+            make_restaurant(place_id, name, cuisine=cuisine, rating=4.0)
+            self.review(place_id, text)
         response = self.client.get(reverse("search:home"))
-        self.assertEqual(response.status_code, 200)
         names = [pick["name"] for pick in response.context["top_picks"]]
         self.assertEqual(names[0], "Green Bowl")
-        self.assertNotEqual(names[0], "Slice House")
         scores = [pick["score"] for pick in response.context["top_picks"]]
         self.assertEqual(scores, sorted(scores, reverse=True))
-        self.assertTrue(
-            all("reason_tags" in pick for pick in response.context["top_picks"])
-        )
 
 
 @override_settings(GOOGLE_PLACES_API_KEY="test-key")
@@ -492,8 +492,8 @@ class EnrichSubjectTests(TestCase):
         )
         self.assertEqual(enrichment.kind, GROCERY)
         self.assertEqual(enrichment.key, key)
-        self.assertEqual(enrichment.camis, "")
         self.assertEqual(enrichment.reviews.count(), 1)
+        self.assertFalse(Restaurant.objects.exists())  # only restaurants go there
 
     @patch("search.services.places.requests.request")
     def test_one_request_asks_for_every_detail_field(self, request):
@@ -524,59 +524,3 @@ class EnrichSubjectTests(TestCase):
             PlaceEnrichment.objects.filter(kind=FARMERS_MARKET, key=key).count(), 1
         )
         self.assertEqual(PlaceReview.objects.count(), 1)
-
-
-class EnrichPlacesCommandOrderingTests(TestCase):
-    databases = ALL_DATABASES
-
-    def test_restaurants_prefer_missing_coordinates(self):
-        from search.management.commands.enrich_places import Command
-
-        RestaurantInspection.objects.create(
-            camis="10",
-            dba="Has Coords",
-            boro="Brooklyn",
-            street="1 Main",
-            zipcode="11201",
-            inspection_date="2025-01-01",
-        )
-        RestaurantInspection.objects.create(
-            camis="20",
-            dba="Missing Coords",
-            boro="Queens",
-            street="2 Main",
-            zipcode="11101",
-            inspection_date="2025-01-01",
-        )
-        PlaceEnrichment.objects.create(
-            kind=DOHMH,
-            key=dohmh_key("10"),
-            camis="10",
-            latitude=40.7,
-            longitude=-73.9,
-        )
-        # camis 10 is already enriched — skipped. Only 20 remains; with a
-        # second unenriched restaurant that has coords, missing-coords wins.
-        RestaurantInspection.objects.create(
-            camis="30",
-            dba="Also Missing Enrichment But Located",
-            boro="Bronx",
-            street="3 Main",
-            zipcode="10451",
-            inspection_date="2025-01-01",
-        )
-        from community.models import LocationLookup
-        from django.utils import timezone
-
-        LocationLookup.objects.create(
-            kind=DOHMH,
-            key=dohmh_key("30"),
-            found=True,
-            latitude=40.8,
-            longitude=-73.9,
-            fetched_at=timezone.now(),
-        )
-
-        targets = Command()._restaurant_targets({"refresh": False, "limit": 1})
-        self.assertEqual(len(targets), 1)
-        self.assertEqual(targets[0]["camis"], "20")

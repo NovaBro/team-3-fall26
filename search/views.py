@@ -1,8 +1,7 @@
 import hashlib
 import logging
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timedelta
+from datetime import datetime
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
@@ -19,11 +18,10 @@ from django.db.models import (
     Count,
     F,
     IntegerField,
-    Max,
     Q,
     When,
 )
-from django.db.models.functions import Cast, Mod
+from django.db.models.functions import Mod
 from django.http import Http404, JsonResponse, QueryDict
 from django.shortcuts import redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -32,18 +30,19 @@ from django.views.decorators.http import require_POST
 
 from accounts.checkin import DEFAULT_HEADLINE, picker_context, todays_log
 from assistant.recommend import personalized_picks
-from community.keys import DOHMH, dohmh_key
+from community.keys import GOOGLE as GOOGLE_KIND, google_key
 from community.models import (
+    PRICE_LEVEL_LABELS,
     CommunitySubject,
     PlaceEnrichment,
     PlaceReview,
     ReasonBlurb,
     RecommendationFeedback,
+    Restaurant,
     UserRating,
 )
 from restaurants.diet_filters import ALLERGY_CHOICES
-from restaurants.inspections import _latest, _match, _restaurants_in_zip, google_zip
-from restaurants.places import PlacesError, find_restaurant_place
+from restaurants.places import PlacesError
 from search import ai_scores, find_food, menu_estimate, reason_writer, what_to_order
 from search.cook_at_home import (
     cook_at_home_picks,
@@ -61,16 +60,13 @@ from search.forms import (
     FARMERS_MARKET,
     GOOGLE,
     GROCERY,
-    INSPECTIONS,
     RESTAURANT,
+    SAVED,
     STORE_TYPE_CHOICES,
     FindFoodForm,
 )
 from search.goal_fit import menu_nutrients
 from search.locations import resolve
-from search.models import RestaurantInspection, RestaurantSummary
-from search.summary import aggregate_inspections
-from search.summary_status import summary_ready
 from search.menustat import (
     menu_nutrition_for_name,
     top_low_calorie_meals,
@@ -101,7 +97,7 @@ from search.profile_options import (
     parse_foods,
     strong_allergy_cuisines,
 )
-from search.services.places import PlacesAPIError, enrich_camis
+from search.services.places import PlacesAPIError, enrich_place_id
 
 PAGE_SIZE = 25
 # Top picks candidates: the first POOL_SIZE places for a meal in the viewer's
@@ -113,7 +109,7 @@ PICKS_TIME_ZONE = ZoneInfo("America/New_York")
 MAX_CANDIDATES = 31  # POOL_SIZE + favorite and nearby extras
 FAVORITE_EXTRA = 3
 NEARBY_EXTRA = 3
-# Extra grade-A meal places matched to today's mood/energy so scoring can
+# Extra meal places matched to today's mood/energy so scoring can
 # actually flip Top 3 (the default pool is already "healthy" and too uniform).
 MOOD_POOL_EXTRA = 8
 # Enriched Top Picks candidates (base_score, no mood) for cheap rerank after check-in.
@@ -143,7 +139,7 @@ def index(request):
     if not data.getlist("types"):
         data.setlist("types", [value for value, _label in STORE_TYPE_CHOICES])
     if not data.get("source"):
-        data["source"] = INSPECTIONS
+        data["source"] = SAVED
     form = FindFoodForm(data)
     context = {
         "form": form,
@@ -186,15 +182,17 @@ def _find_food(form):
                 error = str(exc)
         else:
             rows = find_food.restaurant_rows(data)
-            if radius_m:
-                notes.append(
-                    "Distance only narrows farmers markets and grocery stores. "
-                    "Choose Google Places to find restaurants near you."
+            if lat is not None:
+                # Saved restaurants carry coordinates, so sort them by distance.
+                restaurants = find_food.near(
+                    [find_food.restaurant_item(row) for row in rows],
+                    lat,
+                    lng,
+                    radius_m,
                 )
+                rows = None
     if form.google_only_filters_ignored:
-        notes.append(
-            "Price, rating and open-now filters only apply to Google Places results."
-        )
+        notes.append("The open-now filter only applies to live Google results.")
 
     if rows is not None:
         chain = find_food.Chain(
@@ -206,13 +204,14 @@ def _find_food(form):
         chain = find_food.Chain((restaurants, _same), (markets, _same), (stores, _same))
     page_obj = Paginator(chain, PAGE_SIZE).get_page(form.data.get("page"))
     items = list(page_obj.object_list)
-    find_food.fill_latest_grades(items)
     resolve(items, fetch=True)
     find_food.set_distances(items, lat, lng)
 
     on_map = {}
     restaurants_on_map = (
-        find_food.located_restaurant_items(rows) if rows is not None else restaurants
+        [find_food.restaurant_item(row) for row in rows]
+        if rows is not None
+        else restaurants
     )
     for item in [*items, *restaurants_on_map, *markets, *stores]:
         if item["lat"] is not None:
@@ -314,7 +313,7 @@ def _profile_for(request):
 
 def _food_q(option):
     """Rows matching a profile food choice: its cuisines or a word in the name."""
-    q = Q(cuisine__in=option.cuisines) if option.cuisines else Q(camis__in=[])
+    q = Q(cuisine__in=option.cuisines) if option.cuisines else Q(place_id__in=[])
     if option.words:
         q |= Q(name__iregex=name_regex(option.words))
     return q
@@ -324,13 +323,13 @@ def _today():
     return datetime.now(PICKS_TIME_ZONE).date()
 
 
-def _ai_scores(camis, name="", reviews=()):
+def _ai_scores(place_id, name="", reviews=()):
     """(AI health score 0–1 or None, {goal: 0-1}) for a restaurant.
 
     Stored scores are reused; a place without them is scored from the given
     reviews on the spot (see search/ai_scores.py)."""
     texts = [r.get("text", "") if isinstance(r, dict) else r for r in reviews or ()]
-    return ai_scores.ai_scores_for(camis, name, texts)
+    return ai_scores.ai_scores_for(place_id, name, texts)
 
 
 def _goal_nutrients(profile, name):
@@ -348,30 +347,28 @@ def _feedback_prefs(request):
         return None
     explicit = list(
         RecommendationFeedback.objects.filter(user_id=user.pk).values_list(
-            "camis", "name", "cuisine", "value"
+            "place_id", "name", "cuisine", "value"
         )
     )
     stars = {
-        key.removeprefix("camis:"): score
+        key.removeprefix("google:"): score
         for key, score in UserRating.objects.filter(
-            user_id=user.pk, subject__kind=DOHMH
+            user_id=user.pk, subject__kind=GOOGLE_KIND
         ).values_list("subject__key", "score")
     }
     star_ratings = []
     if stars:
-        rows = (
-            RestaurantInspection.objects.filter(camis__in=stars)
-            .values("camis")
-            .annotate(name=Max("dba"), cuisine=Max("cuisine"))
+        rows = Restaurant.objects.filter(place_id__in=stars).values(
+            "place_id", "name", "cuisine"
         )
         star_ratings = [
-            (row["camis"], row["name"], row["cuisine"], stars[row["camis"]])
+            (row["place_id"], row["name"], row["cuisine"], stars[row["place_id"]])
             for row in rows
         ]
     return build_feedback_prefs(explicit, star_ratings)
 
 
-# Gyms and studios with a juice bar are inspected like restaurants, but they are
+# Gyms and studios with a juice bar can be listed as restaurants, but they are
 # not places to eat out, so Top picks skip names with these whole words.
 NOT_A_RESTAURANT_NAME = r"\b(FITNESS|GYM|YOGA|PILATES)\b"
 
@@ -395,9 +392,9 @@ def _mood_boost_cuisines(mood_check_in):
 
 
 def _build_candidate_pool(profile, prefs=None, seed="", boro="", mood_check_in=None):
-    """Top picks candidates: the first POOL_SIZE places for a meal (latest
-    grade A, with a ZIP code so Google data can be matched) in the viewer's
-    ranking, the same list Explore more shows, plus
+    """Top picks candidates: the first POOL_SIZE places for a meal (rated
+    PICK_MIN_RATING or better, or not rated yet) in the viewer's ranking, the
+    same list Explore more shows, plus
     favorites/nearby extras and mood/energy cuisine extras. Places marked not
     interested and cuisines risky for the user's allergies are skipped. With
     *boro*, every candidate comes from that borough."""
@@ -410,14 +407,13 @@ def _build_candidate_pool(profile, prefs=None, seed="", boro="", mood_check_in=N
 
     def meal_places(in_boro=boro):
         # The viewer's ranking (as in Explore more), keeping places for a meal
-        # with latest grade A (no coffee, bakeries, desserts, gyms).
+        # (no coffee, bakeries, desserts, gyms) that are not poorly rated.
         rows = (
             _ranked_rows(multiplier, prefs, profile)
-            .filter(latest_grade="A")
+            .exclude(rating__lt=PICK_MIN_RATING)
             .exclude(cuisine__in=NON_MEAL_CUISINES | set(excluded))
             .exclude(_name_starts_with(NON_MEAL_PREFIXES))
             .exclude(name__iregex=NOT_A_RESTAURANT_NAME)
-            .exclude(zipcode="")  # no ZIP: Google data can't be matched
         )
         if in_boro:
             rows = rows.filter(boro__iexact=in_boro)
@@ -436,64 +432,66 @@ def _build_candidate_pool(profile, prefs=None, seed="", boro="", mood_check_in=N
         else:
             extra.append(row)
     base += extra[: POOL_SIZE - len(base)]
-    by_camis = {row["camis"]: row for row in base}
+    by_place = {row["place_id"]: row for row in base}
 
-    if profile is not None and len(by_camis) < pool_cap:
+    if profile is not None and len(by_place) < pool_cap:
         favorites = parse_foods(getattr(profile, "favorite_foods", ""))[0]
         added = 0
         for food in favorites:
-            if added >= FAVORITE_EXTRA or len(by_camis) >= pool_cap:
+            if added >= FAVORITE_EXTRA or len(by_place) >= pool_cap:
                 break
             for row in meal_places().filter(_food_q(food))[: FAVORITE_EXTRA * 3]:
-                if row["camis"] in by_camis or row["camis"] in hidden:
+                if row["place_id"] in by_place or row["place_id"] in hidden:
                     continue
-                by_camis[row["camis"]] = row
+                by_place[row["place_id"]] = row
                 added += 1
-                if added >= FAVORITE_EXTRA or len(by_camis) >= pool_cap:
+                if added >= FAVORITE_EXTRA or len(by_place) >= pool_cap:
                     break
 
         _home_zip, home_boro = home_zip_boro(getattr(profile, "home_address", ""))
         if boro and home_boro.casefold() != boro.casefold():
             home_boro = ""  # another borough is selected; home extras don't apply
-        if home_boro and len(by_camis) < pool_cap:
+        if home_boro and len(by_place) < pool_cap:
             nearby_added = 0
             for row in meal_places(home_boro)[: NEARBY_EXTRA * 3]:
-                if row["camis"] in by_camis or row["camis"] in hidden:
+                if row["place_id"] in by_place or row["place_id"] in hidden:
                     continue
-                by_camis[row["camis"]] = row
+                by_place[row["place_id"]] = row
                 nearby_added += 1
-                if nearby_added >= NEARBY_EXTRA or len(by_camis) >= pool_cap:
+                if nearby_added >= NEARBY_EXTRA or len(by_place) >= pool_cap:
                     break
 
     boost_cuisines = _mood_boost_cuisines(mood_check_in) - set(excluded)
-    if boost_cuisines and len(by_camis) < pool_cap:
+    if boost_cuisines and len(by_place) < pool_cap:
         mood_added = 0
         for row in meal_places().filter(cuisine__in=boost_cuisines)[
             : MOOD_POOL_EXTRA * 4
         ]:
-            if row["camis"] in by_camis or row["camis"] in hidden:
+            if row["place_id"] in by_place or row["place_id"] in hidden:
                 continue
-            by_camis[row["camis"]] = row
+            by_place[row["place_id"]] = row
             mood_added += 1
-            if mood_added >= MOOD_POOL_EXTRA or len(by_camis) >= pool_cap:
+            if mood_added >= MOOD_POOL_EXTRA or len(by_place) >= pool_cap:
                 break
 
-    return list(by_camis.values())[:pool_cap]
+    return list(by_place.values())[:pool_cap]
 
 
-def _app_rating_stats(camis):
-    subject = CommunitySubject.objects.filter(kind=DOHMH, key=dohmh_key(camis)).first()
+def _app_rating_stats(place_id):
+    subject = CommunitySubject.objects.filter(
+        kind=GOOGLE_KIND, key=google_key(place_id)
+    ).first()
     if subject is None:
         return None, 0
     stats = subject.ratings.aggregate(average=Avg("score"), count=Count("id"))
     return stats["average"], stats["count"] or 0
 
 
-def _estimate_kwargs(camis, nutrition):
+def _estimate_kwargs(place_id, nutrition):
     """score_restaurant kwargs for a Gemini-estimated menu (only without MenuStat)."""
-    if nutrition is not None or not camis:
+    if nutrition is not None or not place_id:
         return {}
-    estimate = menu_estimate.estimate_nutrition_for_camis(str(camis))
+    estimate = menu_estimate.estimate_nutrition_for_place(str(place_id))
     if estimate is None:
         return {}
     return {
@@ -503,14 +501,14 @@ def _estimate_kwargs(camis, nutrition):
     }
 
 
-def _reviews_for_pick(google, camis_id):
+def _reviews_for_pick(google, place_id):
     reviews = list((google or {}).get("reviews") or [])[:5]
     if reviews:
         return reviews
-    if not camis_id:
+    if not place_id:
         return []
     db_reviews = (
-        PlaceReview.objects.filter(place__camis=camis_id)
+        PlaceReview.objects.filter(place__kind=GOOGLE_KIND, place__place_id=place_id)
         .exclude(text="")
         .order_by("-id")[:5]
     )
@@ -532,14 +530,14 @@ def _claude_picks(request, count):
     ai_picks = personalized_picks(user, count) if user is not None else []
     if not ai_picks:
         return []
-    reasons = {pick["camis"]: pick["reason"] for pick in ai_picks}
+    reasons = {pick["place_id"]: pick["reason"] for pick in ai_picks}
     rows = {
-        row["camis"]: row
-        for row in _scored_restaurants(1).filter(camis__in=list(reasons))
+        row["place_id"]: row
+        for row in _scored_restaurants(1).filter(place_id__in=list(reasons))
     }
-    picks = [rows[camis] for camis in reasons if camis in rows]
+    picks = [rows[place_id] for place_id in reasons if place_id in rows]
     for pick in picks:
-        pick["ai_reason"] = reasons[pick["camis"]]
+        pick["ai_reason"] = reasons[pick["place_id"]]
     return picks
 
 
@@ -560,7 +558,7 @@ def _top_picks(request, count=3, boro=""):
     user_lng = user_coords[1] if user_coords else None
     hidden = prefs.hidden if prefs is not None else set()
     picks = [] if boro else _claude_picks(request, count)
-    picks = [pick for pick in picks if pick["camis"] not in hidden]
+    picks = [pick for pick in picks if pick["place_id"] not in hidden]
     ranked_by_claude = bool(picks)
     if not ranked_by_claude:
         picks = _build_candidate_pool(
@@ -576,76 +574,33 @@ def _top_picks(request, count=3, boro=""):
     if user_id is not None:
         feedback_values = dict(
             RecommendationFeedback.objects.filter(
-                user_id=user_id, camis__in=[p["camis"] for p in picks]
-            ).values_list("camis", "value")
+                user_id=user_id, place_id__in=[p["place_id"] for p in picks]
+            ).values_list("place_id", "value")
         )
 
-    workers = min(8, max(1, len(picks)))
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        lookups = [
-            executor.submit(
-                find_restaurant_place,
-                pick["name"],
-                pick["zipcode"],
-                pick["street"],
-            )
-            for pick in picks
-        ]
-        for pick, lookup in zip(picks, lookups):
-            pick["google"] = lookup.result()
-            pick["photo_url"] = _photo_url_for(pick["google"])
-
-    # Places Google couldn't match have no photo, rating or reviews to back a
-    # recommendation, so they are skipped while enough matched places remain
-    # (without a Google key, or if Google is down, nothing is matched and all
-    # places stay).
-    matched = [pick for pick in picks if pick["google"]]
-    if len(matched) >= count:
-        picks = matched
-
     for pick in picks:
-        google = pick["google"]
-        if google and google.get("address"):
-            zipcode = google_zip(google["address"])
-            if zipcode:
-                camis = _match(
-                    google["name"],
-                    google["address"],
-                    _restaurants_in_zip(zipcode),
-                )
-                # No single match for Google's place: keep the restaurant
-                # this pick came from, so its card still links to details.
-                pick["inspection"] = _latest(camis or pick["camis"])
-            else:
-                pick["inspection"] = _latest(pick["camis"])
-        else:
-            pick["inspection"] = _latest(pick["camis"])
+        google = pick["google"] = google_card(pick)
+        pick["photo_url"] = _photo_url_for(google)
         pick["image"] = "search/images/nyc-restaurant.jpg"
-
-        camis_id = (pick.get("inspection") or {}).get("camis") or pick.get("camis")
-        reviews = _reviews_for_pick(google, camis_id)
+        place_id = pick["place_id"]
+        reviews = _reviews_for_pick(google, place_id)
         # Show the review that best explains a healthy pick (see recommend.py).
         pick["review"] = pick_display_review(reviews, profile)
 
-        app_avg, app_count = _app_rating_stats(camis_id) if camis_id else (None, 0)
-        inspection = pick.get("inspection") or {}
-        grade = inspection.get("grade") or ""  # no posted grade = unknown
+        app_avg, app_count = _app_rating_stats(place_id)
         pick_name = pick.get("name") or ""
         nutrition = menu_nutrition_for_name(pick_name)
         calorie = None if nutrition is None else nutrition["score"]
-        ai_health, ai_goals = _ai_scores(
-            camis_id or pick["camis"], pick.get("name") or "", reviews
-        )
+        ai_health, ai_goals = _ai_scores(place_id, pick_name, reviews)
         score_kwargs = dict(
             name=pick_name,
             cuisine=pick.get("cuisine") or "",
-            grade=grade,
-            google_rating=(google or {}).get("rating"),
-            google_count=(google or {}).get("rating_count") or 0,
+            google_rating=google["rating"],
+            google_count=google["rating_count"] or 0,
             app_avg=app_avg,
             app_count=app_count,
             reviews=reviews,
-            price=(google or {}).get("price"),
+            price=google["price"],
             zipcode=pick.get("zipcode") or "",
             boro=pick.get("boro") or "",
             profile=profile,
@@ -654,17 +609,17 @@ def _top_picks(request, count=3, boro=""):
             menu_year=None if nutrition is None else nutrition["menu_year"],
             meal_count=None if nutrition is None else nutrition["meal_count"],
             feedback=prefs,
-            camis=pick["camis"],
+            place_id=place_id,
             ai_health=ai_health,
             ai_goals=ai_goals,
             nutrients=_goal_nutrients(profile, pick_name),
-            **_estimate_kwargs(camis_id or pick["camis"], nutrition),
+            **_estimate_kwargs(place_id, nutrition),
         )
         base_score, base_tags, base_bd = score_restaurant(
             **score_kwargs, mood_check_in=None
         )
-        place_lat = (google or {}).get("lat")
-        place_lng = (google or {}).get("lng")
+        place_lat = google["lat"]
+        place_lng = google["lng"]
         score, tags, breakdown = score_restaurant(
             **score_kwargs,
             mood_check_in=mood_check_in,
@@ -688,12 +643,12 @@ def _top_picks(request, count=3, boro=""):
         pick["calorie_score"] = calorie
         pick["confidence"] = breakdown["confidence"]
         pick["health_estimate"] = breakdown["health_estimate"]
-        pick["google_rating"] = (google or {}).get("rating")
+        pick["google_rating"] = google["rating"]
         pick["like_bonus"] = breakdown["like_bonus"]
         pick["similar_to"] = breakdown["similar_to"]
         pick["reasons"] = breakdown["reasons"]
         pick["allergy_warnings"] = breakdown["allergy_warnings"]
-        pick["feedback"] = feedback_values.get(pick["camis"], 0)
+        pick["feedback"] = feedback_values.get(place_id, 0)
 
     seed = _ranking_seed(request, boro)
     _store_top_picks_pool(user_id, boro, seed, picks)
@@ -709,51 +664,73 @@ SHUFFLE_MODULUS = 2_147_483_647  # prime, so each daily multiplier is a new orde
 
 
 def _shuffle_multiplier(seed):
-    """A seed-specific multiplier: (camis * multiplier) % prime is a new order."""
+    """A seed-specific multiplier: (shuffle_seed * multiplier) % prime is a new
+    order."""
     digest = hashlib.sha256(str(seed).encode("utf-8")).hexdigest()
     return 1 + int(digest, 16) % (SHUFFLE_MODULUS - 1)
 
 
-# No inspection for this long: the place has most likely closed. (DOHMH dates
-# new, not yet inspected places 1900-01-01; those are not stale.)
-STALE_INSPECTION_DAYS = 730
-NOT_YET_INSPECTED = date(1900, 1, 1)
+# Rating bands for the Explore score: (minimum stars, points).
+EXPLORE_RATING_POINTS = ((4.5, 2), (4.0, 1))
+EXPLORE_LOW_RATING = 3.5  # below this: -1
+# Top picks skip places rated below this (unrated places stay in).
+PICK_MIN_RATING = 3.8
+RESTAURANT_FIELDS = (
+    "place_id",
+    "name",
+    "address",
+    "boro",
+    "street",
+    "zipcode",
+    "cuisine",
+    "latitude",
+    "longitude",
+    "rating",
+    "rating_count",
+    "price_level",
+    "maps_url",
+    "photo_name",
+)
+
+
+def google_card(row):
+    """The Google fields a card shows, from a Restaurant row (dict)."""
+    return {
+        "id": row["place_id"],
+        "name": row.get("name") or "",
+        "address": row.get("address") or "",
+        "rating": row.get("rating"),
+        "rating_count": row.get("rating_count"),
+        "price": PRICE_LEVEL_LABELS.get(row.get("price_level") or "", ""),
+        "lat": row.get("latitude"),
+        "lng": row.get("longitude"),
+        "maps_url": row.get("maps_url") or "",
+        "photo": row.get("photo_name") or "",
+        "reviews": [],
+    }
 
 
 def _scored_restaurants(multiplier):
-    """One row per restaurant with a DB-only health score (no Google lookups).
+    """One row per open restaurant with a DB-only score (no Google calls).
 
-    explore_score: latest grade A +2 / B +1, healthy cuisine +1, unhealthy or
-    non-meal cuisine (coffee, desserts, ...) -1, coffee / dessert chain filed
-    under another cuisine -1, fast-food chain -2, no inspection in the last
-    two years (likely closed) -2. ``shuffle`` orders ties; the same
-    *multiplier* gives the same order.
+    explore_score: Google rating 4.5+ +2 / 4.0+ +1 / below 3.5 -1, healthy
+    cuisine +1, unhealthy or non-meal cuisine (coffee, desserts, ...) -1,
+    coffee / dessert chain filed under another cuisine -1, fast-food chain -2.
+    Places Google lists as closed are left out. ``shuffle`` orders ties; the
+    same *multiplier* gives the same order.
     """
-    stale_before = _today() - timedelta(days=STALE_INSPECTION_DAYS)
     fast_food = _name_starts_with(FAST_FOOD_PREFIXES)
     low_cuisines = UNHEALTHY_CUISINES | NON_MEAL_CUISINES
     non_meal_chain = _name_starts_with(NON_MEAL_PREFIXES) & ~Q(cuisine__in=low_cuisines)
-    # One row per restaurant, worked out once (search/summary.py) instead of
-    # grouping every inspection row on each visit. If that table is missing or
-    # empty (e.g. the DB was replaced without migrate), group the inspection
-    # rows as before: slower, but the page works (see search/summary_status.py).
-    if summary_ready():
-        rows = RestaurantSummary.objects.values(
-            "camis",
-            "name",
-            "boro",
-            "street",
-            "zipcode",
-            "cuisine",
-            "last_date",
-            "latest_grade",
-        )
-    else:
-        rows = aggregate_inspections(RestaurantInspection)
+    (top_stars, top_points), (good_stars, good_points) = EXPLORE_RATING_POINTS
+    rows = Restaurant.objects.filter(
+        business_status__in=(Restaurant.OPERATIONAL, "")
+    ).values(*RESTAURANT_FIELDS)
     return rows.annotate(
         explore_score=Case(
-            When(latest_grade="A", then=2),
-            When(latest_grade="B", then=1),
+            When(rating__gte=top_stars, then=top_points),
+            When(rating__gte=good_stars, then=good_points),
+            When(rating__lt=EXPLORE_LOW_RATING, then=-1),
             default=0,
             output_field=IntegerField(),
         )
@@ -764,17 +741,8 @@ def _scored_restaurants(multiplier):
             output_field=IntegerField(),
         )
         + Case(When(non_meal_chain, then=-1), default=0, output_field=IntegerField())
-        + Case(When(fast_food, then=-2), default=0, output_field=IntegerField())
-        + Case(
-            When(
-                last_date__lt=stale_before,
-                last_date__gt=NOT_YET_INSPECTED,
-                then=-2,
-            ),
-            default=0,
-            output_field=IntegerField(),
-        ),
-        shuffle=Mod(Cast("camis", BigIntegerField()) * multiplier, SHUFFLE_MODULUS),
+        + Case(When(fast_food, then=-2), default=0, output_field=IntegerField()),
+        shuffle=Mod(F("shuffle_seed") * multiplier, SHUFFLE_MODULUS),
     )
 
 
@@ -798,13 +766,13 @@ def _ranked_rows(multiplier, prefs=None, profile=None):
     rows = _scored_restaurants(multiplier)
     liked = favorite = None
     if prefs is not None:
-        rows = rows.exclude(camis__in=prefs.hidden)
+        rows = rows.exclude(place_id__in=prefs.hidden)
         liked_cuisines = [cuisine for cuisine in prefs.liked if cuisine]
         if liked_cuisines:
             liked = Q(cuisine__in=liked_cuisines)
     foods = parse_foods(getattr(profile, "favorite_foods", ""))[0]
     if foods:
-        favorite = Q(camis__in=[])
+        favorite = Q(place_id__in=[])
         for food in foods:
             favorite |= _food_q(food)
     pull = TASTE_PULL
@@ -822,7 +790,7 @@ def _ranked_rows(multiplier, prefs=None, profile=None):
     return rows.annotate(rank=F("explore_score"), order_key=order_key)
 
 
-RANK_ORDER = ("-rank", "order_key", "camis")
+RANK_ORDER = ("-rank", "order_key", "place_id")
 TASTE_PULL = 3  # liked / favorite places sit about 3x earlier within a score
 MAX_PER_CUISINE = 5  # Top picks candidates: at most this many of one cuisine
 
@@ -852,9 +820,7 @@ def _is_first_page(page):
 def home(request):
     selected_boro = request.GET.get("boro", "").strip()
     borough_options = list(
-        RestaurantInspection.objects.exclude(boro="")
-        .exclude(boro__isnull=True)
-        .exclude(boro="0")  # a few inspection rows have no real borough
+        Restaurant.objects.exclude(boro="")
         .values_list("boro", flat=True)
         .distinct()
         .order_by("boro")
@@ -872,12 +838,12 @@ def home(request):
     seed = _ranking_seed(request, selected_boro)
     if _is_first_page(request.GET.get("page")):
         top_picks = _top_picks(request, count=3, boro=selected_boro)
-        shown = [pick["camis"] for pick in top_picks]
-        request.session[TOP_PICKS_SESSION_KEY] = {"seed": seed, "camis": shown}
+        shown = [pick["place_id"] for pick in top_picks]
+        request.session[TOP_PICKS_SESSION_KEY] = {"seed": seed, "place_ids": shown}
     else:
         saved = request.session.get(TOP_PICKS_SESSION_KEY) or {}
-        shown = saved.get("camis", []) if saved.get("seed") == seed else []
-    restaurant_rows = restaurant_rows.exclude(camis__in=shown)
+        shown = saved.get("place_ids", []) if saved.get("seed") == seed else []
+    restaurant_rows = restaurant_rows.exclude(place_id__in=shown)
     page_obj = Paginator(restaurant_rows, 16).get_page(request.GET.get("page"))
     restaurants = list(page_obj.object_list)
     liked = set()
@@ -885,29 +851,13 @@ def home(request):
         liked = set(
             RecommendationFeedback.objects.filter(
                 user_id=request.user.pk, value=RecommendationFeedback.LIKE
-            ).values_list("camis", flat=True)
+            ).values_list("place_id", flat=True)
         )
     for row in restaurants:
         row["image"] = "search/images/nyc-restaurant.jpg"
-        row["liked"] = row["camis"] in liked  # heart under the photo
-
-    # Place searches supplement the CSV fields that are absent, such as a full
-    # street address, price level, and Google Maps link. Failed searches leave
-    # the underlying CSV card intact.
-    # Up to 8 Google lookups at a time (was 4); a page has 16 cards.
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        lookups = [
-            executor.submit(
-                find_restaurant_place,
-                row["name"],
-                row["zipcode"],
-                row["street"],
-            )
-            for row in restaurants
-        ]
-        for row, lookup in zip(restaurants, lookups):
-            row["google"] = lookup.result()
-            row["photo_url"] = _photo_url_for(row["google"])
+        row["liked"] = row["place_id"] in liked  # heart under the photo
+        row["google"] = google_card(row)  # stored Google data: no API calls
+        row["photo_url"] = _photo_url_for(row["google"])
 
     today_mood = _mood_check_in_for(request)
     cook_at_home = _cook_at_home_context(request, selected_boro, today_mood)
@@ -1029,7 +979,7 @@ def rerank_top_picks(request):
         top_picks = []
     request.session[TOP_PICKS_SESSION_KEY] = {
         "seed": seed,
-        "camis": [pick["camis"] for pick in top_picks],
+        "place_ids": [pick["place_id"] for pick in top_picks],
     }
     personalized = any(pick.get("ai_reason") for pick in top_picks)
     cook_at_home = _cook_at_home_context(request, selected_boro, today_mood)
@@ -1072,9 +1022,8 @@ def save_location(request):
     return JsonResponse({"ok": True, "lat": lat, "lng": lng})
 
 
-def score_for_camis(
-    camis,
-    latest,
+def score_for_place(
+    restaurant,
     place,
     profile=None,
     feedback=None,
@@ -1084,49 +1033,39 @@ def score_for_camis(
 ):
     """Score one restaurant the way the detail page does.
 
-    ``profile`` and ``feedback`` add the viewer's personal parts; leave them
-    None for the general score (used by ``write_reasons``).
+    ``restaurant`` is the Restaurant row, ``place`` its PlaceEnrichment (or
+    None). ``profile`` and ``feedback`` add the viewer's personal parts; leave
+    them None for the general score (used by ``write_reasons``).
     """
     reviews = []
-    google_rating = None
-    google_count = 0
-    price = ""
-    place_lat = place_lng = None
+    google_rating = restaurant.rating
+    google_count = restaurant.rating_count or 0
+    price = restaurant.price
+    place_lat, place_lng = restaurant.latitude, restaurant.longitude
     if place is not None:
-        google_rating = place.rating
-        google_count = place.user_rating_count or 0
-        price = place.price_level_display or ""
-        place_lat = place.latitude
-        place_lng = place.longitude
+        google_rating = place.rating if place.rating is not None else google_rating
+        google_count = place.user_rating_count or google_count
+        price = place.price_level_display or price
         reviews = [
             {"text": r.text} for r in place.reviews.all() if (r.text or "").strip()
         ][:5]
-    app_avg, app_count = _app_rating_stats(camis)
-    # The posted grade comes from the latest *graded* inspection; with none it
-    # is unknown (scored like other grades, and no "grade A" reason).
-    grade = (
-        RestaurantInspection.objects.filter(camis=camis)
-        .exclude(grade="")
-        .order_by("-inspection_date")
-        .values_list("grade", flat=True)
-        .first()
-        or ""
-    ).strip()
-    nutrition = menu_nutrition_for_name(latest.dba)
+    place_id = restaurant.place_id
+    app_avg, app_count = _app_rating_stats(place_id)
+    name = restaurant.name or ""
+    nutrition = menu_nutrition_for_name(name)
     calorie = None if nutrition is None else nutrition["score"]
-    ai_health, ai_goals = _ai_scores(camis, latest.dba or "", reviews)
+    ai_health, ai_goals = _ai_scores(place_id, name, reviews)
     return score_restaurant(
-        name=latest.dba or "",
-        cuisine=latest.cuisine or "",
-        grade=grade,
+        name=name,
+        cuisine=restaurant.cuisine or "",
         google_rating=google_rating,
         google_count=google_count,
         app_avg=app_avg,
         app_count=app_count,
         reviews=reviews,
         price=price,
-        zipcode=latest.zipcode or "",
-        boro=latest.boro or "",
+        zipcode=restaurant.zipcode or "",
+        boro=restaurant.boro or "",
         profile=profile,
         calorie_score=calorie,
         menu_match_kind=None if nutrition is None else nutrition["match_kind"],
@@ -1134,11 +1073,11 @@ def score_for_camis(
         meal_count=None if nutrition is None else nutrition["meal_count"],
         ai_health=ai_health,
         ai_goals=ai_goals,
-        nutrients=_goal_nutrients(profile, latest.dba or ""),
+        nutrients=_goal_nutrients(profile, name),
         feedback=feedback,
-        camis=camis,
+        place_id=place_id,
         mood_check_in=mood_check_in,
-        **_estimate_kwargs(camis, nutrition),
+        **_estimate_kwargs(place_id, nutrition),
         user_lat=user_lat,
         user_lng=user_lng,
         place_lat=place_lat,
@@ -1153,7 +1092,7 @@ GEMINI_MISS_SECONDS = 600  # after a failure for one place, retry it later
 logger = logging.getLogger(__name__)
 
 
-def _reason_blurb(camis, latest=None, place=None):
+def _reason_blurb(place_id, restaurant=None, place=None):
     """Gemini-written reason paragraph for a restaurant, or "".
 
     Uses the stored one when there is one. Otherwise, if GEMINI_API_KEY is set,
@@ -1162,22 +1101,22 @@ def _reason_blurb(camis, latest=None, place=None):
     the plain reason list.
     """
     row = (
-        ReasonBlurb.objects.filter(camis=str(camis))
+        ReasonBlurb.objects.filter(place_id=str(place_id))
         .values_list("text", "model_name")
         .first()
     )
     if row and reason_writer.is_current(row[1]):
         return row[0]
-    if latest is None or not settings.GEMINI_API_KEY:
+    if restaurant is None or not settings.GEMINI_API_KEY:
         return ""  # nothing current, and no way to write one now
-    miss_key = f"reason-blurb-miss:{camis}"
+    miss_key = f"reason-blurb-miss:{place_id}"
     if cache.get(GEMINI_PAUSE_KEY) or cache.get(miss_key):
         return ""
-    _, _, general = score_for_camis(camis, latest, place)
+    _, _, general = score_for_place(restaurant, place)
     try:
         text = reason_writer.write_blurb(
-            latest.dba,
-            latest.cuisine,
+            restaurant.name,
+            restaurant.cuisine,
             general["reasons"],
             reason_writer.live_generate(),
         )
@@ -1186,14 +1125,14 @@ def _reason_blurb(camis, latest=None, place=None):
         cache.set(GEMINI_PAUSE_KEY, True, GEMINI_PAUSE_SECONDS)
         return ""
     except Exception:
-        logger.warning("Gemini reason paragraph failed for %s", camis, exc_info=True)
+        logger.warning("Gemini reason paragraph failed for %s", place_id, exc_info=True)
         cache.set(miss_key, True, GEMINI_MISS_SECONDS)
         return ""
     if not text:
         cache.set(miss_key, True, GEMINI_MISS_SECONDS)
         return ""
     ReasonBlurb.objects.update_or_create(
-        camis=str(camis),
+        place_id=str(place_id),
         defaults={
             "text": text,
             "facts": " · ".join(general["reasons"]),
@@ -1215,53 +1154,68 @@ def _back_link(request):
 GOOGLE_MISS_SECONDS = 600  # after a failed fetch, wait before trying again
 
 
-def _place_for_detail(camis):
-    """Stored Google data for a restaurant, fetched once if there is none.
+def _can_fetch_google():
+    return bool(settings.GOOGLE_AUTO_FETCH and settings.GOOGLE_PLACES_API_KEY)
 
-    With GOOGLE_AUTO_FETCH and a Places key, the first visit looks the place
-    up on Google and stores it (later visits read the stored row). A failure
-    is remembered for 10 minutes and the page shows "No Google data" instead.
+
+def _fetch_place(place_id):
+    """Fetch and store a restaurant from Google; False on failure.
+
+    A failure is remembered for GOOGLE_MISS_SECONDS so a broken place does not
+    hit Google on every page view.
+    """
+    miss_key = f"google-place-miss:{place_id}"
+    if not _can_fetch_google() or cache.get(miss_key):
+        return False
+    try:
+        enrich_place_id(place_id)
+    except PlacesAPIError:
+        logger.warning("Google data fetch failed for %s", place_id, exc_info=True)
+        cache.set(miss_key, True, GOOGLE_MISS_SECONDS)
+        return False
+    return True
+
+
+def _place_for_detail(place_id):
+    """Stored Google details (reviews, website...) for a restaurant.
+
+    With GOOGLE_AUTO_FETCH and a Places key, the first visit fetches and
+    stores them (later visits read the stored row). Without them the page
+    shows "No Google data".
     """
 
     def stored():
         return (
-            PlaceEnrichment.objects.filter(camis=camis)
+            PlaceEnrichment.objects.filter(kind=GOOGLE_KIND, place_id=place_id)
             .prefetch_related("reviews")
             .first()
         )
 
     place = stored()
-    if place is not None:
-        return place
-    if not (settings.GOOGLE_AUTO_FETCH and settings.GOOGLE_PLACES_API_KEY):
-        return None
-    miss_key = f"google-place-miss:{camis}"
-    if cache.get(miss_key):
-        return None
-    try:
-        enrich_camis(camis)
-    except PlacesAPIError:
-        logger.warning("Google data fetch failed for %s", camis, exc_info=True)
-        cache.set(miss_key, True, GOOGLE_MISS_SECONDS)
-        return None
-    return stored()
+    if place is None and _fetch_place(place_id):
+        place = stored()
+    return place
 
 
-def restaurant_detail(request, camis):
-    latest = (
-        RestaurantInspection.objects.filter(camis=camis)
-        .order_by("-inspection_date")
-        .first()
-    )
-    if latest is None:
+def _restaurant_or_404(place_id, fetch=False):
+    """The stored Restaurant; with ``fetch``, a place found live on Google
+    (Find food) is fetched and stored the first time it is opened."""
+    restaurant = Restaurant.objects.filter(place_id=place_id).first()
+    if restaurant is None and fetch and _fetch_place(place_id):
+        restaurant = Restaurant.objects.filter(place_id=place_id).first()
+    if restaurant is None:
         raise Http404("Restaurant not found")
-    place = _place_for_detail(camis)
-    menu_picks, menustat_name = top_low_calorie_meals(latest.dba, limit=5)
+    return restaurant
+
+
+def restaurant_detail(request, place_id):
+    restaurant = _restaurant_or_404(place_id, fetch=True)
+    place = _place_for_detail(place_id)
+    menu_picks, menustat_name = top_low_calorie_meals(restaurant.name, limit=5)
     back_url, back_label, from_top_picks = _back_link(request)
     viewer_coords = user_latlng(request.user) if request.user.is_authenticated else None
-    healthiness_score, reason_tags, score_breakdown = score_for_camis(
-        camis,
-        latest,
+    healthiness_score, reason_tags, score_breakdown = score_for_place(
+        restaurant,
         place,
         profile=_profile_for(request),
         feedback=_feedback_prefs(request),
@@ -1274,19 +1228,20 @@ def restaurant_detail(request, camis):
         request,
         "search/restaurant_detail.html",
         {
-            "camis": camis,
-            "dba": latest.dba,
-            "boro": latest.boro,
-            "street": latest.street,
-            "zipcode": latest.zipcode,
-            "cuisine": latest.cuisine,
+            "place_id": place_id,
+            "name": restaurant.name,
+            "boro": restaurant.boro,
+            "street": restaurant.street,
+            "zipcode": restaurant.zipcode,
+            "cuisine": restaurant.cuisine,
+            "restaurant": restaurant,
             "place": place,
             "menu_picks": menu_picks,
             "menustat_name": menustat_name,
             "healthiness_score": healthiness_score,
             "reason_tags": reason_tags,
             "score_breakdown": score_breakdown,
-            "reason_blurb": _reason_blurb(camis, latest, place),
+            "reason_blurb": _reason_blurb(place_id, restaurant, place),
             "back_url": back_url,
             "back_label": back_label,
             "from_top_picks": from_top_picks,
@@ -1296,7 +1251,7 @@ def restaurant_detail(request, camis):
 
 @login_required
 @require_POST
-def pick_feedback(request, camis):
+def pick_feedback(request, place_id):
     """Save a Like / Not interested; pressing it again undoes it.
 
     Used by the Top picks buttons and the heart on Explore more cards. Likes
@@ -1309,15 +1264,9 @@ def pick_feedback(request, camis):
     }
     if choice not in values:
         return redirect("search:home")
-    latest = (
-        RestaurantInspection.objects.filter(camis=camis)
-        .order_by("-inspection_date")
-        .first()
-    )
-    if latest is None:
-        raise Http404("Restaurant not found")
+    restaurant = _restaurant_or_404(place_id)
     existing = RecommendationFeedback.objects.filter(
-        user_id=request.user.pk, camis=camis
+        user_id=request.user.pk, place_id=place_id
     ).first()
     if existing is not None and existing.value == values[choice]:
         existing.delete()
@@ -1326,11 +1275,11 @@ def pick_feedback(request, camis):
         saved = values[choice]
         RecommendationFeedback.objects.update_or_create(
             user_id=request.user.pk,
-            camis=camis,
+            place_id=place_id,
             defaults={
                 "value": values[choice],
-                "name": latest.dba or "",
-                "cuisine": latest.cuisine or "",
+                "name": restaurant.name or "",
+                "cuisine": restaurant.cuisine or "",
             },
         )
     if request.headers.get("Accept", "").startswith("application/json"):
@@ -1350,39 +1299,35 @@ def pick_feedback(request, camis):
     return redirect(next_url)
 
 
-def restaurant_what_to_order(request, camis):
+def restaurant_what_to_order(request, place_id):
     """The Menu box of the detail page (loaded after the page).
 
     Returns an HTML fragment. The menu comes from MenuStat, is read from the
     restaurant's Google photos (nothing read from Google is stored), or falls
     back to a stored Gemini-estimated menu (community.MenuEstimate).
     """
-    latest = (
-        RestaurantInspection.objects.filter(camis=camis)
-        .order_by("-inspection_date")
-        .first()
+    restaurant = _restaurant_or_404(place_id)
+    address = restaurant.address or (
+        f"{restaurant.street}, {restaurant.boro}, NY {restaurant.zipcode}"
     )
-    if latest is None:
-        raise Http404("Restaurant not found")
-    place = PlaceEnrichment.objects.filter(camis=camis).only("place_id").first()
-    query = f"{latest.dba}, {latest.street}, {latest.boro}, NY {latest.zipcode}"
+    query = f"{restaurant.name}, {address}"
     result = what_to_order.build(
-        latest.dba,
-        place,
+        restaurant.name,
+        restaurant,
         _profile_for(request),
         query,
         ai_scores.shared_encoder,
-        camis=camis,
+        place_id=place_id,
     )
     return render(request, "search/_what_to_order.html", {"result": result})
 
 
 @require_POST
-def refresh_place(request, camis):
+def refresh_place(request, place_id):
     try:
-        enrich_camis(camis)
+        enrich_place_id(place_id)
     except PlacesAPIError as exc:
         messages.error(request, f"Could not fetch Google data: {exc}")
     else:
         messages.success(request, "Google data updated.")
-    return redirect("search:restaurant_detail", camis=camis)
+    return redirect("search:restaurant_detail", place_id=place_id)

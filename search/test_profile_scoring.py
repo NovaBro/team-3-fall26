@@ -14,11 +14,11 @@ from accounts.forms import UserProfileForm
 from accounts.models import UserProfile
 from search import health_ai, views
 from search.goal_fit import goal_fit, goals_fit
-from search.models import MenuItem, RestaurantInspection
+from search.models import MenuItem
 from search.goal_fit import menu_nutrients
 from search.menustat import clear_menustat_cache
 from search.test_health_ai import fake_encoder
-from nycfood.test_utils import ALL_DATABASES
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 
 class GoalFitTests(SimpleTestCase):
@@ -128,16 +128,14 @@ class ProfileFormTests(TestCase):
 class CandidatePoolTests(TestCase):
     databases = ALL_DATABASES
 
-    def add(self, camis, name, cuisine):
-        RestaurantInspection.objects.create(
-            camis=camis,
-            dba=name,
+    def add(self, place_id, name, cuisine):
+        make_restaurant(
+            place_id,
+            name,
             boro="Queens",
             street="1 Main St",
             zipcode="11101",
             cuisine=cuisine,
-            inspection_date="2026-06-01",
-            grade="A",
         )
 
     def test_fish_allergy_leaves_out_seafood_and_sushi(self):
@@ -146,7 +144,7 @@ class CandidatePoolTests(TestCase):
         self.add("3", "GREEN", "Salads")
         user = SimpleNamespace(allergies="Fish", favorite_foods="", home_address="")
         rows = views._build_candidate_pool(user, seed="s")
-        self.assertEqual([r["camis"] for r in rows], ["3"])
+        self.assertEqual([r["place_id"] for r in rows], ["3"])
 
     def test_dish_favorite_matches_by_name(self):
         for index in range(30):
@@ -155,7 +153,7 @@ class CandidatePoolTests(TestCase):
         user = SimpleNamespace(allergies="", favorite_foods="Ramen", home_address="")
         with patch.object(views, "POOL_SIZE", 3):
             rows = views._build_candidate_pool(user, seed="s")
-        self.assertIn("9", [r["camis"] for r in rows])
+        self.assertIn("9", [r["place_id"] for r in rows])
 
     def test_profile_page_saves_choices(self):
         user = User.objects.create_user("p", password="pw")
@@ -176,79 +174,50 @@ class CandidatePoolTests(TestCase):
         self.assertEqual(profile.allergies, "Dairy, Sesame")
 
     def test_favorites_do_not_repeat_places(self):
-        # Several inspections per place: each place must still appear once.
-        for camis, name in (("21", "TOKYO ONE"), ("22", "RAMEN BAR")):
-            for day in ("2025-01-01", "2025-06-01", "2026-01-01"):
-                RestaurantInspection.objects.create(
-                    camis=camis,
-                    dba=name,
-                    boro="Queens",
-                    street="1 Main St",
-                    zipcode="11101",
-                    cuisine="Japanese",
-                    inspection_date=day,
-                    grade="A",
-                )
+        # A place matching several favorite foods must still appear once.
+        for place_id, name in (("21", "TOKYO ONE"), ("22", "RAMEN BAR")):
+            make_restaurant(place_id, name, boro="Queens", cuisine="Japanese")
         for foods in ("Japanese", "Ramen", "Sushi, Ramen"):
             user = SimpleNamespace(favorite_foods=foods)
             rows = list(
-                views._ranked_rows(7, None, user).values_list("camis", flat=True)
+                views._ranked_rows(7, None, user).values_list("place_id", flat=True)
             )
             self.assertEqual(sorted(rows), ["21", "22"], foods)
 
 
-class GoogleMatchedPicksTests(TestCase):
+class StoredGooglePicksTests(TestCase):
     databases = ALL_DATABASES
 
-    def setUp(self):
+    def test_top_picks_use_stored_google_data_without_calls(self):
         for index in range(5):
-            RestaurantInspection.objects.create(
-                camis=str(60 + index),
-                dba=f"PLACE {index}",
+            make_restaurant(
+                str(60 + index),
+                f"PLACE {index}",
                 boro="Queens",
-                street="1 Main St",
-                zipcode="11101",
                 cuisine=["Salads", "Thai", "Greek", "Korean", "Vegan"][index],
-                inspection_date="2026-06-01",
-                grade="A",
+                rating=4.4,
+                rating_count=90,
             )
-
-    def google_for(self, matched):
-        def find(name, zipcode, street):
-            if name in matched:
-                return {"name": name, "address": "", "rating": 4.5, "rating_count": 9}
-            return None
-
-        return find
-
-    def test_unmatched_places_are_skipped_when_enough_match(self):
-        matched = {"PLACE 1", "PLACE 2", "PLACE 4"}
-        with patch.object(views, "find_restaurant_place", self.google_for(matched)):
+        with patch("search.views.enrich_place_id") as fetch:
             response = self.client.get(reverse("search:home"))
-        names = {p["name"] for p in response.context["top_picks"]}
-        self.assertEqual(names, matched)
-
-    def test_all_places_stay_when_too_few_match(self):
-        with patch.object(views, "find_restaurant_place", self.google_for({"PLACE 1"})):
-            response = self.client.get(reverse("search:home"))
-        self.assertEqual(len(response.context["top_picks"]), 3)
+        fetch.assert_not_called()
+        picks = response.context["top_picks"]
+        self.assertEqual(len(picks), 3)
+        self.assertTrue(all(pick["google"]["rating"] == 4.4 for pick in picks))
 
 
 class BoroughOptionsTests(TestCase):
     databases = ALL_DATABASES
 
-    def test_zero_borough_is_not_offered(self):
-        for camis, boro in (("71", "Queens"), ("72", "0")):
-            RestaurantInspection.objects.create(
-                camis=camis,
-                dba="X",
+    def test_places_without_a_borough_are_not_offered(self):
+        for place_id, boro in (("71", "Queens"), ("72", "")):
+            make_restaurant(
+                place_id,
+                "X",
                 boro=boro,
                 street="1 Main St",
                 zipcode="11101",
                 cuisine="Thai",
-                inspection_date="2026-06-01",
-                grade="A",
             )
-        with patch("search.views.find_restaurant_place", return_value=None):
-            response = self.client.get(reverse("search:home"))
+        response = self.client.get(reverse("search:home"))
         self.assertEqual(response.context["borough_options"], ["Queens"])

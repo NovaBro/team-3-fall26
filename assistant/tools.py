@@ -9,15 +9,20 @@ import logging
 import re
 from urllib.parse import urlencode
 
-from django.db.models import Avg, Count, Max
+from django.db.models import Avg, Count, F, Max
 from django.urls import reverse
 
-from community.keys import DOHMH, GOOGLE
-from community.models import CommunitySubject, PlaceEnrichment, UserRating
+from community.keys import GOOGLE
+from community.models import (
+    CommunitySubject,
+    PlaceEnrichment,
+    Restaurant,
+    UserRating,
+)
 from restaurants.places import METERS_PER_MILE, PlacesError
 from search.find_food import (
+    RESTAURANT_ROW_FIELDS,
     farmers_market_items,
-    fill_latest_grades,
     google_restaurant_items,
     grocery_items,
     near,
@@ -25,7 +30,7 @@ from search.find_food import (
     restaurant_rows,
 )
 from search.forms import FARMERS_MARKET, GROCERY, MARKET_DAYS, RESTAURANT
-from search.models import MenuItem, RestaurantInspection
+from search.models import MenuItem
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +38,6 @@ MAX_RESULTS = 15
 DEFAULT_RESULTS = 8
 STORE_TYPES = [RESTAURANT, FARMERS_MARKET, GROCERY]
 BOROUGHS = ["Bronx", "Brooklyn", "Manhattan", "Queens", "Staten Island"]
-GRADES = ["A", "B", "C"]
 DEFAULT_NEARBY_MILES = 1.0
 MAX_NEARBY_MILES = 5.0
 MAX_GOOGLE_SEARCHES = 2  # Per chat message. Each one is a paid Google request.
@@ -46,7 +50,8 @@ TOOLS = [
         "name": "search_places",
         "description": (
             "Search NYC restaurants, farmers markets, and Shop Healthy grocery "
-            "stores. Normally searches inspection records and favors grade A. "
+            "stores. Normally searches saved NYC restaurants (Google data), best "
+            "rated first. "
             "With near_me, restaurants come from a live Google search around the "
             "user, nearest first, with distance, rating, and price. Allergies and "
             "diets aren't filtered, so choose from the results yourself."
@@ -57,8 +62,8 @@ TOOLS = [
                 "types": {
                     "type": "array",
                     "items": {"type": "string", "enum": STORE_TYPES},
-                    "description": "Defaults to restaurants if cuisine or grade "
-                    "is used, otherwise all three.",
+                    "description": "Defaults to restaurants if cuisine is used, "
+                    "otherwise all three.",
                 },
                 "name": {"type": "string", "description": "Part of a place's name."},
                 "cuisine": {
@@ -67,7 +72,6 @@ TOOLS = [
                 },
                 "borough": {"type": "string", "enum": BOROUGHS},
                 "zip": {"type": "string", "description": "ZIP code or its prefix."},
-                "grade": {"type": "string", "enum": GRADES},
                 "near_me": {
                     "type": "boolean",
                     "description": "Search around the user's current location.",
@@ -89,8 +93,8 @@ TOOLS = [
     {
         "name": "get_place_details",
         "description": (
-            "Get more about one place using a key from search_places: inspection "
-            "history, recent violations, Google data, and visitor ratings."
+            "Get more about one place using a key from search_places: Google "
+            "rating, price, recent reviews, and visitor ratings."
         ),
         "input_schema": {
             "type": "object",
@@ -182,9 +186,13 @@ def _choices(args, name, allowed):
     return values
 
 
-def enrichment_by_camis(camis_list):
+def enrichment_by_place(place_ids):
+    """{place_id: PlaceEnrichment} for saved restaurants."""
     return {
-        row.camis: row for row in PlaceEnrichment.objects.filter(camis__in=camis_list)
+        row.place_id: row
+        for row in PlaceEnrichment.objects.filter(
+            kind=GOOGLE, place_id__in=list(place_ids)
+        )
     }
 
 
@@ -200,7 +208,7 @@ def add_google_fields(summary, enrichment):
 
 def available_cuisines():
     return list(
-        RestaurantInspection.objects.exclude(cuisine="")
+        Restaurant.objects.exclude(cuisine="")
         .values_list("cuisine", flat=True)
         .distinct()
         .order_by("cuisine")
@@ -245,8 +253,6 @@ class ToolRunner:
             "borough": display_text(item["borough"]),
             "details": item["details"],
         }
-        if item["grade"]:
-            summary["inspection_grade"] = item["grade"]
         if item["distance_mi"] is not None:
             summary["distance_miles"] = round(item["distance_mi"], 2)
         if item["rating"] is not None:
@@ -264,7 +270,6 @@ class ToolRunner:
             "name": name,
             "type": item["type_label"],
             "address": summary["address"],
-            "grade": item["grade"],
             "distance_miles": summary.get("distance_miles"),
             "url": url,
             "external": item["external_url"],
@@ -274,21 +279,19 @@ class ToolRunner:
     def search_places(self, args):
         cuisine = str(args.get("cuisine") or "").strip()
         borough = _choice(args, "borough", BOROUGHS)
-        grade = _choice(args, "grade", GRADES)
         market_day = _choice(args, "market_day", MARKET_DAYS)
         zip_code = str(args.get("zip") or "").strip()
         if zip_code and not re.fullmatch(r"\d{1,5}", zip_code):
             raise ToolError("zip must be up to 5 digits.")
         types = _choices(args, "types", STORE_TYPES)
         if not types:
-            types = [RESTAURANT] if cuisine or grade else STORE_TYPES
+            types = [RESTAURANT] if cuisine else STORE_TYPES
         limit = _limit(args)
         filters = {
             "q": str(args.get("name") or "").strip(),
             "area": borough,
             "zip": zip_code,
             "cuisine": cuisine,
-            "grade": grade,
             "day": market_day,
         }
         near_me = bool(args.get("near_me"))
@@ -357,28 +360,16 @@ class ToolRunner:
         return [self._summary(item) for item in items[:limit]]
 
     def _restaurants(self, filters, limit):
-        # Look past the first page so grade A places can rise to the top.
-        rows = restaurant_rows(filters).order_by("-last_date", "camis")[: limit * 4]
-        items = [restaurant_item(row) for row in rows]
-        fill_latest_grades(items)
-        items.sort(key=lambda item: item["grade"] != "A")
-        items = items[:limit]
-        enrichment = enrichment_by_camis([i["key"].split(":", 1)[1] for i in items])
-        places = []
-        for item in items:
-            summary = self._summary(item)
-            add_google_fields(summary, enrichment.get(item["key"].split(":", 1)[1]))
-            places.append(summary)
-        return places
+        rows = restaurant_rows(filters).order_by(
+            F("rating").desc(nulls_last=True),
+            F("rating_count").desc(nulls_last=True),
+            "place_id",
+        )[:limit]
+        return [self._summary(restaurant_item(row)) for row in rows]
 
     def get_place_details(self, args):
         key = str(args.get("key") or "")
         if key.startswith("google:"):
-            raise ToolError(
-                "This place came from a live Google search, so the search result "
-                "is all we have."
-            )
-        if key.startswith("camis:"):
             return self._restaurant_details(key)
         for item in [*farmers_market_items({}), *grocery_items({})]:
             if item["key"] == key:
@@ -388,42 +379,25 @@ class ToolRunner:
         raise ToolError("No place has that key. Use a key from search_places.")
 
     def _restaurant_details(self, key):
-        camis = key.split(":", 1)[1]
-        rows = list(
-            RestaurantInspection.objects.filter(camis=camis).order_by(
-                "-inspection_date"
+        place_id = key.split(":", 1)[1]
+        row = Restaurant.objects.filter(place_id=place_id).values(
+            *RESTAURANT_ROW_FIELDS
+        )
+        row = row.first()
+        if row is None:
+            raise ToolError(
+                "This place came from a live Google search, so the search result "
+                "is all we have."
             )
-        )
-        if not rows:
-            raise ToolError("No place has that key. Use a key from search_places.")
-        latest = rows[0]
-        item = restaurant_item(
-            {
-                "camis": camis,
-                "name": latest.dba,
-                "boro": latest.boro,
-                "street": latest.street,
-                "zip": latest.zipcode,
-                "cuisine_name": latest.cuisine,
-                "last_date": latest.inspection_date,
-            }
-        )
-        fill_latest_grades([item])
-        summary = self._summary(item)
-        summary["recent_violations"] = [
-            row.violation_description[:200]
-            for row in rows
-            if row.inspection_date == latest.inspection_date
-            and row.violation_description
-        ][:5]
-        enrichment = PlaceEnrichment.objects.filter(camis=camis).first()
+        summary = self._summary(restaurant_item(row))
+        enrichment = enrichment_by_place([place_id]).get(place_id)
         add_google_fields(summary, enrichment)
         if enrichment is not None:
             summary["recent_reviews"] = [
                 {"rating": review.rating, "text": review.text[:300]}
                 for review in enrichment.reviews.exclude(text="")[:3]
             ]
-        summary.update(self._visitor_ratings(DOHMH, key))
+        summary.update(self._visitor_ratings(GOOGLE, key))
         return summary
 
     def _visitor_ratings(self, kind, key):

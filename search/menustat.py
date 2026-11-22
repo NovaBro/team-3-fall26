@@ -96,7 +96,7 @@ def match_menustat_restaurant_detail(name):
 
 
 def match_menustat_restaurant(name):
-    """Fuzzy-match an inspection/Google name to a MenuStat restaurant label.
+    """Fuzzy-match an Google restaurant name to a MenuStat restaurant label.
 
     Exact normalized match first; otherwise a single unambiguous prefix or
     contains hit. Returns the MenuStat ``restaurant`` string, or None.

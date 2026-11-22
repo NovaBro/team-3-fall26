@@ -13,11 +13,10 @@ from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from community.keys import DOHMH
+from community.keys import GOOGLE
 from community.models import PlaceEnrichment
 from search import what_to_order as wto
-from search.models import RestaurantInspection
-from nycfood.test_utils import ALL_DATABASES
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 HEALTHY_WORDS = (
     "salad", "grilled", "steamed", "vegan", "lean", "fresh", "healthy",
@@ -378,18 +377,16 @@ class ViewTests(TestCase):
     databases = ALL_DATABASES
 
     def setUp(self):
-        RestaurantInspection.objects.create(
-            camis="1",
-            dba="LEAF BAR",
+        make_restaurant(
+            "1",
+            "LEAF BAR",
             boro="Queens",
             street="2 Main St",
             zipcode="11101",
             cuisine="Salads",
-            inspection_date="2024-07-01",
-            grade="A",
         )
         PlaceEnrichment.objects.create(
-            kind=DOHMH, key="camis:1", camis="1", raw_json={}
+            kind=GOOGLE, key="google:1", place_id="1", raw_json={}
         )
 
     def test_fragment(self):
@@ -470,10 +467,9 @@ class ViewTests(TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_detail_page_has_the_section(self):
-        with patch("search.views.find_restaurant_place", return_value=None):
-            html = self.client.get(
-                reverse("search:restaurant_detail", args=["1"])
-            ).content.decode()
+        html = self.client.get(
+            reverse("search:restaurant_detail", args=["1"])
+        ).content.decode()
         self.assertIn('id="what-to-order"', html)
         self.assertIn(reverse("search:what_to_order", args=["1"]), html)
         self.assertIn("what_to_order.js", html)

@@ -9,19 +9,21 @@ urlpatterns = [
     path("rerank/", views.rerank_top_picks, name="rerank_top_picks"),
     path("location/", views.save_location, name="save_location"),
     path("search/", views.index, name="index"),
-    path("restaurant/<str:camis>/", views.restaurant_detail, name="restaurant_detail"),
     path(
-        "restaurant/<str:camis>/feedback/",
+        "restaurant/<str:place_id>/", views.restaurant_detail, name="restaurant_detail"
+    ),
+    path(
+        "restaurant/<str:place_id>/feedback/",
         views.pick_feedback,
         name="pick_feedback",
     ),
     path(
-        "restaurant/<str:camis>/what-to-order/",
+        "restaurant/<str:place_id>/what-to-order/",
         views.restaurant_what_to_order,
         name="what_to_order",
     ),
     path(
-        "restaurant/<str:camis>/refresh-google/",
+        "restaurant/<str:place_id>/refresh-google/",
         views.refresh_place,
         name="refresh_place",
     ),
