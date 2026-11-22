@@ -229,7 +229,7 @@ fresh ratings. `nyc_food_lite.db` is no longer used and can be deleted.
 - a daily schedule at 09:00 UTC, which tests `main` (post-submit)
 - manual runs from the Actions tab
 
-After `test` passes, a push to `develop` or a same-repo pull request into `develop` deploys to `Nycfood-env` (integration). A push to `main` deploys to `Nycfood-env-main` (production). Deploys only run on `gcivil-nyu-org/team-3-fall26`; fork pull requests and production stay out of the PR path. Integration deploys share one concurrency group, so overlapping runs queue; whichever finishes last is what stays live (including an older commit).
+After `test` passes, a push to `develop` or a same-repo pull request into `develop` deploys to `Nycfood-env` (integration). A push to `main` deploys to `Nycfood-env-main` (production). Deploys only run on `gcivil-nyu-org/team-3-fall26`. A fork pull request into `develop` deploys to integration too when its author is an owner, member or collaborator (the `pull_request_target` run); other fork PRs only run tests, and production stays out of the PR path. Integration deploys share one concurrency group, so overlapping runs queue; whichever finishes last is what stays live (including an older commit).
 
 Scheduled runs use the copy of `ci.yml` on the default branch, `develop`. Change CI on `develop` first, then merge `develop` into `main`, so both branches keep the same workflow and README badges.
 

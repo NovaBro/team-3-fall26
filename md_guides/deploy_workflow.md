@@ -2,7 +2,7 @@
 
 How code gets from GitHub to http://nycfood-team3.us-east-1.elasticbeanstalk.com. For the AWS setup itself (SSM secrets, IAM, troubleshooting), see `aws_deployment.md`.
 
-A push to `develop` on `gcivil-nyu-org/team-3-fall26`, or a same-repo pull request into `develop`, runs the test job, then the integration deploy job in `.github/workflows/ci.yml`. That job assumes the IAM role `github-nycfood-deploy` and runs `eb deploy Nycfood-env`. Fork pull requests run tests only and cannot assume the role. Production still deploys only on a push to `main`.
+A push to `develop` on `gcivil-nyu-org/team-3-fall26`, or a same-repo pull request into `develop`, runs the test job, then the integration deploy job in `.github/workflows/ci.yml`. That job assumes the IAM role `github-nycfood-deploy` and runs `eb deploy Nycfood-env`. A pull request into `develop` from a fork also deploys to integration when its author is an owner, member or collaborator of the org repo (see "GitHub Actions" below); fork pull requests from anyone else run tests only. Production still deploys only on a push to `main`.
 
 ```
 GitHub (gcivil-nyu-org develop)
@@ -82,7 +82,7 @@ A `.env` file is only needed to run the site locally with Google features, not t
 
 ## Team rules
 
-- **Deploy from `develop` on `gcivil-nyu-org/team-3-fall26`.** A push there, or a same-repo PR into `develop`, runs tests then deploys to integration. Announce laptop `eb deploy`s in the team chat so they do not overlap an Actions run.
+- **Deploy from `develop` on `gcivil-nyu-org/team-3-fall26`.** A push there, a same-repo PR into `develop`, or a collaborator's fork PR into `develop` runs tests then deploys to integration. Announce laptop `eb deploy`s in the team chat so they do not overlap an Actions run.
 - **Last successful deploy wins.** EB has no “newer commit” check. A later Actions run (or laptop deploy) can replace the live site with an older commit; use that on purpose for rollback, or re-run / re-push the commit you want live.
 - **Changing an API key** doesn't need a deploy: update it in SSM Parameter Store, then run `eb restart`.
 - **Changing the canonical databases** is an `aws s3 cp`, then a deploy so the instance downloads the new objects.
@@ -99,4 +99,10 @@ Or: EB console → `nycfood` → Application versions → select a version → D
 
 ## GitHub Actions
 
-`.github/workflows/ci.yml` deploys integration when `test` succeeded, the repository is `gcivil-nyu-org/team-3-fall26`, and the event is either a push to `develop` or a same-repo pull request targeting `develop`. The job assumes the `github-nycfood-deploy` IAM role through GitHub's OIDC provider and runs `eb deploy Nycfood-env`. No AWS access keys are stored in the repository. The role trust policy must also allow the `pull_request` subject (`repo:gcivil-nyu-org/team-3-fall26:pull_request`), not only the `develop`/`main` branch refs.
+`.github/workflows/ci.yml` deploys integration when `test` succeeded, the repository is `gcivil-nyu-org/team-3-fall26`, and the event is a push to `develop`, a same-repo pull request targeting `develop`, or a trusted fork pull request targeting `develop`.
+
+Fork pull requests need their own trigger. On a public repo, GitHub gives a `pull_request` run from a fork no secrets and no OIDC token, so it can test but never deploy. The workflow therefore also listens to `pull_request_target`, which runs with the org repo's permissions. That run does nothing unless the PR comes from a fork **and** its author's association is `OWNER`, `MEMBER` or `COLLABORATOR`. When it does run, it tests and deploys `refs/pull/<n>/merge` (the PR merged into `develop`), the same commit a same-repo PR deploys. Keep the author check: without it, anyone could open a fork PR whose code runs with the deploy role.
+
+GitHub reads a `pull_request_target` workflow from the **base branch** (`develop`), not from the PR. A change to this part of `ci.yml` takes effect for fork PRs only after it is merged into `develop`.
+
+The job assumes the `github-nycfood-deploy` IAM role through GitHub's OIDC provider and runs `eb deploy Nycfood-env`. No AWS access keys are stored in the repository. The role trust policy must also allow the `pull_request` subject (`repo:gcivil-nyu-org/team-3-fall26:pull_request`), not only the `develop`/`main` branch refs.
