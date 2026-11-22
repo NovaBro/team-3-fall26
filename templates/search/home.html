@@ -7,7 +7,8 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=39">
 <script src="{% static 'search/explore_like.js' %}?v=4" defer></script>
-<script src="{% static 'search/mood_checkin.js' %}?v=4" defer></script>
+<script src="{% static 'search/mood_checkin.js' %}?v=5" defer></script>
+<script>window.TOP_PICKS_RERANK_URL = "{% url 'search:rerank_top_picks' %}";</script>
 {% endblock %}
 
 {% block content %}
@@ -20,6 +21,8 @@
 
   {% if top_picks %}
   <section class="top-picks" aria-labelledby="top-picks-title">
+    {# Location minimap UI disabled for now; pin APIs / scoring remain. #}
+    <div id="cook-at-home-slot">{% include "search/_cook_at_home.html" %}</div>
     <div class="top-picks__header">
       <p class="top-picks__date"><span class="top-picks__dot" aria-hidden="true"></span>{{ picks_date|date:"l, M j" }} · refreshed daily</p>
       <div class="top-picks__title-row">
@@ -40,115 +43,10 @@
       </div>
       {% endif %}
       </div>
-      <p class="top-picks__subtitle muted">{% if personalized_picks %}Ranked by AI using your profile. Always confirm allergies with the restaurant.{% else %}Your next unforgettable food experience starts here!{% endif %}</p>
+      <p class="top-picks__subtitle muted">{{ top_picks_subtitle }}</p>
     </div>
     <div class="top-picks__grid">
-      {% for pick in top_picks %}
-        <article class="top-pick-card" id="pick-{{ pick.camis }}">
-          <div class="top-pick-card__art">
-            {% static 'search/images/nyc-restaurant.jpg' as fallback_img %}
-            <img
-              src="{% if pick.photo_url %}{{ pick.photo_url }}{% elif pick.image %}{% static pick.image %}{% else %}{{ fallback_img }}{% endif %}"
-              alt="{{ pick.name }}"
-              loading="lazy"
-              onerror="this.onerror=null;this.src='{{ fallback_img|escapejs }}';">
-            <span class="top-pick-card__rank">#{{ forloop.counter }}</span>
-            {% if pick.google.price %}
-              <span class="top-pick-card__price" title="Price level: {{ pick.google.price }}">{{ pick.google.price }}</span>
-            {% endif %}
-          </div>
-          <div class="top-pick-card__body">
-            <div class="top-pick-card__tags">
-              <span class="top-pick-card__category" title="{{ pick.cuisine|default:'Restaurant' }}">{{ pick.cuisine|default:"Restaurant" }}</span>
-              {% if pick.boro %}<span class="top-pick-card__boro-tag">{{ pick.boro }}</span>{% endif %}
-            </div>
-            <h3>
-              {% if pick.inspection.camis %}
-                <a href="{% url 'search:restaurant_detail' pick.inspection.camis %}?from=home{% if selected_boro %}&amp;boro={{ selected_boro|urlencode }}{% endif %}{% if page_obj.number > 1 %}&amp;page={{ page_obj.number }}{% endif %}">{{ pick.name }}</a>
-              {% else %}
-                {{ pick.name }}
-              {% endif %}
-            </h3>
-            <p class="top-pick-card__address">
-              {% if pick.google.address %}{{ pick.google.address }}{% else %}{{ pick.street }}{% if pick.boro %}, {{ pick.boro }}{% endif %}{% if pick.zipcode %} {{ pick.zipcode }}{% endif %}{% endif %}
-            </p>
-            {# Every section below is always rendered (empty when there is no data) #}
-            {# so each one lines up across the three cards (see homepage.css).    #}
-            <div class="top-pick-card__slot">
-            {% if pick.reason_tags %}
-            <div class="top-pick-card__reasons" aria-label="Why this pick">
-              {% for tag in pick.reason_tags %}
-                <span class="top-pick-card__reason{% if tag == "Allergy check" %} top-pick-card__reason--warn{% endif %}"{% if tag == "Similar pick" and pick.similar_to %} title="Because you liked {{ pick.similar_to }}"{% elif tag == "Allergy check" %} title="{{ pick.allergy_warnings|join:", " }} common in {{ pick.cuisine }} food. Always confirm with the restaurant."{% endif %}>{{ tag }}</span>
-              {% endfor %}
-            </div>
-            {% endif %}
-            {% if pick.ai_reason %}<p class="top-pick-card__ai-reason">{{ pick.ai_reason }}</p>{% endif %}
-            </div>
-
-            <!-- Google Star Rating in Card Details -->
-            <div class="top-pick-card__slot">
-            {% if pick.google.rating %}
-              <div class="top-pick-card__rating-bar" title="Google rating: {{ pick.google.rating }} / 5">
-                <span class="top-pick-card__stars-visual" aria-hidden="true">
-                  <span class="top-pick-card__star top-pick-card__star--filled"></span>
-                  <span class="top-pick-card__star {% if pick.google.rating >= 1.8 %}top-pick-card__star--filled{% elif pick.google.rating >= 1.3 %}top-pick-card__star--half{% endif %}"></span>
-                  <span class="top-pick-card__star {% if pick.google.rating >= 2.8 %}top-pick-card__star--filled{% elif pick.google.rating >= 2.3 %}top-pick-card__star--half{% endif %}"></span>
-                  <span class="top-pick-card__star {% if pick.google.rating >= 3.8 %}top-pick-card__star--filled{% elif pick.google.rating >= 3.3 %}top-pick-card__star--half{% endif %}"></span>
-                  <span class="top-pick-card__star {% if pick.google.rating >= 4.8 %}top-pick-card__star--filled{% elif pick.google.rating >= 4.3 %}top-pick-card__star--half{% endif %}"></span>
-                </span>
-                <span class="top-pick-card__rating-value">{{ pick.google.rating }}</span>
-                {% if pick.google.rating_count %}
-                  <span class="top-pick-card__rating-count muted">({{ pick.google.rating_count }})</span>
-                {% endif %}
-                <span class="top-pick-card__rating-source">Google</span>
-              </div>
-            {% endif %}
-            </div>
-
-            <!-- Google Review Comment -->
-            <div class="top-pick-card__slot">
-            {% if pick.review and pick.review.text %}
-              <div class="top-pick-card__review">
-                <div class="top-pick-card__review-header">
-                  <span class="top-pick-card__review-label">Google Review</span>
-                  {% if pick.review.rating %}
-                    <span class="top-pick-card__review-rating" title="Rated {{ pick.review.rating }} stars">
-                      ★ {{ pick.review.rating }}
-                    </span>
-                  {% endif %}
-                </div>
-                <blockquote class="top-pick-card__review-quote">
-                  “{{ pick.review.text|truncatechars:150 }}”
-                </blockquote>
-                {% if pick.review.author_name %}
-                  <div class="top-pick-card__review-author">
-                    <span class="author-name">— {{ pick.review.author_name }}</span>
-                    {% if pick.review.relative_time %}
-                      <span class="review-time muted">({{ pick.review.relative_time }})</span>
-                    {% endif %}
-                  </div>
-                {% endif %}
-              </div>
-            {% endif %}
-            </div>
-
-            <div class="top-pick-card__slot top-pick-card__slot--bottom">
-            {% if user.is_authenticated %}
-              <form class="top-pick-card__feedback" method="post" action="{% url 'search:pick_feedback' pick.camis %}">
-                {% csrf_token %}
-                <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                <button type="submit" name="value" value="like"
-                        class="top-pick-card__feedback-btn{% if pick.feedback == 1 %} is-active{% endif %}"
-                        aria-pressed="{% if pick.feedback == 1 %}true{% else %}false{% endif %}">👍 Like</button>
-                <button type="submit" name="value" value="not_interested"
-                        class="top-pick-card__feedback-btn"
-                        title="We won't show this place to you again">🚫 Not interested</button>
-              </form>
-            {% endif %}
-            </div>
-          </div>
-        </article>
-      {% endfor %}
+      {% include "search/_top_picks_grid.html" %}
     </div>
   </section>
   {% endif %}
@@ -190,7 +88,7 @@
 
     <div class="restaurant-grid">
       {% for restaurant in restaurants %}
-        <article class="restaurant-card" id="r-{{ restaurant.camis }}">
+        <article class="restaurant-card" id="r-{{ restaurant.place_id }}">
           <div class="restaurant-card__art">
             {% static 'search/images/nyc-restaurant.jpg' as fallback_img %}
           <img
@@ -203,12 +101,12 @@
           <div class="restaurant-card__body">
             <div class="restaurant-card__topline">
               <p class="restaurant-card__category">{{ restaurant.cuisine|default:"Restaurant" }}</p>
-              {% if user.is_authenticated and restaurant.camis %}
+              {% if user.is_authenticated and restaurant.place_id %}
                 <form class="restaurant-card__like" method="post"
-                      action="{% url 'search:pick_feedback' restaurant.camis %}">
+                      action="{% url 'search:pick_feedback' restaurant.place_id %}">
                   {% csrf_token %}
                   <input type="hidden" name="value" value="like">
-                  <input type="hidden" name="next" value="{{ request.get_full_path }}#r-{{ restaurant.camis }}">
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}#r-{{ restaurant.place_id }}">
                   <button type="submit"
                           class="restaurant-card__like-btn{% if restaurant.liked %} is-active{% endif %}"
                           aria-pressed="{% if restaurant.liked %}true{% else %}false{% endif %}"
@@ -218,8 +116,8 @@
               {% endif %}
             </div>
             <h2>
-              {% if restaurant.camis %}
-                <a href="{% url 'search:restaurant_detail' restaurant.camis %}?from=home{% if selected_boro %}&amp;boro={{ selected_boro|urlencode }}{% endif %}{% if page_obj.number > 1 %}&amp;page={{ page_obj.number }}{% endif %}">{{ restaurant.name }}</a>
+              {% if restaurant.place_id %}
+                <a href="{% url 'search:restaurant_detail' restaurant.place_id %}?from=home{% if selected_boro %}&amp;boro={{ selected_boro|urlencode }}{% endif %}{% if page_obj.number > 1 %}&amp;page={{ page_obj.number }}{% endif %}">{{ restaurant.name }}</a>
               {% else %}
                 {{ restaurant.name }}
               {% endif %}

@@ -19,10 +19,10 @@ import time
 
 from django.core.management.base import BaseCommand
 
-from community.models import HealthScore, PlaceEnrichment, ReasonBlurb
+from community.keys import GOOGLE
+from community.models import HealthScore, PlaceEnrichment, ReasonBlurb, Restaurant
 from search import reason_writer
-from search.models import RestaurantInspection
-from search.views import score_for_camis
+from search.views import score_for_place
 
 
 class Command(BaseCommand):
@@ -45,15 +45,17 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         generate = options.get("generate")
         todo = list(
-            HealthScore.objects.order_by("-score").values_list("camis", flat=True)
+            HealthScore.objects.order_by("-score").values_list("place_id", flat=True)
         )
         if not options["refresh"]:
             done = {
-                camis
-                for camis, tag in ReasonBlurb.objects.values_list("camis", "model_name")
+                place_id
+                for place_id, tag in ReasonBlurb.objects.values_list(
+                    "place_id", "model_name"
+                )
                 if reason_writer.is_current(tag)
             }
-            todo = [camis for camis in todo if camis not in done]
+            todo = [place_id for place_id in todo if place_id not in done]
         if options["limit"]:
             todo = todo[: options["limit"]]
         if not todo:
@@ -63,27 +65,23 @@ class Command(BaseCommand):
             generate = reason_writer.gemini_generate(options["model"])
 
         written = skipped = 0
-        for index, camis in enumerate(todo):
-            latest = (
-                RestaurantInspection.objects.filter(camis=camis)
-                .order_by("-inspection_date")
-                .first()
-            )
-            if latest is None:
+        for index, place_id in enumerate(todo):
+            restaurant = Restaurant.objects.filter(place_id=place_id).first()
+            if restaurant is None:
                 skipped += 1
                 continue
             place = (
-                PlaceEnrichment.objects.filter(camis=camis)
+                PlaceEnrichment.objects.filter(kind=GOOGLE, place_id=place_id)
                 .prefetch_related("reviews")
                 .first()
             )
-            _, _, breakdown = score_for_camis(camis, latest, place)
+            _, _, breakdown = score_for_place(restaurant, place)
             reasons = breakdown["reasons"]
             if index and options["sleep"]:
                 time.sleep(options["sleep"])
             try:
                 text = reason_writer.write_blurb(
-                    latest.dba, latest.cuisine, reasons, generate
+                    restaurant.name, restaurant.cuisine, reasons, generate
                 )
             except reason_writer.RateLimited:
                 self.stdout.write(
@@ -93,12 +91,12 @@ class Command(BaseCommand):
             if not text:
                 skipped += 1
                 continue
-            self.stdout.write(f"{latest.dba}: {text}")
+            self.stdout.write(f"{restaurant.name}: {text}")
             written += 1
             if options["dry_run"]:
                 continue
             ReasonBlurb.objects.update_or_create(
-                camis=camis,
+                place_id=place_id,
                 defaults={
                     "text": text,
                     "facts": " · ".join(reasons),

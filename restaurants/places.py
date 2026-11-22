@@ -466,10 +466,16 @@ def get_restaurants(
 _PHOTO_NAME = re.compile(r"^places/[A-Za-z0-9_-]+/photos/[A-Za-z0-9_-]+$")
 
 
-def get_photo_url(name, api_key=None, max_width=400):
+# Google answers these when a photo reference has expired or is unknown.
+PHOTO_GONE_STATUSES = {400, 404}
+
+
+def get_photo_url(name, api_key=None, max_width=400, on_gone=None):
     """Return a plain image URL for a Google photo name, or "" if unavailable.
 
     The API key stays on the server: Google returns a key-free image URL.
+    ``on_gone(name)`` is called when Google says the reference is no longer
+    valid (photo references expire), so the caller can drop its stored copy.
     """
     api_key = api_key or os.environ.get("GOOGLE_API_KEY", "")
     if not api_key or not _PHOTO_NAME.match(name or ""):
@@ -484,5 +490,7 @@ def get_photo_url(name, api_key=None, max_width=400):
     except requests.RequestException:
         return ""
     if resp.status_code != 200:
+        if on_gone is not None and resp.status_code in PHOTO_GONE_STATUSES:
+            on_gone(name)
         return ""
     return resp.json().get("photoUri", "")

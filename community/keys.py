@@ -1,11 +1,10 @@
 """Stable pin identities. These survive a dataset reimport."""
 
-DOHMH = "restaurant_dohmh"
 GOOGLE = "restaurant_google"
 GROCERY = "grocery"
 FARMERS_MARKET = "farmers_market"
 
-KINDS = {DOHMH, GOOGLE, GROCERY, FARMERS_MARKET}
+KINDS = {GOOGLE, GROCERY, FARMERS_MARKET}
 
 
 def _part(value):
@@ -14,10 +13,6 @@ def _part(value):
 
 def _join(*parts):
     return "|".join(_part(part) for part in parts)
-
-
-def dohmh_key(camis):
-    return f"camis:{_part(camis)}"
 
 
 def google_key(place_id):

@@ -1,17 +1,15 @@
 (() => {
-  const CATEGORIES = ["farmers_market", "grocery", "restaurant_dohmh", "restaurant_google"];
+  const CATEGORIES = ["farmers_market", "grocery", "restaurant_google"];
 
   const CATEGORY_LABELS = {
     farmers_market: "Farmers market",
     grocery: "Grocery (Shop Healthy)",
-    restaurant_dohmh: "Restaurant (NYC inspection records)",
-    restaurant_google: "Restaurant (Google Places)",
+    restaurant_google: "Restaurant",
   };
 
   const PIN_COLORS = {
     farmers_market: "#1f5fbf",
     grocery: "#2e8b57",
-    restaurant_dohmh: "#e67e22",
     restaurant_google: "#9b59b6",
   };
 
@@ -20,13 +18,11 @@
     points: {
       farmers_market: [],
       grocery: [],
-      restaurant_dohmh: [],
       restaurant_google: [],
     },
     visibility: {
       farmers_market: true,
       grocery: true,
-      restaurant_dohmh: true,
       restaurant_google: true,
     },
     openKey: "",

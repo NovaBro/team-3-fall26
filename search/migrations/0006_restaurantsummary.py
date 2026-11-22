@@ -2,13 +2,9 @@ from django.db import migrations, models
 
 
 def build(apps, schema_editor):
-    from search.summary import rebuild_all
-
-    rebuild_all(
-        apps.get_model("search", "RestaurantInspection"),
-        apps.get_model("search", "RestaurantSummary"),
-        using=schema_editor.connection.alias,
-    )
+    # Filled the summary table from inspection rows; both tables were removed
+    # in 0008 (restaurants now come from Google), so there is nothing to do.
+    pass
 
 
 class Migration(migrations.Migration):

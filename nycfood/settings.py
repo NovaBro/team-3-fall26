@@ -97,17 +97,24 @@ WSGI_APPLICATION = "nycfood.wsgi.application"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
+    # Open Data tables rebuilt by `manage.py import_datasets`.
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "database" / "nyc_food.db",
     },
+    # Google restaurants and enrichment, ratings, comments, photos, scores.
     "community": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "database" / "community.db",
     },
+    # Accounts, profiles, mood logs and sessions (see nycfood/routers.py).
+    "users": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "database" / "users.db",
+    },
 }
 
-DATABASE_ROUTERS = ["community.router.CommunityRouter"]
+DATABASE_ROUTERS = ["nycfood.routers.UsersRouter", "community.router.CommunityRouter"]
 
 
 # Password validation
@@ -169,10 +176,9 @@ GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 # Fetch and store a restaurant's Google data the first time its detail page is
 # opened (needs the key above). Always off under `manage.py test`.
 GOOGLE_AUTO_FETCH = sys.argv[1:2] != ["test"]
-# If the RestaurantSummary table is missing or empty (DB replaced without
-# migrate), repair it once in the background (see search/summary_status.py).
-# Off under `manage.py test`; tests turn it on where needed.
-RESTAURANT_SUMMARY_SELF_REPAIR = sys.argv[1:2] != ["test"]
+# Top picks fetch (and store) a missing restaurant photo reference from Google
+# (search/services/places.py ensure_photos). Always off under `manage.py test`.
+GOOGLE_PHOTO_FETCH = sys.argv[1:2] != ["test"]
 
 # Auth redirects for the profile tab.
 # The AI assistant stays hidden until ANTHROPIC_API_KEY is set.

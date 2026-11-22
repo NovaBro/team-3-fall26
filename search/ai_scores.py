@@ -64,17 +64,17 @@ def shared_encoder():
     return _encoder
 
 
-def stored_score(camis):
-    if not camis:
+def stored_score(place_id):
+    if not place_id:
         return None
     return (
-        HealthScore.objects.filter(camis=str(camis))
+        HealthScore.objects.filter(place_id=str(place_id))
         .values_list("score", flat=True)
         .first()
     )
 
 
-def ai_scores_for(camis, name="", review_texts=()):
+def ai_scores_for(place_id, name="", review_texts=()):
     """(health 0-1 or None, {goal: 0-1}) for a restaurant, computing if needed.
 
     Stored scores are reused. A place with no row, or a row made before goal
@@ -82,10 +82,10 @@ def ai_scores_for(camis, name="", review_texts=()):
     AI_LIVE_SCORING is on, and the result is stored. (None, {}) when it can't
     be worked out (no text about food health, or no model).
     """
-    if not camis:
+    if not place_id:
         return None, {}
     row = (
-        HealthScore.objects.filter(camis=str(camis))
+        HealthScore.objects.filter(place_id=str(place_id))
         .values_list("score", "goal_scores")
         .first()
     )
@@ -97,7 +97,7 @@ def ai_scores_for(camis, name="", review_texts=()):
     texts = [t for t in review_texts if (t or "").strip()]
     if not texts:
         return stored_health, {}  # nothing to read yet; try again later
-    no_text_key = f"ai-health-none:{camis}:{len(texts)}"
+    no_text_key = f"ai-health-none:{place_id}:{len(texts)}"
     if cache.get(no_text_key):
         return stored_health, {}
     encoder = shared_encoder()
@@ -106,13 +106,13 @@ def ai_scores_for(camis, name="", review_texts=()):
     try:
         health, used, goals = health_ai.all_scores(texts + menu_texts(name), encoder)
     except Exception:
-        logger.warning("AI health score failed for %s", camis, exc_info=True)
+        logger.warning("AI health score failed for %s", place_id, exc_info=True)
         return stored_health, {}
     if health is None:
         cache.set(no_text_key, True, NO_TEXT_SECONDS)
         return stored_health, {}
     HealthScore.objects.update_or_create(
-        camis=str(camis),
+        place_id=str(place_id),
         defaults={
             "score": health,
             "sentences_used": used,
@@ -123,6 +123,6 @@ def ai_scores_for(camis, name="", review_texts=()):
     return health, goals
 
 
-def ai_health_for(camis, name="", review_texts=()):
+def ai_health_for(place_id, name="", review_texts=()):
     """AI health score (0-1) for a restaurant, or None (see ai_scores_for)."""
-    return ai_scores_for(camis, name, review_texts)[0]
+    return ai_scores_for(place_id, name, review_texts)[0]

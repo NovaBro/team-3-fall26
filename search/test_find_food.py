@@ -10,10 +10,11 @@ from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from community.models import LocationLookup, PlaceEnrichment
+from community.models import LocationLookup
 from restaurants.places import PlacesError, locate_place
 from search.find_food import Chain, market_operates_on_day
-from search.models import FarmersMarket, HealthyStore, RestaurantInspection
+from search.models import FarmersMarket, HealthyStore
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 NO_KEY = {"GOOGLE_API_KEY": ""}
 WITH_KEY = {"GOOGLE_API_KEY": "test-key"}
@@ -24,7 +25,7 @@ def found(lat=40.7, lng=-73.9, address="1 Found St, New York, NY 10001"):
 
 
 class FindFoodData(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     @classmethod
     def setUpTestData(cls):
@@ -72,35 +73,33 @@ class FindFoodData(TestCase):
             borough="New York",
             zip_code="10040",
         )
-        RestaurantInspection.objects.create(
-            camis="1",
-            dba="Joe's Pizza",
+        make_restaurant(
+            "1",
+            "Joe's Pizza",
+            address="1 Main St, Brooklyn, NY 11201",
             boro="Brooklyn",
             street="1 Main St",
             zipcode="11201",
             cuisine="Pizza",
-            inspection_date="2025-01-01",
-            grade="A",
+            latitude=40.695,
+            longitude=-73.985,
+            price_level="PRICE_LEVEL_INEXPENSIVE",
+            rating=4.6,
         )
-        RestaurantInspection.objects.create(
-            camis="2",
-            dba="Taco Town",
+        make_restaurant(
+            "2",
+            "Taco Town",
+            address="2 Main St, Queens, NY 11101",
             boro="Queens",
             street="2 Main St",
             zipcode="11101",
             cuisine="Mexican",
-            inspection_date="2024-05-01",
-            grade="B",
+            latitude=40.745,
+            longitude=-73.92,
+            rating=3.9,
         )
-        PlaceEnrichment.objects.create(
-            kind="restaurant_dohmh",
-            key="camis:1",
-            camis="1",
-            place_id="ChIJtest",
-            display_name="Joe's Pizza",
-            formatted_address="1 Main St, Brooklyn, NY 11201",
-            latitude=40.695,
-            longitude=-73.985,
+        make_restaurant(
+            "3", "Closed Cafe", boro="Queens", business_status="CLOSED_PERMANENTLY"
         )
 
     def get(self, params=None):
@@ -129,9 +128,9 @@ class FindFoodPageTests(FindFoodData):
             self.assertContains(
                 response, f'type="checkbox" name="types" value="{value}"'
             )
-        self.assertContains(response, 'value="inspections"')
+        self.assertContains(response, 'value="saved"')
         categories = {p["category"] for p in response.context["map_points"]}
-        self.assertEqual(categories, {"farmers_market", "grocery", "restaurant_dohmh"})
+        self.assertEqual(categories, {"farmers_market", "grocery", "restaurant_google"})
         self.assertEqual(
             response.context["counts"],
             {"restaurant": 2, "farmers_market": 3, "grocery": 2},
@@ -146,14 +145,15 @@ class FindFoodPageTests(FindFoodData):
         self.assertEqual(
             points["Healthy Corner"]["key"], "Healthy Corner|100 Main St|11201"
         )
-        self.assertEqual(points["Joe's Pizza"]["key"], "camis:1")
+        self.assertEqual(points["Joe's Pizza"]["key"], "google:1")
         self.assertEqual(
             points["Joe's Pizza"]["url"],
             reverse("search:restaurant_detail", args=["1"]),
         )
         # No coordinates anywhere and no Google key: listed, but not mapped.
         self.assertNotIn("Market Without Coordinates", points)
-        self.assertNotIn("Taco Town", points)
+        self.assertIn("Taco Town", points)  # restaurants always have coordinates
+        self.assertNotIn("Closed Cafe", points)
 
     def test_unlocated_rows_are_listed_with_a_note(self):
         response = self.get({"types": "farmers_market"})
@@ -162,10 +162,13 @@ class FindFoodPageTests(FindFoodData):
         )
         self.assertContains(response, "Location not found")
 
-    def test_restaurant_coordinates_come_from_enrichment(self):
-        joe = self.items({"types": "restaurant"})["Joe's Pizza"]
+    def test_saved_restaurants_carry_their_google_data(self):
+        items = self.items({"types": "restaurant"})
+        joe = items["Joe's Pizza"]
         self.assertEqual((joe["lat"], joe["lng"]), (40.695, -73.985))
-        self.assertEqual(joe["grade"], "A")
+        self.assertEqual((joe["price"], joe["rating"]), ("$", 4.6))
+        self.assertEqual(joe["url"], reverse("search:restaurant_detail", args=["1"]))
+        self.assertNotIn("Closed Cafe", items)
 
     def test_farmers_markets_use_latest_year_and_saratoga_fix(self):
         items = self.items({"types": "farmers_market"})
@@ -204,24 +207,32 @@ class FindFoodPageTests(FindFoodData):
         )
 
     def test_restaurant_filters_leave_other_types_alone(self):
-        items = self.items({"grade": "B", "area": "Queens"})
+        items = self.items({"cuisine": "Mexican", "area": "Queens"})
         self.assertEqual(set(items), {"Taco Town", "Market Without Coordinates"})
 
-    def test_distance_narrows_markets_and_notes_inspection_records(self):
+    def test_distance_narrows_every_type(self):
         params = {"lat": "40.737", "lng": "-73.99", "distance": "1"}
         response = self.get(params)
         names = {item["name"] for item in response.context["items"]}
         self.assertIn("Union Square Greenmarket", names)
         self.assertNotIn("Saratoga Farm Stand", names)
-        self.assertContains(response, "Distance only narrows farmers markets")
+        self.assertNotIn("Joe's Pizza", names)  # about 3 miles away
+        near_joe = {"lat": "40.695", "lng": "-73.985", "distance": "1"}
+        self.assertIn("Joe's Pizza", self.items({**near_joe, "types": "restaurant"}))
         self.assertContains(response, "Using your location")
         self.assertContains(response, 'id="clear-location"')
 
-    def test_google_only_filters_are_ignored_for_inspection_records(self):
+    def test_price_and_rating_filter_saved_restaurants(self):
         with patch("search.find_food.get_restaurants") as google:
-            response = self.get({"price": "$$", "types": "restaurant"})
+            cheap = self.items({"price": "$", "types": "restaurant"})
+            rated = self.items({"min_rating": "4", "types": "restaurant"})
         google.assert_not_called()
-        self.assertContains(response, "only apply to Google Places results")
+        self.assertEqual(list(cheap), ["Joe's Pizza"])
+        self.assertEqual(list(rated), ["Joe's Pizza"])
+
+    def test_open_now_is_ignored_for_saved_restaurants(self):
+        response = self.get({"open_now": "on", "types": "restaurant"})
+        self.assertContains(response, "only applies to live Google results")
         self.assertEqual(len(response.context["items"]), 2)
 
     def test_invalid_filter_shows_error(self):
@@ -230,20 +241,20 @@ class FindFoodPageTests(FindFoodData):
         self.assertContains(response, "Enter up to 5 digits")
         self.assertEqual(response.context["items"], [])
 
-    def test_kosher_needs_inspection_records(self):
+    def test_kosher_needs_saved_restaurants(self):
         response = self.get({"source": "google", "diet": "kosher"})
-        self.assertContains(response, "Kosher is only available with NYC inspection")
+        self.assertContains(response, "Kosher is only available with saved restaurants")
 
     def test_pagination_spans_store_types(self):
         for n in range(30):
-            RestaurantInspection.objects.create(camis=f"x{n}", dba=f"Aaa {n:02}")
+            make_restaurant(f"x{n}", f"Aaa {n:02}")
         first = self.get()
         self.assertEqual(len(first.context["items"]), 25)
         self.assertEqual(first.context["total"], 37)
         second = self.get({"page": "2"}).context["items"]
         kinds = {item["kind"] for item in second}
         self.assertEqual(len(second), 12)
-        self.assertEqual(kinds, {"restaurant_dohmh", "farmers_market", "grocery"})
+        self.assertEqual(kinds, {"restaurant_google", "farmers_market", "grocery"})
 
 
 @patch.dict("os.environ", WITH_KEY)
@@ -267,23 +278,15 @@ class MissingLocationLookupTests(FindFoodData):
         self.assertContains(response, "Located via Google")
 
     @patch("search.locations.locate_place", return_value=found())
-    def test_restaurants_without_coordinates_are_looked_up(self, locate):
+    def test_restaurants_are_never_looked_up(self, locate):
         taco = self.items({"types": "restaurant"})["Taco Town"]
-        self.assertEqual(taco["lat"], 40.7)
-        # Joe's Pizza already had enrichment coordinates: one call only.
-        locate.assert_called_once_with("Taco Town 2 Main St Queens NY 11101")
+        self.assertEqual(taco["lat"], 40.745)
+        locate.assert_not_called()
 
     @patch("search.locations.locate_place", return_value=found())
-    def test_cached_restaurants_show_on_map_beyond_the_current_page(self, _locate):
-        LocationLookup.objects.create(
-            kind="restaurant_dohmh",
-            key="camis:2",
-            found=True,
-            latitude=40.75,
-            longitude=-73.86,
-        )
+    def test_restaurants_show_on_map_beyond_the_current_page(self, _locate):
         for n in range(30):
-            RestaurantInspection.objects.create(camis=f"x{n}", dba=f"Aaa {n:02}")
+            make_restaurant(f"x{n}", f"Aaa {n:02}")
         response = self.get({"types": "restaurant", "page": "1"})
         names = {item["name"] for item in response.context["items"]}
         self.assertNotIn("Taco Town", names)
@@ -350,13 +353,12 @@ GOOGLE_PLACE = {
 
 
 @patch.dict("os.environ", NO_KEY)
-@patch("search.find_food.attach_inspections", side_effect=lambda places: places)
 @patch("search.find_food.get_restaurants")
 class GooglePlacesSourceTests(FindFoodData):
     def google(self, params):
         return self.get({"types": "restaurant", "source": "google", **params})
 
-    def test_filters_are_passed_together(self, google, _attach):
+    def test_filters_are_passed_together(self, google):
         google.return_value = []
         self.google(
             {
@@ -385,36 +387,33 @@ class GooglePlacesSourceTests(FindFoodData):
             min_rating=4.0,
         )
 
-    def test_results_are_shown_with_google_details(self, google, _attach):
-        google.return_value = [
-            {**GOOGLE_PLACE, "inspection": {"camis": "1", "grade": "A", "date": None}}
-        ]
+    def test_results_are_shown_with_google_details(self, google):
+        google.return_value = [dict(GOOGLE_PLACE)]
         response = self.google({"area": "Manhattan"})
         item = response.context["items"][0]
         self.assertEqual(item["key"], "google:ChIJlive")
         self.assertEqual(item["category"], "restaurant_google")
+        # Opening it stores the place (see test_auto_fetch).
         self.assertEqual(
-            item["grade_url"], reverse("search:restaurant_detail", args=["1"])
+            item["url"], reverse("search:restaurant_detail", args=["ChIJlive"])
         )
+        self.assertFalse(item["external_url"])
         self.assertTrue(item["photo_url"].startswith(reverse("restaurants:photo")))
         self.assertContains(response, "Live Spot")
         self.assertContains(response, "0.30 mi away")
         self.assertContains(response, "★ 4.4 (50)")
-        self.assertContains(response, "Grade A")
         self.assertEqual(
             [p["category"] for p in response.context["map_points"]],
             ["restaurant_google"],
         )
 
-    def test_name_zip_and_grade_filter_google_results(self, google, _attach):
+    def test_name_and_zip_filter_google_results(self, google):
         google.return_value = [dict(GOOGLE_PLACE)]
         self.assertEqual(len(self.google({"q": "live"}).context["items"]), 1)
         self.assertEqual(self.google({"q": "other"}).context["items"], [])
         self.assertEqual(self.google({"zip": "112"}).context["items"], [])
-        self.assertEqual(self.google({"grade": "A"}).context["items"], [])
-        self.assertContains(self.google({}), "No inspection data")
 
-    def test_data_source_error_is_shown(self, google, _attach):
+    def test_data_source_error_is_shown(self, google):
         google.side_effect = PlacesError("boom")
         response = self.get({"source": "google"})
         self.assertContains(response, "boom")

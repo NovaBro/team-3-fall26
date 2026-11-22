@@ -8,7 +8,7 @@ from django.urls import reverse
 
 from accounts import checkin
 from accounts.models import MoodLog
-from search.models import RestaurantInspection
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 
 class HeadlineTests(TestCase):
@@ -26,6 +26,8 @@ class HeadlineTests(TestCase):
 
 
 class QuickCheckinTests(TestCase):
+    databases = ALL_DATABASES
+
     def setUp(self):
         self.user = User.objects.create_user("mia", password="pw-12345!")
         self.client.force_login(self.user)
@@ -54,7 +56,8 @@ class QuickCheckinTests(TestCase):
     def test_yesterdays_check_in_is_left_alone(self):
         old = MoodLog.objects.create(user=self.user, mood=1, energy_level=1)
         MoodLog.objects.filter(pk=old.pk).update(
-            created_at=checkin.start_of_today() - timedelta(hours=1)
+            log_date=(checkin.start_of_today() - timedelta(days=1)).date(),
+            created_at=checkin.start_of_today() - timedelta(hours=1),
         )
         self.post("mood", 5)
         self.assertEqual(MoodLog.objects.count(), 2)
@@ -92,6 +95,8 @@ class QuickCheckinTests(TestCase):
 
 
 class TodayTests(TestCase):
+    databases = ALL_DATABASES
+
     def test_start_of_today_is_new_york_midnight(self):
         now = datetime(2026, 11, 17, 3, 30, tzinfo=checkin.NEW_YORK)
         start = checkin.start_of_today(now)
@@ -107,7 +112,7 @@ class TodayTests(TestCase):
 
 
 class HomePageTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def test_logged_out_sees_default_banner_and_no_picker(self):
         response = self.client.get(reverse("search:home"))
@@ -115,15 +120,13 @@ class HomePageTests(TestCase):
         self.assertNotContains(response, "mood-pick__btn")
 
     def test_logged_in_sees_picker_and_todays_headline(self):
-        RestaurantInspection.objects.create(
-            camis="70001",
-            dba="GREEN BOWL",
+        make_restaurant(
+            "70001",
+            "GREEN BOWL",
             boro="Queens",
             street="1 Main St",
             zipcode="11101",
             cuisine="Salads",
-            inspection_date="2026-06-01",
-            grade="A",
         )
         user = User.objects.create_user("ana", password="pw-12345!")
         MoodLog.objects.create(user=user, mood=1, energy_level=1)

@@ -328,7 +328,6 @@ tbody tr:hover { background: var(--raised); }
 /* Match the marker colors in combined_map.js. */
 .swatch--farmers_market { background: #1f5fbf; }
 .swatch--grocery { background: #2e8b57; }
-.swatch--restaurant_dohmh { background: #e67e22; }
 .swatch--restaurant_google { background: #9b59b6; }
 
 .google-load-controls {
@@ -1177,6 +1176,11 @@ button.panel-edge-tab:focus-visible {
   color: var(--accent);
 }
 .healthiness-score__sub { margin: 2px 0 0; font-size: 0.88rem; }
+.healthiness-score__confidence {
+  text-transform: capitalize;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
 .healthiness-score__tags {
   display: flex;
   flex-wrap: wrap;

@@ -87,7 +87,7 @@
 <section class="form-section">
   <div class="section-head">
     <h2>Daily check-in</h2>
-    <p class="muted">How are you feeling today?</p>
+    <p class="muted">How are you feeling today? Saving again updates today's entry (one per day).</p>
   </div>
   <form method="post" action="{% url 'accounts:profile' %}" class="checkin-form">
     {% csrf_token %}
@@ -111,7 +111,7 @@
     <ul class="checkin-history">
       {% for log in mood_history %}
         <li>
-          <span class="checkin-history__when muted">{{ log.created_at|date:"N j, P" }}</span>
+          <span class="checkin-history__when muted">{{ log.log_date|date:"N j, Y" }}</span>
           <span class="checkin-history__item">{{ log.mood_icon }}{{ log.mood_display_label }}</span>
           <span class="checkin-history__item">{{ log.energy_icon }}{{ log.energy_display_label }}</span>
         </li>

@@ -6,7 +6,8 @@
       "Action": ["s3:GetObject"],
       "Resource": [
         "arn:aws:s3:::elasticbeanstalk-us-east-1-322134621417/nyc_food.db",
-        "arn:aws:s3:::elasticbeanstalk-us-east-1-322134621417/community.db"
+        "arn:aws:s3:::elasticbeanstalk-us-east-1-322134621417/community.db",
+        "arn:aws:s3:::elasticbeanstalk-us-east-1-322134621417/users.db"
       ]
     }
   ]

@@ -1,5 +1,5 @@
 import json
-from datetime import date, timedelta
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -22,13 +22,13 @@ from assistant.profile import (
 from assistant.recommend import matching_cuisines, personalized_picks, shortlist
 from assistant.tools import MAX_GOOGLE_SEARCHES, ToolRunner, display_text
 from assistant.views import MAX_HISTORY_TURNS, SESSION_KEY, _location, _trimmed
-from community.keys import DOHMH, dohmh_key
+from community.keys import GOOGLE, google_key
 from community.models import CommunitySubject, PlaceEnrichment, UserRating
 from restaurants.places import PlacesError
-from search.find_food import GOOGLE, _item
-from search.models import HealthyStore, MenuItem, RestaurantInspection
+from search.find_food import _item
+from search.models import HealthyStore, MenuItem
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
-ALL_DATABASES = {"default", "community"}
 TEST_KEY = "test-key"
 MIDTOWN = (40.7549, -73.984)
 
@@ -46,17 +46,16 @@ def response(*blocks, stop_reason="end_turn"):
     return SimpleNamespace(content=list(blocks), stop_reason=stop_reason, usage=usage)
 
 
-def inspection(camis, name, cuisine="Italian", grade="A", boro="Brooklyn", days_ago=1):
-    return RestaurantInspection.objects.create(
-        camis=camis,
-        dba=name,
+def restaurant(place_id, name, cuisine="Italian", boro="Brooklyn", **fields):
+    """A saved Google restaurant; Google names are not in capitals."""
+    return make_restaurant(
+        place_id,
+        display_text(name),
         boro=boro,
-        street="1 MAIN ST",
+        street="1 Main St",
         zipcode="11201",
         cuisine=cuisine,
-        grade=grade,
-        inspection_date=date.today() - timedelta(days=days_ago),
-        violation_description="Food not protected.",
+        **fields,
     )
 
 
@@ -108,7 +107,7 @@ class ProfileContextTests(TestCase):
             {"zip": "11375", "borough": "Queens"},
         )
         self.assertEqual(home_area(""), {"zip": "", "borough": ""})
-        inspection("1", "LUIGI", boro="Brooklyn")
+        restaurant("1", "LUIGI", boro="Brooklyn")
         self.assertEqual(
             home_area("12 Elm St 11201"), {"zip": "11201", "borough": "Brooklyn"}
         )
@@ -123,8 +122,11 @@ class ProfileContextTests(TestCase):
         self.assertEqual(
             preferences(user)["latest_check_in"], "mood Good, energy Tired"
         )
+        stale = timezone.now() - timedelta(days=2)
         MoodLog.objects.filter(pk=mood.pk).update(
-            created_at=timezone.now() - timedelta(days=2)
+            created_at=stale,
+            updated_at=stale,
+            log_date=stale.date(),
         )
         self.assertEqual(preferences(user)["latest_check_in"], "")
 
@@ -141,21 +143,21 @@ class SearchPlacesToolTests(TestCase):
         return (json.loads(content) if not is_error else content), is_error, runner
 
     def test_filters_restaurants_and_softens_names(self):
-        inspection("1", "LUIGI PIZZA", cuisine="Italian")
-        inspection("2", "THAI HOUSE", cuisine="Thai")
+        restaurant("1", "LUIGI PIZZA", cuisine="Italian")
+        restaurant("2", "THAI HOUSE", cuisine="Thai")
         result, is_error, runner = self.run_tool({"cuisine": "Italian"})
         self.assertFalse(is_error)
         self.assertEqual([p["name"] for p in result["places"]], ["Luigi Pizza"])
-        self.assertEqual(result["places"][0]["inspection_grade"], "A")
+        self.assertEqual(result["places"][0]["google_rating"], 4.5)
         self.assertEqual(
-            runner.places["camis:1"]["url"],
+            runner.places["google:1"]["url"],
             reverse("search:restaurant_detail", args=["1"]),
         )
 
     def test_allergies_do_not_hide_whole_cuisines(self):
         self.user.delete()
         self.user = make_user(allergies="peanuts")
-        inspection("1", "THAI HOUSE", cuisine="Thai")
+        restaurant("1", "THAI HOUSE", cuisine="Thai")
         result, _error, _runner = self.run_tool({"cuisine": "Thai"})
         self.assertEqual([p["name"] for p in result["places"]], ["Thai House"])
 
@@ -264,29 +266,29 @@ class SearchPlacesToolTests(TestCase):
         self.assertEqual([p["name"] for p in result["places"]], ["Near Mart"])
         self.assertLess(result["places"][0]["distance_miles"], 1)
 
-    def test_grade_a_comes_first(self):
-        inspection("1", "OLDER A", grade="A", days_ago=30)
-        inspection("2", "NEWER B", grade="B", days_ago=1)
+    def test_best_rated_comes_first(self):
+        restaurant("1", "Fine", rating=4.1)
+        restaurant("2", "Great", rating=4.8)
         result, _error, _runner = self.run_tool({"cuisine": "Italian"})
-        self.assertEqual([p["name"] for p in result["places"]], ["Older A", "Newer B"])
+        self.assertEqual([p["name"] for p in result["places"]], ["Great", "Fine"])
 
     def test_limit_is_capped(self):
         for number in range(20):
-            inspection(str(number), f"PLACE {number}")
+            restaurant(str(number), f"PLACE {number}")
         result, _error, _runner = self.run_tool({"cuisine": "Italian", "limit": 500})
         self.assertEqual(len(result["places"]), 15)
 
     def test_unknown_cuisine_returns_the_valid_list(self):
-        inspection("1", "LUIGI", cuisine="Italian")
+        restaurant("1", "LUIGI", cuisine="Italian")
         result, _error, _runner = self.run_tool({"cuisine": "Klingon"})
         self.assertEqual(result["available_cuisines"], ["Italian"])
 
-    def test_includes_cached_google_data(self):
-        inspection("1", "LUIGI")
-        PlaceEnrichment.objects.create(
-            camis="1",
+    def test_includes_stored_google_data(self):
+        restaurant(
+            "1",
+            "LUIGI",
             rating=4.5,
-            user_rating_count=10,
+            rating_count=10,
             price_level="PRICE_LEVEL_MODERATE",
         )
         result, _error, _runner = self.run_tool({"cuisine": "Italian"})
@@ -340,14 +342,17 @@ class PlaceDetailsToolTests(TestCase):
         return json.loads(content) if not is_error else content, is_error
 
     def test_restaurant_details(self):
-        inspection("1", "LUIGI")
-        subject = CommunitySubject.objects.create(kind=DOHMH, key=dohmh_key("1"))
+        restaurant("1", "LUIGI")
+        subject = CommunitySubject.objects.create(kind=GOOGLE, key=google_key("1"))
         UserRating.objects.create(subject=subject, user_id=99, score=4)
-        place = PlaceEnrichment.objects.create(camis="1", rating=4.0)
+        place = PlaceEnrichment.objects.create(
+            kind=GOOGLE, key=google_key("1"), place_id="1", rating=4.0
+        )
         place.reviews.create(rating=5, text="Great", author_name="Private Person")
-        result, is_error = self.details("camis:1")
+        result, is_error = self.details("google:1")
         self.assertFalse(is_error)
-        self.assertEqual(result["recent_violations"], ["Food not protected."])
+        self.assertNotIn("recent_violations", result)
+        self.assertEqual(result["google_rating"], 4.0)
         self.assertEqual(result["visitor_rating"], 4.0)
         self.assertEqual(result["recent_reviews"], [{"rating": 5, "text": "Great"}])
         self.assertNotIn("Private Person", json.dumps(result))
@@ -361,7 +366,7 @@ class PlaceDetailsToolTests(TestCase):
         self.assertEqual(result["name"], "Green Mart")
 
     def test_unknown_keys_are_errors(self):
-        for key in ("camis:404", "nothing", "google:abc"):
+        for key in ("google:404", "nothing", "google:abc"):
             _result, is_error = self.details(key)
             self.assertTrue(is_error)
 
@@ -427,14 +432,14 @@ class MyRatingsToolTests(TestCase):
         user = make_user()
         other = make_user("other")
         subject = CommunitySubject.objects.create(
-            kind=DOHMH, key="camis:1", name="LUIGI"
+            kind=GOOGLE, key="google:1", name="LUIGI"
         )
         UserRating.objects.create(subject=subject, user_id=user.id, score=5)
         UserRating.objects.create(subject=subject, user_id=other.id, score=1)
         content, _error = ToolRunner(user).run("get_my_ratings", {"user_id": other.id})
         self.assertEqual(
             json.loads(content)["ratings"],
-            [{"key": "camis:1", "name": "Luigi", "score": 5}],
+            [{"key": "google:1", "name": "Luigi", "score": 5}],
         )
 
 
@@ -460,8 +465,8 @@ class RunChatTests(TestCase):
         self.addCleanup(patcher.stop)
 
     def test_runs_tools_then_answers_with_cards(self):
-        inspection("1", "LUIGI", cuisine="Italian")
-        inspection("2", "THAI HOUSE", cuisine="Thai")
+        restaurant("1", "LUIGI", cuisine="Italian")
+        restaurant("2", "THAI HOUSE", cuisine="Thai")
         self.create.side_effect = [
             response(
                 tool_block("search_places", {"types": ["restaurant"]}),
@@ -571,7 +576,7 @@ class RealSdkTests(TestCase):
         )
 
     def test_tool_loop_returns_thinking_blocks_unchanged(self):
-        inspection("1", "LUIGI")
+        restaurant("1", "LUIGI")
         thinking = {"type": "thinking", "thinking": "", "signature": "sig"}
         client = self.client_for(
             [
@@ -603,7 +608,7 @@ class RealSdkTests(TestCase):
     @override_settings(ANTHROPIC_API_KEY=TEST_KEY)
     def test_ranking_uses_structured_output(self):
         cache.clear()
-        inspection("1", "LUIGI")
+        restaurant("1", "LUIGI")
         client = self.client_for(
             [
                 api_reply(
@@ -611,7 +616,7 @@ class RealSdkTests(TestCase):
                         {
                             "type": "text",
                             "text": json.dumps(
-                                {"ranked": [{"key": "camis:1", "reason": "Italian."}]}
+                                {"ranked": [{"key": "google:1", "reason": "Italian."}]}
                             ),
                         }
                     ]
@@ -620,7 +625,7 @@ class RealSdkTests(TestCase):
         )
         with patch("assistant.recommend.get_client", return_value=client):
             picks = personalized_picks(make_user(favorite_foods="Italian"), count=1)
-        self.assertEqual(picks, [{"camis": "1", "reason": "Italian."}])
+        self.assertEqual(picks, [{"place_id": "1", "reason": "Italian."}])
         self.assertEqual(
             self.requests[0]["output_config"]["format"]["type"], "json_schema"
         )
@@ -743,9 +748,7 @@ class WidgetTests(TestCase):
     databases = ALL_DATABASES
 
     def setUp(self):
-        patcher = patch("search.views.find_restaurant_place", return_value=None)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        cache.clear()
 
     @override_settings(ANTHROPIC_API_KEY="")
     def test_hidden_without_a_key(self):
@@ -794,56 +797,55 @@ class PersonalizedPicksTests(TestCase):
 
     def test_shortlist_prefers_home_borough_when_it_has_enough(self):
         for number in range(12):
-            inspection(f"q{number}", f"QUEENS {number}", boro="Queens")
-        inspection("b1", "BROOKLYN ONE", boro="Brooklyn")
+            restaurant(f"q{number}", f"QUEENS {number}", boro="Queens")
+        restaurant("b1", "BROOKLYN ONE", boro="Brooklyn")
         queens = make_user(
             favorite_foods="Italian", home_address="1 Elm St, Queens, NY"
         )
         keys = [item["key"] for item in shortlist(preferences(queens))]
-        self.assertNotIn("camis:b1", keys)
+        self.assertNotIn("google:b1", keys)
         # Too few nearby, so it looks citywide.
         brooklyn = make_user(
             "b", favorite_foods="Italian", home_address="1 Elm St, Brooklyn, NY"
         )
         keys = [item["key"] for item in shortlist(preferences(brooklyn))]
-        self.assertIn("camis:q1", keys)
+        self.assertIn("google:q1", keys)
 
-    def test_shortlist_keeps_allergy_cuisines_and_drops_dislikes_and_low_grades(self):
-        inspection("2", "THAI HOUSE", cuisine="Thai")
-        inspection("3", "BURGER BARN", cuisine="Hamburgers")
-        inspection("4", "FADED", cuisine="Italian", days_ago=40)
-        inspection("4", "FADED", cuisine="Italian", grade="C", days_ago=1)
+    def test_shortlist_keeps_allergy_cuisines_and_drops_dislikes_and_low_ratings(self):
+        restaurant("2", "THAI HOUSE", cuisine="Thai")
+        restaurant("3", "BURGER BARN", cuisine="Hamburgers")
+        restaurant("4", "FADED", cuisine="Italian", rating=3.6)
         user = make_user(
             favorite_foods="Italian", disliked_foods="burgers", allergies="peanuts"
         )
         items = shortlist(preferences(user))
-        self.assertEqual([item["key"] for item in items], ["camis:2"])
+        self.assertEqual([item["key"] for item in items], ["google:2"])
 
     def test_returns_ranked_picks_and_caches_them(self):
-        inspection("1", "LUIGI", days_ago=2)
-        inspection("2", "SOFIA", days_ago=1)
-        self.create.return_value = self.ranked(("camis:1", "Fits you."))
+        restaurant("1", "LUIGI")
+        restaurant("2", "SOFIA")
+        self.create.return_value = self.ranked(("google:1", "Fits you."))
         user = make_user(favorite_foods="Italian")
         picks = personalized_picks(user, count=2)
         # Claude's choice first, then padded from the shortlist.
         self.assertEqual(
             picks,
-            [{"camis": "1", "reason": "Fits you."}, {"camis": "2", "reason": ""}],
+            [{"place_id": "1", "reason": "Fits you."}, {"place_id": "2", "reason": ""}],
         )
         self.assertEqual(personalized_picks(user, count=2), picks)
         self.assertEqual(self.create.call_count, 1)
 
     def test_invented_keys_are_dropped(self):
-        inspection("1", "LUIGI")
+        restaurant("1", "LUIGI")
         self.create.return_value = self.ranked(
-            ("camis:999", "Made up."), ("camis:1", "Real.")
+            ("google:999", "Made up."), ("google:1", "Real.")
         )
         picks = personalized_picks(make_user(favorite_foods="Italian"), count=1)
-        self.assertEqual(picks, [{"camis": "1", "reason": "Real."}])
+        self.assertEqual(picks, [{"place_id": "1", "reason": "Real."}])
 
     def test_profile_change_asks_again(self):
-        inspection("1", "LUIGI")
-        self.create.return_value = self.ranked(("camis:1", "Fits."))
+        restaurant("1", "LUIGI")
+        self.create.return_value = self.ranked(("google:1", "Fits."))
         user = make_user(favorite_foods="Italian")
         personalized_picks(user)
         UserProfile.objects.filter(user=user).update(favorite_foods="Italian, pasta")
@@ -851,11 +853,11 @@ class PersonalizedPicksTests(TestCase):
         self.assertEqual(self.create.call_count, 2)
 
     def test_failures_fall_back_and_are_briefly_cached(self):
-        inspection("1", "LUIGI")
+        restaurant("1", "LUIGI")
         user = make_user(favorite_foods="Italian")
         for bad in (
             response(text_block("not json")),
-            self.ranked(("camis:999", "Made up.")),
+            self.ranked(("google:999", "Made up.")),
             response(stop_reason="max_tokens"),
             response(stop_reason="refusal"),
         ):
@@ -885,30 +887,26 @@ class HomePersonalizationTests(TestCase):
 
     def setUp(self):
         cache.clear()
-        for path in ("search.views.find_restaurant_place",):
-            patcher = patch(path, return_value=None)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        inspection("1", "LUIGI", days_ago=5)
-        inspection("2", "SOFIA", days_ago=1)
+        restaurant("1", "LUIGI")
+        restaurant("2", "SOFIA")
 
     def test_logged_in_user_sees_ranked_picks_with_reasons(self):
         self.client.force_login(make_user(favorite_foods="Italian"))
-        picks = [{"camis": "1", "reason": "Your favorite cuisine."}]
+        picks = [{"place_id": "1", "reason": "Your favorite cuisine."}]
         with patch("search.views.personalized_picks", return_value=picks):
             page = self.client.get(reverse("search:home"))
         self.assertContains(page, "Picked for you")
         self.assertContains(page, "Your favorite cuisine.")
-        self.assertEqual(page.context["top_picks"][0]["camis"], "1")
+        self.assertEqual(page.context["top_picks"][0]["place_id"], "1")
 
     def test_falls_back_to_default_picks(self):
         self.client.force_login(make_user(favorite_foods="Italian"))
         with patch("search.views.personalized_picks", return_value=[]):
             page = self.client.get(reverse("search:home"))
         self.assertContains(page, "Today's Top Picks")
-        # Fallback = the normal daily picks (ranked by score, not inspection date).
-        camis = {pick["camis"] for pick in page.context["top_picks"]}
-        self.assertEqual(camis, {"1", "2"})
+        # Fallback = the normal daily picks (ranked by score).
+        ids = {pick["place_id"] for pick in page.context["top_picks"]}
+        self.assertEqual(ids, {"1", "2"})
         self.assertFalse(page.context["personalized_picks"])
 
     def test_visitors_get_default_picks(self):
@@ -922,8 +920,8 @@ class LongReasonTests(TestCase):
 
     def test_long_reasons_end_on_a_whole_word(self):
         cache.clear()
-        inspection("1", "LUIGI")
-        body = {"ranked": [{"key": "camis:1", "reason": "word " * 100}]}
+        restaurant("1", "LUIGI")
+        body = {"ranked": [{"key": "google:1", "reason": "word " * 100}]}
         with patch("assistant.recommend.get_client") as client:
             client.return_value.messages.create.return_value = response(
                 text_block(json.dumps(body))

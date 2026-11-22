@@ -8,11 +8,14 @@ from search.menustat import (
     calorie_score_from_median,
     clear_menustat_cache,
     match_menustat_restaurant,
+    match_menustat_restaurant_detail,
     median_meal_calories,
+    menu_nutrition_for_name,
     qualifying_meals,
     top_low_calorie_meals,
 )
-from search.models import MenuItem, RestaurantInspection
+from search.models import MenuItem
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 
 def _meal(**kwargs):
@@ -102,6 +105,14 @@ class MenuStatHelperTests(TestCase):
         clear_menustat_cache()
         self.assertEqual(match_menustat_restaurant("McDonald's"), "McDonald's")
         self.assertEqual(match_menustat_restaurant("McDonald's Midtown"), "McDonald's")
+        self.assertEqual(
+            match_menustat_restaurant_detail("McDonald's"),
+            ("McDonald's", "exact"),
+        )
+        self.assertEqual(
+            match_menustat_restaurant_detail("McDonald's Midtown"),
+            ("McDonald's", "prefix"),
+        )
         self.assertIsNone(match_menustat_restaurant("Joe's Pizza Shop"))
 
     def test_calorie_score_map_endpoints(self):
@@ -120,10 +131,15 @@ class MenuStatHelperTests(TestCase):
         score = calorie_score_for_name("Test Chain")
         self.assertIsNotNone(score)
         self.assertAlmostEqual(score, calorie_score_from_median(400))
+        info = menu_nutrition_for_name("Test Chain")
+        self.assertEqual(info["match_kind"], "exact")
+        self.assertEqual(info["menu_year"], 2018)
+        self.assertEqual(info["meal_count"], 3)
+        self.assertAlmostEqual(info["score"], score)
 
 
 class RestaurantDetailMenuStatTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         clear_menustat_cache()
@@ -132,15 +148,13 @@ class RestaurantDetailMenuStatTests(TestCase):
         clear_menustat_cache()
 
     def test_detail_shows_top5_when_linked(self):
-        RestaurantInspection.objects.create(
-            camis="500",
-            dba="Test Chain",
+        make_restaurant(
+            "500",
+            "Test Chain",
             boro="Manhattan",
             street="1 Main",
             zipcode="10001",
             cuisine="American",
-            inspection_date="2024-01-01",
-            grade="A",
         )
         for i, cal in enumerate([250, 300, 350, 400, 450, 500], start=1):
             _meal(
@@ -159,15 +173,13 @@ class RestaurantDetailMenuStatTests(TestCase):
         self.assertIn("historical", content.casefold())
 
     def test_detail_omits_menu_when_unmatched(self):
-        RestaurantInspection.objects.create(
-            camis="501",
-            dba="Local Only Bistro",
+        make_restaurant(
+            "501",
+            "Local Only Bistro",
             boro="Brooklyn",
             street="2 Side",
             zipcode="11201",
             cuisine="American",
-            inspection_date="2024-01-01",
-            grade="A",
         )
         response = self.client.get(reverse("search:restaurant_detail", args=["501"]))
         self.assertEqual(response.status_code, 200)

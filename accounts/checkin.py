@@ -6,7 +6,7 @@ profile's check-in history still shows one line per day from the home page.
 "Today" is the New York calendar day.
 
 The banner above Top picks shows a headline that matches today's check-in.
-It only sets the tone: the picks themselves don't change with mood yet.
+Ranking may also use today's MoodLog when both mood and energy are set.
 """
 
 from datetime import datetime, time
@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from accounts.goal_icons import ENERGY_ICONS, MOOD_ICONS, icon
 from accounts.models import MoodLog
+from accounts.mood import today_ny
 
 NEW_YORK = ZoneInfo("America/New_York")
 EMPTY_ICONS = {"mood": "mood-plus", "energy": "battery-charging"}
@@ -67,14 +68,10 @@ def start_of_today(now=None):
 
 
 def todays_log(user, now=None):
-    """The user's latest check-in from today (New York time), or None."""
+    """The user's check-in for today's New York calendar day, or None."""
     if user is None or not user.is_authenticated:
         return None
-    return (
-        MoodLog.objects.filter(user=user, created_at__gte=start_of_today(now))
-        .order_by("-created_at")
-        .first()
-    )
+    return MoodLog.objects.filter(user=user, log_date=today_ny(now)).first()
 
 
 def save_today(user, kind, value, now=None):

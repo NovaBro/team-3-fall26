@@ -1,31 +1,31 @@
-"""Load the raw NYC Open Data CSV/JSON files in database/datasets/ into SQLite.
+"""Load the NYC Open Data CSV files in database/datasets/ into SQLite.
+
+Three datasets: MenuStat chain menus, farmers markets and Shop Healthy
+stores. Restaurants come from Google Places (``manage.py sync_restaurants``).
 
 Usage:
     python manage.py import_datasets
 
 The command is idempotent: each target table is cleared before it is reloaded.
+
+Farmers markets keep only the latest season (the CSV repeats every market
+once per year), and Shop Healthy's "New York" borough is stored as Manhattan.
+Afterwards markets and stores are curated (see search/curation.py), and
+every database is ANALYZEd so SQLite has statistics to pick indexes with.
+Without them it looks up reviews by the low-selectivity ``kind`` index
+instead of ``place_id``, which made the home page ~3x slower.
 """
 
-import json
 import math
 from pathlib import Path
 
 import pandas as pd
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.db import connections, transaction
 
-from search.models import (
-    AgencyPurchase,
-    FarmersMarket,
-    HealthyStore,
-    MenuItem,
-    ParkEatery,
-    RestaurantInspection,
-    RestaurantSummary,
-)
-from search import signals as summary_signals
-from search.summary import rebuild_all
+from search.curation import MARKETS, STORES, curate
+from search.models import FarmersMarket, HealthyStore, MenuItem
 
 DATASETS_DIR = Path(settings.BASE_DIR) / "database" / "datasets"
 
@@ -62,6 +62,12 @@ def _int(value):
     return int(number) if number is not None else None
 
 
+def _borough(value):
+    text = _text(value)
+    # Shop Healthy lists some Manhattan stores under the borough "New York".
+    return "Manhattan" if text == "New York" else text
+
+
 def _bool(value):
     try:
         return bool(int(float(_text(value))))
@@ -69,9 +75,16 @@ def _bool(value):
         return False
 
 
-def _date(value):
-    parsed = pd.to_datetime(_text(value), errors="coerce")
-    return None if pd.isna(parsed) else parsed.date()
+def analyze_databases():
+    """Refresh SQLite's query-planner statistics on every database."""
+    analyzed = []
+    for connection in connections.all():
+        if connection.vendor != "sqlite":
+            continue
+        with connection.cursor() as cursor:
+            cursor.execute("ANALYZE")
+        analyzed.append(connection.alias)
+    return analyzed
 
 
 class Command(BaseCommand):
@@ -83,21 +96,24 @@ class Command(BaseCommand):
             return
 
         importers = [
-            ("restaurant inspections", RestaurantInspection, self._import_restaurants),
             ("menu items", MenuItem, self._import_menu_items),
-            ("agency purchases", AgencyPurchase, self._import_purchases),
             ("farmers markets", FarmersMarket, self._import_markets),
             ("healthy stores", HealthyStore, self._import_stores),
-            ("park eateries", ParkEatery, self._import_eateries),
         ]
 
-        with summary_signals.paused():
-            for label, model, importer in importers:
-                model.objects.all().delete()
-                count = importer()
-                self.stdout.write(self.style.SUCCESS(f"Imported {count:,} {label}"))
-        count = rebuild_all(RestaurantInspection, RestaurantSummary)
-        self.stdout.write(self.style.SUCCESS(f"Summarised {count:,} restaurants"))
+        for label, model, importer in importers:
+            model.objects.all().delete()
+            count = importer()
+            self.stdout.write(self.style.SUCCESS(f"Imported {count:,} {label}"))
+
+        # Re-imported rows start active; keep only the curated pool.
+        report = curate(kinds=(MARKETS, STORES))
+        for kind, boroughs in report.items():
+            kept = sum(k for k, _ in boroughs.values())
+            self.stdout.write(f"{kept:,} {kind} active after curation")
+
+        analyzed = analyze_databases()
+        self.stdout.write(f"Analyzed {', '.join(analyzed)}")
 
     def _find(self, pattern):
         matches = sorted(DATASETS_DIR.glob(pattern))
@@ -114,30 +130,6 @@ class Command(BaseCommand):
         with transaction.atomic():
             model.objects.bulk_create(records, batch_size=2000)
         return len(records)
-
-    def _import_restaurants(self):
-        # Cuisine comes from a separate CAMIS -> cuisine lookup file.
-        lookup = pd.read_csv(self._find("restaurant_cuisines_*.csv"), dtype=str)
-        cuisines = {
-            _text(camis): _text(cuisine)
-            for camis, cuisine in zip(lookup["camis"], lookup["cuisine_description"])
-        }
-        records = [
-            RestaurantInspection(
-                camis=_text(row["CAMIS"]),
-                dba=_text(row["DBA"]),
-                boro=_text(row["BORO"]),
-                street=_text(row["STREET"]),
-                zipcode=_zipcode(row["ZIPCODE"]),
-                cuisine=cuisines.get(_text(row["CAMIS"]), ""),
-                inspection_date=_date(row["INSPECTION DATE"]),
-                violation_code=_text(row["VIOLATION CODE"]),
-                violation_description=_text(row["VIOLATION DESCRIPTION"]),
-                grade=_text(row["GRADE"]),
-            )
-            for row in self._read_csv("restaurant_data_set_2_*.csv")
-        ]
-        return self._bulk(RestaurantInspection, records)
 
     def _import_menu_items(self):
         records = [
@@ -172,27 +164,10 @@ class Command(BaseCommand):
         ]
         return self._bulk(MenuItem, records)
 
-    def _import_purchases(self):
-        records = [
-            AgencyPurchase(
-                agency=_text(row["Agency"]),
-                time_period=_text(row["Time Period"]),
-                food_product_group=_text(row["Food Product Group"]),
-                food_product_category=_text(row["Food Product Category"]),
-                product_name=_text(row["Product Name"]),
-                product_type=_text(row["Product Type"]),
-                origin_detail=_text(row["Origin Detail"]),
-                distributor=_text(row["Distributor"]),
-                vendor=_text(row["Vendor"]),
-                units=_number(row["# of Units"]),
-                total_weight_lbs=_number(row["Total Weight in lbs"]),
-                total_cost=_number(row["Total Cost"]),
-            )
-            for row in self._read_csv("Good_Food_Purchasing_Data_*.csv")
-        ]
-        return self._bulk(AgencyPurchase, records)
-
     def _import_markets(self):
+        rows = self._read_csv("NYC_Farmers_Markets_*.csv")
+        years = [year for year in (_int(row["Year"]) for row in rows) if year]
+        latest = max(years, default=None)
         records = [
             FarmersMarket(
                 year=_int(row["Year"]),
@@ -211,7 +186,8 @@ class Command(BaseCommand):
                     row["Stellar Cooking Demonstrations"]
                 ),
             )
-            for row in self._read_csv("NYC_Farmers_Markets_*.csv")
+            for row in rows
+            if _int(row["Year"]) == latest
         ]
         return self._bulk(FarmersMarket, records)
 
@@ -220,7 +196,7 @@ class Command(BaseCommand):
             HealthyStore(
                 store_name=_text(row["Store Name"]),
                 street_address=_text(row["Street Address"]),
-                borough=_text(row["Borough"]),
+                borough=_borough(row["Borough"]),
                 zip_code=_zipcode(row["Zip Code"]),
                 year_awarded=_int(row["Year Awarded"]),
                 program_wave=_text(row["Program Wave"]),
@@ -236,23 +212,3 @@ class Command(BaseCommand):
             for row in self._read_csv("Recognized_Shop_Healthy_Stores_*.csv")
         ]
         return self._bulk(HealthyStore, records)
-
-    def _import_eateries(self):
-        with open(self._find("DPR_Eateries_*.json")) as handle:
-            data = json.load(handle)
-        records = [
-            ParkEatery(
-                name=_text(item.get("name")),
-                location=_text(item.get("location")),
-                park_id=_text(item.get("park_id")),
-                start_date=_date(item.get("start_date")),
-                end_date=_date(item.get("end_date")),
-                description=_text(item.get("description")),
-                permit_number=_text(item.get("permit_number")),
-                phone=_text(item.get("phone")),
-                website=_text(item.get("website")),
-                type_name=_text(item.get("type_name")),
-            )
-            for item in data
-        ]
-        return self._bulk(ParkEatery, records)

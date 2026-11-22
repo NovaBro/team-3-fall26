@@ -100,7 +100,7 @@
         card.rel = "noopener";
       }
       const distance = place.distance_miles == null ? "" : `${place.distance_miles} mi`;
-      meta.textContent = [place.type, distance, place.grade && `Grade ${place.grade}`, place.address]
+      meta.textContent = [place.type, distance, place.address]
         .filter(Boolean)
         .join(" · ");
       card.append(name, meta);

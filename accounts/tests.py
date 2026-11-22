@@ -1,8 +1,10 @@
 import io
 import re
 import tempfile
+from datetime import datetime, timedelta
 from io import BytesIO
 from tempfile import TemporaryDirectory
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import Permission, User
 from django.core import mail
@@ -14,8 +16,10 @@ from django.urls import reverse
 from PIL import Image
 
 from accounts.models import MoodLog, UserProfile
+from accounts.mood import latest_check_in_for, today_ny, upsert_today_mood
 from accounts.tokens import email_verification_token
 from community.models import CommunitySubject, UserComment, UserRating
+from nycfood.test_utils import ALL_DATABASES
 
 VALID_PASSWORD = "sTr0ngPass!2026x"
 
@@ -33,6 +37,8 @@ def _png_upload(name="me.png"):
 
 
 class SignupTests(TestCase):
+    databases = ALL_DATABASES
+
     def test_signup_creates_inactive_user_and_profile_and_emails_a_link(self):
         response = self.client.post(
             reverse("accounts:signup"),
@@ -204,6 +210,8 @@ class SignupTests(TestCase):
 
 
 class LoginTests(TestCase):
+    databases = ALL_DATABASES
+
     def setUp(self):
         self.user = User.objects.create_user(username="foodie", password=VALID_PASSWORD)
 
@@ -230,7 +238,7 @@ class LoginTests(TestCase):
 
 class ProfileTests(TestCase):
     # Logging out redirects to Find food, which reads stored map locations.
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.user = User.objects.create_user(username="foodie", password=VALID_PASSWORD)
@@ -389,7 +397,7 @@ class ProfileTests(TestCase):
             profile = UserProfile.objects.get(user=self.user)
             self.assertTrue(profile.picture.name.startswith("profile_pictures/"))
 
-    def test_log_mood_appends_timestamped_entry(self):
+    def test_log_mood_creates_todays_entry(self):
         response = self.client.post(
             reverse("accounts:profile"),
             {"action": "log_mood", "mood": "4", "energy_level": "2"},
@@ -399,6 +407,22 @@ class ProfileTests(TestCase):
         self.assertEqual(log.mood, 4)
         self.assertEqual(log.energy_level, 2)
         self.assertIsNotNone(log.created_at)
+        self.assertIsNotNone(log.log_date)
+
+    def test_log_mood_upserts_same_day(self):
+        self.client.post(
+            reverse("accounts:profile"),
+            {"action": "log_mood", "mood": "2", "energy_level": "1"},
+        )
+        self.client.post(
+            reverse("accounts:profile"),
+            {"action": "log_mood", "mood": "5", "energy_level": "4"},
+        )
+        logs = MoodLog.objects.filter(user=self.user)
+        self.assertEqual(logs.count(), 1)
+        log = logs.get()
+        self.assertEqual(log.mood, 5)
+        self.assertEqual(log.energy_level, 4)
 
     def test_log_mood_does_not_alter_fixed_profile(self):
         self.client.post(
@@ -428,12 +452,15 @@ class ProfileTests(TestCase):
         self.assertContains(response, 'class="checkin-scale"', count=2)
         self.assertContains(response, 'class="checkin-option__icon"', count=10)
 
-    def test_mood_history_lists_recent_entries_first(self):
-        for mood in (1, 3, 5):
-            self.client.post(
-                reverse("accounts:profile"),
-                {"action": "log_mood", "mood": str(mood), "energy_level": "3"},
-            )
+    def test_mood_history_lists_recent_days_first(self):
+        today = today_ny()
+        MoodLog.objects.create(
+            user=self.user, mood=1, energy_level=3, log_date=today - timedelta(days=2)
+        )
+        MoodLog.objects.create(
+            user=self.user, mood=3, energy_level=3, log_date=today - timedelta(days=1)
+        )
+        MoodLog.objects.create(user=self.user, mood=5, energy_level=3, log_date=today)
         response = self.client.get(reverse("accounts:profile"))
         history = list(response.context["mood_history"])
         self.assertEqual([log.mood for log in history], [5, 3, 1])
@@ -444,7 +471,38 @@ class ProfileTests(TestCase):
         self.assertNotIn("_auth_user_id", self.client.session)
 
 
+class MoodHelperTests(TestCase):
+    databases = ALL_DATABASES
+
+    def setUp(self):
+        self.user = User.objects.create_user("mooder", "m@example.com", VALID_PASSWORD)
+
+    def test_upsert_keys_off_ny_calendar_day(self):
+        # 1am UTC on Nov 15 is still Nov 14 in America/New_York (EDT/EST).
+        late_ny_evening = datetime(2026, 11, 15, 1, 0, tzinfo=ZoneInfo("UTC"))
+        self.assertEqual(today_ny(late_ny_evening).isoformat(), "2026-11-14")
+        first = upsert_today_mood(self.user, 2, 2, when=late_ny_evening)
+        second = upsert_today_mood(self.user, 5, 5, when=late_ny_evening)
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(MoodLog.objects.filter(user=self.user).count(), 1)
+        self.assertEqual(second.log_date.isoformat(), "2026-11-14")
+        self.assertEqual(second.mood, 5)
+
+    def test_latest_check_in_prefers_today_over_stale(self):
+        today = today_ny()
+        MoodLog.objects.create(
+            user=self.user,
+            mood=1,
+            energy_level=1,
+            log_date=today - timedelta(days=3),
+        )
+        today_log = upsert_today_mood(self.user, 4, 3)
+        self.assertEqual(latest_check_in_for(self.user).pk, today_log.pk)
+
+
 class ViewProfileTests(TestCase):
+    databases = ALL_DATABASES
+
     def setUp(self):
         self.user = User.objects.create_user(
             "ann",
@@ -464,6 +522,8 @@ class ViewProfileTests(TestCase):
 
 
 class AdminUserManagementTests(TestCase):
+    databases = ALL_DATABASES
+
     def setUp(self):
         self.user = User.objects.create_user(
             "target", "target@example.com", VALID_PASSWORD, is_active=True
@@ -531,7 +591,7 @@ class AdminUserManagementTests(TestCase):
 
 
 class SuperuserDashboardTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.admin = User.objects.create_superuser(
@@ -545,7 +605,7 @@ class SuperuserDashboardTests(TestCase):
             last_name="Example",
         )
         self.subject = CommunitySubject.objects.create(
-            kind="restaurant_dohmh", key="camis:1", name="Test Restaurant"
+            kind="restaurant_dohmh", key="google:1", name="Test Restaurant"
         )
         self.comment = UserComment.objects.create(
             subject=self.subject, user_id=self.user.pk, text="Helpful review"
@@ -600,7 +660,7 @@ class SuperuserDashboardTests(TestCase):
 
 
 class AdminDeleteUserTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.admin = User.objects.create_superuser(
@@ -650,7 +710,7 @@ class AdminDeleteUserTests(TestCase):
 
 
 class AdminDeleteCommentTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.admin = User.objects.create_superuser(
@@ -660,7 +720,7 @@ class AdminDeleteCommentTests(TestCase):
             "target", "target@example.com", VALID_PASSWORD
         )
         self.subject = CommunitySubject.objects.create(
-            kind="restaurant_dohmh", key="camis:1", name="Test Restaurant"
+            kind="restaurant_dohmh", key="google:1", name="Test Restaurant"
         )
         self.comment = UserComment.objects.create(
             subject=self.subject, user_id=self.user.pk, text="Helpful review"
@@ -703,6 +763,8 @@ class AdminDeleteCommentTests(TestCase):
 
 
 class SendPromoEmailCommandTests(TestCase):
+    databases = ALL_DATABASES
+
     def test_sends_only_to_opted_in_users(self):
         opted_in = User.objects.create_user("ann", "ann@example.com", VALID_PASSWORD)
         UserProfile.objects.create(user=opted_in, promo_opt_in=True)

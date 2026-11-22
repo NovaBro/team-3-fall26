@@ -46,6 +46,8 @@
   <p class="what-to-order__source">
     {% if result.source == "menustat" %}
       Source: MenuStat (NYC Health Department menu data in our database). May be out of date.
+    {% elif result.source == "estimate" %}
+      Estimated by AI (Gemini) from the restaurant's name and cuisine — not the restaurant's real menu. Dishes and calories are guesses.
     {% else %}
       Source: Google Maps photos, read by AI (Gemini). May be incomplete or out of date.
     {% endif %}

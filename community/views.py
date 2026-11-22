@@ -7,7 +7,7 @@ from django.http import Http404, JsonResponse
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
-from community.keys import DOHMH, FARMERS_MARKET, GROCERY, KINDS
+from community.keys import FARMERS_MARKET, GOOGLE, GROCERY, KINDS
 from community.models import (
     CommunitySubject,
     PlaceEnrichment,
@@ -17,7 +17,7 @@ from community.models import (
     UserRating,
 )
 
-GOOGLE_ENRICHMENT_KINDS = {DOHMH, FARMERS_MARKET, GROCERY}
+GOOGLE_ENRICHMENT_KINDS = {GOOGLE, FARMERS_MARKET, GROCERY}
 
 COMMENT_LIMIT = 50
 PHOTO_LIMIT = 24
@@ -263,13 +263,14 @@ def _google_review_for_subject(subject, raw_review_id):
         review_id = int(raw_review_id)
     except (TypeError, ValueError):
         return None, JsonResponse({"error": "Invalid Google review."}, status=400)
-    if subject.kind != DOHMH or not subject.key.startswith("camis:"):
+    if subject.kind != GOOGLE or not subject.key.startswith("google:"):
         return None, JsonResponse(
             {"error": "Google reviews are not available here."}, status=400
         )
-    camis = subject.key.split(":", 1)[1]
     review = (
-        PlaceReview.objects.filter(pk=review_id, place__camis=camis)
+        PlaceReview.objects.filter(
+            pk=review_id, place__kind=GOOGLE, place__key=subject.key
+        )
         .select_related("place")
         .first()
     )

@@ -33,10 +33,10 @@
       <ul class="liked-places__list">
         {% for place in liked_places %}
           <li>
-            <input type="checkbox" name="camis" value="{{ place.camis }}"
-                   id="liked-{{ place.camis }}"
-                   aria-label="Select {{ place.name|default:place.camis|title }}">
-            <a href="{% url 'search:restaurant_detail' place.camis %}">{{ place.name|default:place.camis|title }}</a>
+            <input type="checkbox" name="place_id" value="{{ place.place_id }}"
+                   id="liked-{{ place.place_id }}"
+                   aria-label="Select {{ place.name|default:place.place_id|title }}">
+            <a href="{% url 'search:restaurant_detail' place.place_id %}">{{ place.name|default:place.place_id|title }}</a>
             {% if place.cuisine %}<span class="liked-places__cuisine">{{ place.cuisine }}</span>{% endif %}
             <span class="muted liked-places__date">{{ place.updated_at|date:"M j" }}</span>
           </li>
@@ -62,10 +62,10 @@
       <ul class="liked-places__list">
         {% for place in hidden_places %}
           <li>
-            <input type="checkbox" name="camis" value="{{ place.camis }}"
-                   id="hidden-{{ place.camis }}"
-                   aria-label="Select {{ place.name|default:place.camis|title }}">
-            <a href="{% url 'search:restaurant_detail' place.camis %}">{{ place.name|default:place.camis|title }}</a>
+            <input type="checkbox" name="place_id" value="{{ place.place_id }}"
+                   id="hidden-{{ place.place_id }}"
+                   aria-label="Select {{ place.name|default:place.place_id|title }}">
+            <a href="{% url 'search:restaurant_detail' place.place_id %}">{{ place.name|default:place.place_id|title }}</a>
             {% if place.cuisine %}<span class="liked-places__cuisine">{{ place.cuisine }}</span>{% endif %}
             <span class="muted liked-places__date">{{ place.updated_at|date:"M j" }}</span>
           </li>

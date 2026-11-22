@@ -22,6 +22,7 @@ from accounts.checkin import FIELDS as CHECKIN_FIELDS
 from accounts.checkin import picker_context, save_today
 from accounts.forms import MoodLogForm, SignupForm, UserProfileForm
 from accounts.models import MoodLog, UserProfile
+from accounts.mood import today_ny, upsert_today_mood
 from accounts.tokens import email_verification_token
 from community.models import (
     RecommendationFeedback,
@@ -162,21 +163,24 @@ def quick_checkin(request):
 def profile(request):
     instance, _created = UserProfile.objects.get_or_create(user=request.user)
     mood_history = MoodLog.objects.filter(user=request.user)[:MOOD_HISTORY_LIMIT]
+    today_mood = MoodLog.objects.filter(user=request.user, log_date=today_ny()).first()
 
     if request.method == "POST":
         if request.POST.get("action") == "log_mood":
-            mood_form = MoodLogForm(request.POST)
+            mood_form = MoodLogForm(request.POST, instance=today_mood)
             fixed_form = UserProfileForm(instance=instance)
             if mood_form.is_valid():
-                log = mood_form.save(commit=False)
-                log.user = request.user
-                log.save()
+                upsert_today_mood(
+                    request.user,
+                    mood_form.cleaned_data["mood"],
+                    mood_form.cleaned_data["energy_level"],
+                )
                 messages.success(request, "Check-in saved.")
                 return redirect("accounts:profile")
             messages.error(request, "Please fix the errors below.")
         else:
             fixed_form = UserProfileForm(request.POST, request.FILES, instance=instance)
-            mood_form = MoodLogForm()
+            mood_form = MoodLogForm(instance=today_mood)
             if fixed_form.is_valid():
                 fixed = fixed_form.save(commit=False)
                 fixed.user = request.user
@@ -190,7 +194,7 @@ def profile(request):
             messages.error(request, "Please fix the errors below.")
     else:
         fixed_form = UserProfileForm(instance=instance)
-        mood_form = MoodLogForm()
+        mood_form = MoodLogForm(instance=today_mood)
 
     return render(
         request,
@@ -199,6 +203,7 @@ def profile(request):
             "fixed_form": fixed_form,
             "mood_form": mood_form,
             "mood_history": mood_history,
+            "today_mood": today_mood,
             "wide_fields": WIDE_FIELDS,
             "food_fields": FOOD_FIELDS,
             "profile": instance,
@@ -247,7 +252,7 @@ def delete_liked_places(request):
         user_id=request.user.pk, value=RecommendationFeedback.LIKE
     )
     if request.POST.get("action") != "delete_all":
-        likes = likes.filter(camis__in=request.POST.getlist("camis"))
+        likes = likes.filter(place_id__in=request.POST.getlist("place_id"))
     removed, _ = likes.delete()
     if removed:
         messages.success(
@@ -267,7 +272,7 @@ def restore_hidden_places(request):
         user_id=request.user.pk, value=RecommendationFeedback.NOT_INTERESTED
     )
     if request.POST.get("action") != "show_all":
-        hidden = hidden.filter(camis__in=request.POST.getlist("camis"))
+        hidden = hidden.filter(place_id__in=request.POST.getlist("place_id"))
     restored, _ = hidden.delete()
     if restored:
         messages.success(

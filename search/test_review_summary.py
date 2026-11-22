@@ -3,15 +3,13 @@
 GOOGLE_MAPS_JS_KEY=dummy python manage.py test search.test_review_summary
 """
 
-from unittest.mock import patch
-
 from django.test import TestCase
 from django.urls import reverse
 
-from community.keys import DOHMH
+from community.keys import GOOGLE
 from community.models import PlaceEnrichment, PlaceReview
-from search.models import RestaurantInspection
 from search.services import places
+from nycfood.test_utils import ALL_DATABASES, make_restaurant
 
 SUMMARY = {
     "text": {
@@ -25,13 +23,13 @@ SUMMARY = {
 
 
 class ReviewSummaryTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def place(self, raw):
         return PlaceEnrichment.objects.create(
-            kind=DOHMH,
-            key="camis:1",
-            camis="1",
+            kind=GOOGLE,
+            key="google:1",
+            place_id="1",
             google_maps_uri="https://maps.google.com/?cid=1",
             raw_json=raw,
         )
@@ -60,28 +58,18 @@ class ReviewSummaryTests(TestCase):
 
 
 class DetailPageSummaryTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
-        RestaurantInspection.objects.create(
-            camis="1",
-            dba="LEAF BAR",
-            boro="Queens",
-            street="2 Main St",
-            zipcode="11101",
-            cuisine="Salads",
-            inspection_date="2024-07-01",
-            grade="A",
-        )
+        make_restaurant("1", "LEAF BAR", boro="Queens", cuisine="Salads")
         self.place = PlaceEnrichment.objects.create(
-            kind=DOHMH, key="camis:1", camis="1", raw_json={}
+            kind=GOOGLE, key="google:1", place_id="1", raw_json={}
         )
         PlaceReview.objects.create(place=self.place, text="Raw review text.", rating=5)
 
     def html(self):
-        with patch("search.views.find_restaurant_place", return_value=None):
-            url = reverse("search:restaurant_detail", args=["1"])
-            return self.client.get(url).content.decode()
+        url = reverse("search:restaurant_detail", args=["1"])
+        return self.client.get(url).content.decode()
 
     def test_reviews_and_summary_are_not_shown(self):
         # The detail page shows the Menu box instead of Google reviews.

@@ -8,10 +8,9 @@ from django.urls import reverse
 from PIL import Image
 
 from community.keys import (
-    DOHMH,
+    GOOGLE,
     FARMERS_MARKET,
     GROCERY,
-    dohmh_key,
     farmers_market_key,
     google_key,
     grocery_key,
@@ -23,6 +22,7 @@ from community.models import (
     UserPhoto,
     UserRating,
 )
+from nycfood.test_utils import ALL_DATABASES
 
 
 def _png():
@@ -32,9 +32,6 @@ def _png():
 
 
 class PinKeyTests(SimpleTestCase):
-    def test_dohmh_key(self):
-        self.assertEqual(dohmh_key("41155161"), "camis:41155161")
-
     def test_google_key(self):
         self.assertEqual(google_key("ChIJtest"), "google:ChIJtest")
 
@@ -52,18 +49,18 @@ class PinKeyTests(SimpleTestCase):
 
 
 class CommunityPanelTests(TestCase):
-    databases = {"default", "community"}
+    databases = ALL_DATABASES
 
     def setUp(self):
         self.user = User.objects.create_user(
             username="foodie", password="sTr0ngPass!2026x"
         )
-        self.kind = "restaurant_dohmh"
-        self.key = dohmh_key("1")
+        self.kind = GOOGLE
+        self.key = google_key("1")
         place = PlaceEnrichment.objects.create(
-            kind=DOHMH,
+            kind=GOOGLE,
             key=self.key,
-            camis="1",
+            place_id="1",
             display_name="Joe's Pizza",
             rating=4.5,
             user_rating_count=10,
