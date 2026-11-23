@@ -26,7 +26,7 @@ def _signed(value):
 def _clean(label):
     label = str(label)
     if label.startswith("Cuisine ("):
-        return label[len("Cuisine (") :].rstrip(")") + " cuisine"
+        return label[len("Cuisine (") :].rstrip(")") + " cuisine"  # noqa: E203
     if label.startswith("AI review score"):
         return "Reviews sound healthy"
     if label.startswith("Review keywords"):

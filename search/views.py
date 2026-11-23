@@ -1437,7 +1437,9 @@ def place_panel(request):
     )
     # 89: liked = favorite heart in the panel.
     _key = request.GET.get("key", "")
-    ctx["place_id"] = _key[len("google:") :] if _key.startswith("google:") else ""
+    ctx["place_id"] = ""
+    if _key.startswith("google:"):
+        ctx["place_id"] = _key[len("google:") :]  # noqa: E203
     ctx["liked"] = bool(
         ctx["place_id"]
         and request.user.is_authenticated

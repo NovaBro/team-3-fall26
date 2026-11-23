@@ -70,7 +70,7 @@ def panel_context(key, name="", address="", category="", lat=None, lng=None):
     }
     if not key.startswith("google:"):
         return ctx
-    place_id = key[len("google:") :]
+    place_id = key[len("google:") :]  # noqa: E203
     row = Restaurant.objects.filter(place_id=place_id).first()
     place = PlaceEnrichment.objects.filter(kind=GOOGLE, place_id=place_id).first()
     if row is None and place is None:
