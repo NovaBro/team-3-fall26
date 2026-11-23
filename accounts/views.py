@@ -168,7 +168,9 @@ def profile(request):
 
     if request.method == "POST":
         if request.POST.get("action") == "edit_mood":  # step175
-            log = get_object_or_404(MoodLog, pk=request.POST.get("log_id") or 0, user=request.user)
+            log = get_object_or_404(
+                MoodLog, pk=request.POST.get("log_id") or 0, user=request.user
+            )
             mood_form = MoodLogForm(request.POST, instance=log)
             fixed_form = UserProfileForm(instance=instance)
             if mood_form.is_valid():

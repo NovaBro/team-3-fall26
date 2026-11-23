@@ -75,7 +75,11 @@ class FindFoodForm(RestaurantFilterForm):
         required=False,
         choices=[c for c in AREA_CHOICES if c[0]],
         widget=forms.CheckboxSelectMultiple,
-        error_messages={"invalid_choice": "%(value)s is not a valid borough. Choose one from the list."},
+        error_messages={
+            "invalid_choice": (
+                "%(value)s is not a valid borough. Choose one from the list."
+            )
+        },
     )
     # 100: several cuisines at once on the Search page.
     cuisine = forms.MultipleChoiceField(

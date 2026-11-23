@@ -26,7 +26,7 @@ def _signed(value):
 def _clean(label):
     label = str(label)
     if label.startswith("Cuisine ("):
-        return label[len("Cuisine ("):].rstrip(")") + " cuisine"
+        return label[len("Cuisine (") :].rstrip(")") + " cuisine"
     if label.startswith("AI review score"):
         return "Reviews sound healthy"
     if label.startswith("Review keywords"):
@@ -75,7 +75,11 @@ def build_chips(breakdown):
                 else:
                     held.append(_clean(key))
     if not breakdown.get("has_menu"):
-        notes.append("Menu is estimated" if breakdown.get("estimated_menu_health") is not None else "No menu data yet")
+        notes.append(
+            "Menu is estimated"
+            if breakdown.get("estimated_menu_health") is not None
+            else "No menu data yet"
+        )
     seen = set()
 
     def uniq(items):

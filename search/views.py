@@ -232,7 +232,9 @@ def _find_food(form):
         from community.models import HealthScore
 
         scores = dict(
-            HealthScore.objects.filter(place_id__in=ids).values_list("place_id", "score")
+            HealthScore.objects.filter(place_id__in=ids).values_list(
+                "place_id", "score"
+            )
         )
         for i in items:
             score = scores.get(i.get("place_id"))
@@ -241,9 +243,9 @@ def _find_food(form):
         from search.recommend import GOAL_TAG_MIN, GOAL_TAG_MIN_BY_GOAL, GOAL_TAGS
 
         goal_rows = dict(
-            HealthScore.objects.filter(place_id__in=ids, goal_scores__isnull=False).values_list(
-                "place_id", "goal_scores"
-            )
+            HealthScore.objects.filter(
+                place_id__in=ids, goal_scores__isnull=False
+            ).values_list("place_id", "goal_scores")
         )
         for i in items:
             goals = goal_rows.get(i.get("place_id")) or {}
@@ -1219,7 +1221,9 @@ def _back_link(request):
     """Where "Back" on a detail page goes: Top picks if we came from there."""
     # 168: back to the same search (filters kept).
     back = request.GET.get("back", "")
-    if back.startswith("/search/") and url_has_allowed_host_and_scheme(back, allowed_hosts={request.get_host()}):
+    if back.startswith("/search/") and url_has_allowed_host_and_scheme(
+        back, allowed_hosts={request.get_host()}
+    ):
         return back, "Back to search", False
     if request.GET.get("from") != "home":
         return reverse("search:index"), "Back to search", False
@@ -1311,7 +1315,9 @@ def restaurant_detail(request, place_id):
             "street": restaurant.street,
             "zipcode": restaurant.zipcode,
             "cuisine": restaurant.cuisine,
-            "score_chips": __import__("search.score_chips", fromlist=["build_chips"]).build_chips(score_breakdown),
+            "score_chips": __import__(
+                "search.score_chips", fromlist=["build_chips"]
+            ).build_chips(score_breakdown),
             "restaurant": restaurant,
             "place": place,
             "menu_picks": menu_picks,
@@ -1431,12 +1437,14 @@ def place_panel(request):
     )
     # 89: liked = favorite heart in the panel.
     _key = request.GET.get("key", "")
-    ctx["place_id"] = _key[len("google:"):] if _key.startswith("google:") else ""
+    ctx["place_id"] = _key[len("google:") :] if _key.startswith("google:") else ""
     ctx["liked"] = bool(
         ctx["place_id"]
         and request.user.is_authenticated
         and RecommendationFeedback.objects.filter(
-            user_id=request.user.pk, place_id=ctx["place_id"], value=RecommendationFeedback.LIKE
+            user_id=request.user.pk,
+            place_id=ctx["place_id"],
+            value=RecommendationFeedback.LIKE,
         ).exists()
     )
     return render(request, "search/_place_panel.html", ctx)

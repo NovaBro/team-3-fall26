@@ -49,7 +49,9 @@ def _directions(lat, lng, address):
     if lat is not None and lng is not None:
         return f"https://www.google.com/maps/dir/?api=1&destination={lat},{lng}"
     if address:
-        return "https://www.google.com/maps/dir/?api=1&destination=" + quote_plus(address)
+        return "https://www.google.com/maps/dir/?api=1&destination=" + quote_plus(
+            address
+        )
     return ""
 
 
@@ -68,7 +70,7 @@ def panel_context(key, name="", address="", category="", lat=None, lng=None):
     }
     if not key.startswith("google:"):
         return ctx
-    place_id = key[len("google:"):]
+    place_id = key[len("google:") :]
     row = Restaurant.objects.filter(place_id=place_id).first()
     place = PlaceEnrichment.objects.filter(kind=GOOGLE, place_id=place_id).first()
     if row is None and place is None:
@@ -85,15 +87,24 @@ def panel_context(key, name="", address="", category="", lat=None, lng=None):
     goals = []
     if health and health.goal_scores:
         best = sorted(health.goal_scores.items(), key=lambda kv: -kv[1])[:2]
-        goals = [(GOAL_LABELS.get(k, k.replace("-", " ").capitalize()), round(v * 100)) for k, v in best]
-    blurb = ReasonBlurb.objects.filter(place_id=place_id).values_list("text", flat=True).first()
+        goals = [
+            (GOAL_LABELS.get(k, k.replace("-", " ").capitalize()), round(v * 100))
+            for k, v in best
+        ]
+    blurb = (
+        ReasonBlurb.objects.filter(place_id=place_id)
+        .values_list("text", flat=True)
+        .first()
+    )
 
     meals, _chain = top_low_calorie_meals(name, limit=3) if name else ([], None)
     dishes = [
         {
             "name": m.item_name,
             "calories": round(m.calories) if m.calories is not None else None,
-            "protein": round(m.protein) if getattr(m, "protein", None) is not None else None,
+            "protein": (
+                round(m.protein) if getattr(m, "protein", None) is not None else None
+            ),
         }
         for m in meals
     ]
@@ -105,14 +116,21 @@ def panel_context(key, name="", address="", category="", lat=None, lng=None):
         mains = [i for i in estimated_items(place_id) if i.get("kind") == "main"]
         mains.sort(key=lambda i: (i.get("calories") is None, i.get("calories") or 0))
         dishes = [
-            {"name": i["name"], "calories": i.get("calories"), "protein": None, "note": i.get("description", "")}
+            {
+                "name": i["name"],
+                "calories": i.get("calories"),
+                "protein": None,
+                "note": i.get("description", ""),
+            }
             for i in mains[:3]
         ]
         menu_note = "Estimated from the restaurant's menu" if dishes else ""
     reviews = []
     if place is not None:
         reviews = list(
-            PlaceReview.objects.filter(place=place).exclude(text="").order_by("-publish_time")[:3]
+            PlaceReview.objects.filter(place=place)
+            .exclude(text="")
+            .order_by("-publish_time")[:3]
         )
 
     ctx.update(

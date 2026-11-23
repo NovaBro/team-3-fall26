@@ -74,7 +74,11 @@ def _day_index(word):
 
 
 _TIME = re.compile(r"(noon|midnight|(\d{1,2})(?::(\d{2}))?\s*([ap])\.?\s*m\b\.?)", re.I)
-MARKET_TIME_WINDOWS = {"morning": (6 * 60, 12 * 60), "afternoon": (12 * 60, 17 * 60), "evening": (17 * 60, 22 * 60)}
+MARKET_TIME_WINDOWS = {
+    "morning": (6 * 60, 12 * 60),
+    "afternoon": (12 * 60, 17 * 60),
+    "evening": (17 * 60, 22 * 60),
+}
 
 
 def market_hours(text):
@@ -184,7 +188,9 @@ def farmers_market_items(data):
         "market_name", "borough", "street_address"
     )
     if _areas(data):
-        markets = markets.filter(borough__in=[b for a in _areas(data) for b in _boroughs(a)])
+        markets = markets.filter(
+            borough__in=[b for a in _areas(data) for b in _boroughs(a)]
+        )
     if data.get("q"):
         markets = markets.filter(market_name__icontains=data["q"])
 
@@ -208,9 +214,13 @@ def farmers_market_items(data):
             from zoneinfo import ZoneInfo
 
             ny = datetime.now(ZoneInfo("America/New_York"))
-            if not market_operates_on_day(market.days_of_operation, MARKET_DAYS[ny.weekday()]):
+            if not market_operates_on_day(
+                market.days_of_operation, MARKET_DAYS[ny.weekday()]
+            ):
                 continue
-            if not market_open_in(market.hours_of_operations, "now", ny.hour * 60 + ny.minute):
+            if not market_open_in(
+                market.hours_of_operations, "now", ny.hour * 60 + ny.minute
+            ):
                 continue
         elif when and not market_open_in(market.hours_of_operations, when):
             continue
@@ -249,7 +259,9 @@ def farmers_market_items(data):
 def grocery_items(data):
     stores = HealthyStore.pool.order_by("store_name", "street_address")
     if _areas(data):
-        stores = stores.filter(borough__in=[b for a in _areas(data) for b in _boroughs(a)])
+        stores = stores.filter(
+            borough__in=[b for a in _areas(data) for b in _boroughs(a)]
+        )
     if data.get("q"):
         stores = stores.filter(store_name__icontains=data["q"])
     if data.get("zip"):
@@ -314,7 +326,11 @@ def restaurant_rows(data):
     if data.get("zip"):
         qs = qs.filter(zipcode__startswith=data["zip"])
     if data.get("cuisine"):
-        wanted = data["cuisine"] if isinstance(data["cuisine"], (list, tuple)) else [data["cuisine"]]
+        wanted = (
+            data["cuisine"]
+            if isinstance(data["cuisine"], (list, tuple))
+            else [data["cuisine"]]
+        )
         any_of = Q()
         for name in wanted:
             any_of |= Q(cuisine__istartswith=name)
@@ -339,7 +355,9 @@ def restaurant_rows(data):
 
     qs = qs.annotate(
         _health_rank=Subquery(
-            HealthScore.objects.filter(place_id=OuterRef("place_id")).values("score")[:1]
+            HealthScore.objects.filter(place_id=OuterRef("place_id")).values("score")[
+                :1
+            ]
         )
     )
     return qs.values(*RESTAURANT_ROW_FIELDS).order_by(
@@ -383,7 +401,11 @@ def google_restaurant_items(data, radius_m):
     saved restaurants where Google has no matching filter. Each links to its
     detail page, which stores the place the first time it is opened."""
     places = get_restaurants(
-        cuisine=(data["cuisine"] if isinstance(data["cuisine"], str) else (list(data["cuisine"]) or [""])[0]),
+        cuisine=(
+            data["cuisine"]
+            if isinstance(data["cuisine"], str)
+            else (list(data["cuisine"]) or [""])[0]
+        ),
         area=(_areas(data) or [""])[0],
         prices=data["price"],
         diet=data["diet"],

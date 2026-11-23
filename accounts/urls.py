@@ -16,8 +16,11 @@ class ProfileLoginView(LoginView):
     def get(self, request, *args, **kwargs):
         from django.utils.http import url_has_allowed_host_and_scheme
         from urllib.parse import urlparse
+
         ref = request.META.get("HTTP_REFERER", "")
-        if ref and url_has_allowed_host_and_scheme(ref, allowed_hosts={request.get_host()}):
+        if ref and url_has_allowed_host_and_scheme(
+            ref, allowed_hosts={request.get_host()}
+        ):
             p = urlparse(ref)
             path = p.path + ("?" + p.query if p.query else "")
             if not p.path.startswith(("/login", "/signup", "/logout")):

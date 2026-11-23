@@ -169,7 +169,12 @@ class DetailWhyTests(TestCase):
     def test_detail_page_lists_the_reasons(self):
         page = self.client.get(reverse("search:restaurant_detail", args=["99"]))
         html = page.content.decode()
-        self.assertTrue(any(t in html for t in ("Why it's a good pick", "What to know", "Why it scores lower")))
+        self.assertTrue(
+            any(
+                t in html
+                for t in ("Why it's a good pick", "What to know", "Why it scores lower")
+            )
+        )
         self.assertContains(page, "<li>Healthy cuisine (Salads)</li>", html=True)
 
     def test_no_section_without_reasons(self):
