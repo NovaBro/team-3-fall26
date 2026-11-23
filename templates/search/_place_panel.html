@@ -1,0 +1,57 @@
+<div class="pp">
+  {% if photo %}<div class="pp-photo"><img src="{{ photo }}" alt="" loading="lazy"></div>{% endif %}
+  <div class="pp-body">
+    <h2 class="pp-name pp-name-row">{{ name }} {% if health is not None %}<span class="sp-health pp-health sp-health--{% if health >= 70 %}hi{% elif health >= 40 %}mid{% else %}lo{% endif %}" title="AI health score from reviews (MiniLM), 0-100"><span class="hs-ring" style="--p:{{ health }}"><span>{{ health }}</span></span><span class="hs-word">Health+</span></span>{% endif %}</h2>
+    {% if rating %}
+      <p class="pp-meta"><span>{{ rating|floatformat:1 }}</span> <span class="pp-stars" aria-hidden="true">{{ stars }}</span>{% if rating_count %} <span class="pp-muted">({{ rating_count }})</span>{% endif %}{% if price %} <span class="pp-muted">· {{ price }}</span>{% endif %}
+      </p>
+    {% endif %}
+    <p class="pp-muted">{{ kind_label }}{% if boro %} · {{ boro }}{% endif %}</p>
+
+    {% if is_restaurant %}
+    <nav class="pp-tabs" aria-label="Sections">
+      <a href="#pp-overview" data-tab="overview" class="is-on">Overview</a>
+      <a href="#pp-reviews" data-tab="reviews">Reviews</a>
+    </nav>
+    {% endif %}
+
+    <div class="pp-acts" id="pp-overview">
+      {% if directions %}<a class="pp-act" href="{{ directions }}" target="_blank" rel="noopener"><b class="is-main"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l18-8-8 18-2-8-8-2z"/></svg></b>Directions</a>{% endif %}
+      {% if website %}<a class="pp-act" href="{{ website }}" target="_blank" rel="noopener"><b><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></b>Website</a>{% endif %}
+      <a class="pp-act pp-write" href="#pp-write"><b><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></b>Review</a>
+      {% if detail_url %}<a class="pp-act" href="{{ detail_url }}"><b><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7.2a2.2 2.2 0 0 1 2.2-2.2h1a2.2 2.2 0 0 0 1.55-.64l.7-.7a2.2 2.2 0 0 1 3.12 0l.7.7c.41.41.97.64 1.55.64h1a2.2 2.2 0 0 1 2.2 2.2v1c0 .58.23 1.14.64 1.55l.7.7a2.2 2.2 0 0 1 0 3.12l-.7.7a2.2 2.2 0 0 0-.64 1.55v1a2.2 2.2 0 0 1-2.2 2.2h-1a2.2 2.2 0 0 0-1.55.64l-.7.7a2.2 2.2 0 0 1-3.12 0l-.7-.7a2.2 2.2 0 0 0-1.55-.64h-1a2.2 2.2 0 0 1-2.2-2.2v-1a2.2 2.2 0 0 0-.64-1.55l-.7-.7a2.2 2.2 0 0 1 0-3.12l.7-.7a2.2 2.2 0 0 0 .64-1.55v-1"/><path d="M9 12l2 2 4-4"/></svg></b>Scoring</a>{% endif %}
+      {% if place_id %}<a class="pp-act pp-fav{% if liked %} is-on{% endif %}" href="#" data-place="{{ place_id }}" aria-pressed="{% if liked %}true{% else %}false{% endif %}"><b><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.6-9.2C.9 7.9 3 4 6.8 4c2.1 0 3.6 1.1 4.4 2.5h1.6C13.6 5.1 15.1 4 17.2 4 21 4 23.1 7.9 21.6 11.3 19.5 15.9 12 20.5 12 20.5z"/></svg></b>Favorite</a>{% endif %}
+    </div>
+
+    <div class="pp-tab pp-tab--overview">
+    {% if blurb or goals %}
+    <section class="pp-why">
+      <p class="pp-why__label">{% if health is None or health >= 70 %}Why it's a good pick{% elif health >= 40 %}What to know{% else %}Why it scores lower{% endif %}</p>
+      {% if blurb %}<p class="pp-why__text">{{ blurb }}</p>
+      {% else %}<div class="pp-why__tags">{% for label, value in goals %}<span class="pp-why__tag">{{ label }} <b>{{ value }}</b></span>{% endfor %}</div>{% endif %}
+    </section>
+    {% endif %}
+
+    {% if dishes %}
+    <section class="pp-sec" id="pp-menu">
+      <p class="pp-label">What to order</p>{% if menu_note %}<p class="pp-menu-note">{{ menu_note }}</p>{% endif %}
+      {% for d in dishes %}<div class="pp-dish"><span>{{ d.name }}{% if d.note %}<small>{{ d.note|truncatechars:70 }}</small>{% endif %}</span><span class="pp-muted">{% if d.calories is not None %}{{ d.calories }} cal{% endif %}{% if d.protein is not None %} · {{ d.protein }}g protein{% endif %}</span></div>{% endfor %}
+    </section>
+    {% endif %}
+
+    <section class="pp-sec">
+      {% if address %}<div class="pp-row"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg><span>{{ address }}</span></div>{% endif %}
+      {% if price_range %}<div class="pp-row"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg><span>{{ price_range }}</span></div>{% endif %}
+    </section>
+
+    </div>
+    <div class="pp-tab pp-tab--reviews">
+    {% if reviews %}
+    <section class="pp-sec pp-sec--last" id="pp-reviews">
+      <p class="pp-label">Google reviews</p>
+      {% for r in reviews %}<div class="pp-review"><b>{{ r.author_name|default:"Google user" }}</b>{% if r.rating %} <span class="pp-stars">{% for _ in "x"|rjust:r.rating %}★{% endfor %}</span>{% endif %}{% if r.relative_time %} <span class="pp-muted">· {{ r.relative_time }}</span>{% endif %}<p>{{ r.text|truncatechars:220 }}</p></div>{% endfor %}
+    </section>
+    {% elif is_restaurant %}<span id="pp-reviews"></span>{% endif %}
+    </div>
+  </div>
+</div>

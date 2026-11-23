@@ -9,9 +9,7 @@
         loading="lazy"
         onerror="this.onerror=null;this.src='{{ fallback_img|escapejs }}';">
       <span class="top-pick-card__rank">#{{ forloop.counter }}</span>
-      {% if pick.google.price %}
-        <span class="top-pick-card__price" title="Price level: {{ pick.google.price }}">{{ pick.google.price }}</span>
-      {% endif %}
+      {% if pick.health is not None %}<span class="hp-tag hp-tag--{% if pick.health >= 70 %}hi{% elif pick.health >= 40 %}mid{% else %}lo{% endif %}" title="AI health score from reviews (MiniLM), 0-100"><span class="hs-ring" style="--p:{{ pick.health }}"><span>{{ pick.health }}</span></span><span class="hs-word">Health+</span></span>{% endif %}
     </div>
     <div class="top-pick-card__body">
       <div class="top-pick-card__tags">
@@ -55,7 +53,7 @@
           {% if pick.google.rating_count %}
             <span class="top-pick-card__rating-count muted">({{ pick.google.rating_count }})</span>
           {% endif %}
-          <span class="top-pick-card__rating-source">Google</span>
+          {% if pick.google.price %}<span class="top-pick-card__rating-source">{{ pick.google.price }}</span>{% endif %}
         </div>
       {% endif %}
       </div>
@@ -93,10 +91,10 @@
           <input type="hidden" name="next" value="{{ request.get_full_path }}">
           <button type="submit" name="value" value="like"
                   class="top-pick-card__feedback-btn{% if pick.feedback == 1 %} is-active{% endif %}"
-                  aria-pressed="{% if pick.feedback == 1 %}true{% else %}false{% endif %}">👍 Like</button>
+                  aria-pressed="{% if pick.feedback == 1 %}true{% else %}false{% endif %}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 11v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3a4 4 0 0 0 4-4V6a2 2 0 0 1 4 0v5h3a2 2 0 0 1 2 2l-1 5a2 3 0 0 1-2 2h-7a3 3 0 0 1-3-3"/></svg><span class="tp-l1">Like</span><span class="tp-l2">Liked</span></button>
           <button type="submit" name="value" value="not_interested"
                   class="top-pick-card__feedback-btn"
-                  title="We won't show this place to you again">🚫 Not interested</button>
+                  title="We won't show this place to you again">Not interested</button>
         </form>
       {% endif %}
       </div>

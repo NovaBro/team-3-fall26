@@ -6,185 +6,151 @@
 {% block extra_head %}
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.css">
 <link rel="stylesheet" href="{% static 'restaurants/style.css' %}">
-<style>
-  /* After MapLibre CSS so compact attribution stays dark. */
-  .combined-map .maplibregl-ctrl-attrib.maplibregl-compact,
-  .combined-map .maplibregl-ctrl-attrib.maplibregl-compact-show {
-    background: rgba(14, 17, 22, 0.92) !important;
-    background-color: rgba(14, 17, 22, 0.92) !important;
-    color: #c8d0dc !important;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: none;
-  }
-  .combined-map .maplibregl-ctrl-attrib a { color: #e8edf5 !important; }
-  .combined-map .maplibregl-ctrl-attrib-button,
-  .combined-map .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
-    background-color: rgba(14, 17, 22, 0.92) !important;
-    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='%23c8d0dc' fill-rule='evenodd' viewBox='0 0 20 20'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E") !important;
-  }
-</style>
+<link rel="stylesheet" href="{% static 'search/search_page.css' %}?v=19">
 {% endblock %}
 
 {% block content %}
-<header class="ui-hero">
-  <h1>Down for a healthy bite?</h1>
-  <p class="ui-lede">Find your place, your way</p>
-</header>
-
-<div class="finder">
-<form class="filters restaurant-filters" method="get" action="{% url 'search:index' %}" id="filter-form">
-  <fieldset class="price-group">
-    <legend>Show</legend>
-    {% for choice in form.types %}
-      <label class="check">{{ choice.tag }} <span class="swatch swatch--{{ choice.data.value }}" aria-hidden="true"></span> {{ choice.choice_label }}</label>
-    {% endfor %}
-  </fieldset>
-  <label>Name
-    {{ form.q }}
-  </label>
-  <label>Borough
-    {{ form.area }}
-  </label>
-  <label>ZIP code
-    {{ form.zip }}
-  </label>
-  <label>Distance
-    {{ form.distance }}
-  </label>
-
-  <fieldset class="price-group filter-section" id="restaurant-filters" data-for-type="restaurant">
-    <legend>Restaurants</legend>
-    <div class="source-choice" role="radiogroup" aria-label="Restaurant results from">
-      {% for choice in form.source %}
-        <label class="check">{{ choice.tag }} {{ choice.choice_label }}</label>
-      {% endfor %}
-    </div>
-    <label>Cuisine
-      {{ form.cuisine }}
-    </label>
-    <label>Diet
-      {{ form.diet }}
-    </label>
-    <fieldset class="price-group">
-      <legend>Allergies</legend>
-      {% for choice in form.avoid %}
-        <label class="check">{{ choice.tag }} {{ choice.choice_label }}</label>
-      {% endfor %}
-    </fieldset>
-    <fieldset class="price-group filter-section" id="google-filters">
-      <legend>Price and rating</legend>
-      <div class="price-toggles" aria-label="Price">
-        {% for choice in form.price %}
-          <label class="check">{{ choice.tag }} {{ choice.choice_label }}</label>
+<div class="sp">
+  <aside class="sp-side" aria-label="Search and results">
+    <form class="sp-form" method="get" action="{% url 'search:index' %}" id="filter-form">
+      <div class="sp-searchbar">
+      <label class="sp-search">
+        <span class="sp-vh">Search by name</span>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+        {{ form.q }}
+      </label>
+      </div>
+      <div class="sp-cats" role="group" aria-label="Show">
+        {% for choice in form.types %}
+          <label class="sp-cat sp-cat--{{ choice.data.value }}">{{ choice.tag }}<span>{{ choice.choice_label }}</span></label>
         {% endfor %}
       </div>
-      <label>Minimum rating
-        {{ form.min_rating }}
-      </label>
-      <label class="inline-check">{{ form.open_now }} Open now (live Google only)</label>
-    </fieldset>
-  </fieldset>
+      <button type="submit" class="sp-vh">Search</button>
+      {{ form.lat }}
+      {{ form.lng }}
+      <input type="hidden" name="source" value="saved">
+    </form>
 
-  <fieldset class="price-group filter-section" data-for-type="farmers_market">
-    <legend>Farmers markets</legend>
-    <label>Market day
-      {{ form.day }}
-    </label>
-  </fieldset>
-
-  {{ form.lat }}
-  {{ form.lng }}
-  <div class="actions">
-    <button type="submit">Search</button>
-    <button type="button" class="secondary" id="use-location">Near me</button>
-    {% if location %}
-      <button type="button" class="secondary" id="clear-location">Clear location</button>
+    {% if form.errors %}
+      <div class="sp-alert" role="alert">
+        <strong>Please fix these filters:</strong>
+        <ul>
+          {% for message in form.non_field_errors %}<li>{{ message }}</li>{% endfor %}
+          {% for field in form %}{% for message in field.errors %}<li>{{ message }}</li>{% endfor %}{% endfor %}
+        </ul>
+      </div>
+    {% else %}
+      {% if error %}<p class="sp-alert" role="alert">{{ error }}</p>{% endif %}
+      {% for note in notes %}<p class="sp-note" role="note">{{ note }}</p>{% endfor %}
+      {% if avoiding_allergens %}
+        <p class="sp-note" role="note">Allergy filters skip cuisines where the allergen is common. They can't guarantee a dish is safe. Always confirm allergies with the restaurant.</p>
+      {% endif %}
     {% endif %}
-  </div>
-  <p class="muted" id="loc-status" role="status">{% if location %}Using your location — results are sorted by distance.{% endif %}</p>
-</form>
 
-<div class="finder-results">
-{% if form.errors %}
-  <div class="error" role="alert">
-    <strong>Please fix these filters:</strong>
-    <ul>
-      {% for message in form.non_field_errors %}<li>{{ message }}</li>{% endfor %}
-      {% for field in form %}{% for message in field.errors %}<li>{{ message }}</li>{% endfor %}{% endfor %}
-    </ul>
-  </div>
-{% else %}
-  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-  {% for note in notes %}<p class="allergy-note" role="note">{{ note }}</p>{% endfor %}
-  {% if avoiding_allergens %}
-    <p class="allergy-note" role="note">Allergy filters skip cuisines where the allergen is common. They can't guarantee a dish is safe. Always confirm allergies with the restaurant.</p>
-  {% endif %}
+    <div class="sp-list results-list">
+      {% if not form.errors %}
+        {% for item in items %}
+          <article class="result sp-row" data-key="{{ item.key }}" data-index="{{ forloop.counter0 }}">
+            {% if item.place_id %}<button type="button" class="sp-fav{% if item.liked %} is-on{% endif %}" data-place="{{ item.place_id }}" aria-pressed="{% if item.liked %}true{% else %}false{% endif %}" aria-label="Favorite" title="Favorite"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.6-9.2C.9 7.9 3 4 6.8 4c2.1 0 3.6 1.1 4.4 2.5h1.6C13.6 5.1 15.1 4 17.2 4 21 4 23.1 7.9 21.6 11.3 19.5 15.9 12 20.5 12 20.5z"/></svg></button>{% endif %}
+            <h2>{% if item.url %}<a href="{{ item.url }}"{% if item.external_url %} target="_blank" rel="noopener"{% endif %}>{{ item.name }}</a>{% else %}{{ item.name }}{% endif %}{% if item.health is not None %}<span class="sp-health sp-health--{% if item.health >= 70 %}hi{% elif item.health >= 40 %}mid{% else %}lo{% endif %}" title="AI health score from reviews (MiniLM), 0-100"><span class="hs-ring" style="--p:{{ item.health }}"><span>{{ item.health }}</span></span><span class="hs-word">Health+</span></span>{% endif %}</h2>
+            
+            {% if item.rating %}
+              <div class="sp-rating">★ {{ item.rating }}{% if item.rating_count %} ({{ item.rating_count }}){% endif %}{% if item.price %} · {{ item.price }}{% endif %}</div>
+            {% elif item.price %}
+              <div class="sp-muted">{{ item.price }}</div>
+            {% endif %}
+            <div class="sp-muted">{{ item.type_label }}{% if item.distance_mi is not None %} · {{ item.distance_mi|floatformat:2 }} mi away{% endif %}</div>
+            {% if item.details %}<div class="result-details">{{ item.details|join:" · " }}</div>{% endif %}
+            <div class="sp-addr">{{ item.address|default:"No address listed" }}</div>
+            {% if item.tags %}<div class="sp-tags">{% for tag in item.tags %}<span class="sp-tag">{{ tag }}</span>{% endfor %}</div>{% endif %}
+            {% if item.lat is None %}<div class="sp-muted sp-small">Location not found</div>{% elif item.location_source == "google" and item.kind != "restaurant_google" %}<div class="sp-muted sp-small" title="This record had no coordinates; the location comes from Google Places.">Located via Google</div>{% endif %}
+          </article>
+        {% empty %}
+          <p class="sp-empty">No results. Try another borough, a wider distance, or fewer filters.</p>
+        {% endfor %}
+        {% include "search/_pagination.html" %}
+      {% endif %}
+    </div>
+    <div class="sp-detail" id="sp-detail">
+      <button type="button" class="sp-back" id="sp-back">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+        Back to results
+      </button>
+      <aside id="community-panel" class="community-panel" aria-live="polite"></aside>
+    </div>
+  </aside>
 
-  <p class="muted result-summary">
-    {{ total }} result{{ total|pluralize }}{% if counts.restaurant is not None %} · {{ counts.restaurant }} restaurant{{ counts.restaurant|pluralize }}{% endif %}{% if counts.farmers_market is not None %} · {{ counts.farmers_market }} farmers market{{ counts.farmers_market|pluralize }}{% endif %}{% if counts.grocery is not None %} · {{ counts.grocery }} grocery store{{ counts.grocery|pluralize }}{% endif %}
-  </p>
+  <section class="sp-map" aria-label="Map">
+    <div class="sp-chips" id="sp-chips">
+      <details class="sp-chip" data-label="{% if location %}Near me{% else %}Location{% endif %}">
+        <summary>{% if location %}Near me{% else %}Location{% endif %}</summary>
+        <div class="sp-pop">
+          <div class="sp-pop-actions">
+            <button type="button" class="sp-btn" id="use-location">Use my location</button>
+            {% if location %}<button type="button" class="sp-btn sp-btn--quiet" id="clear-location">Clear</button>{% endif %}
+          </div>
+          <label>Walking distance {{ form.distance }}</label>
+          <label>ZIP code {{ form.zip }}</label>
+          <p class="sp-muted" id="loc-status" role="status">{% if location %}Using your location. Results are sorted by distance.{% endif %}</p>
+        </div>
+      </details>
+      <details class="sp-chip sp-chip2" id="restaurant-filters" data-for-type="restaurant" data-kind="cuisine" data-label="Cuisine">
+        <summary>Cuisine</summary>
+        <div class="sp-pop sp-pop2">
+          <div class="sp-opts">
+            {% for value, label in form.fields.cuisine.choices %}{% if value %}<label class="sp-opt"><input type="checkbox" name="cuisine" value="{{ value }}"{% if value in form.cuisine.value %} checked{% endif %}><span>{{ label }}</span></label>{% endif %}{% endfor %}
+          </div>
+        </div>
+      </details>
+      <details class="sp-chip sp-chip2" data-for-type="restaurant" data-kind="dietall" data-label="Diet">
+        <summary>Diet</summary>
+        <div class="sp-pop sp-pop2">
+          <p class="sp-cap">Diet</p>
+          <div class="sp-pills">
+          {% for value, label in diet_pills %}<label class="sp-pill"><input type="radio" name="diet" value="{{ value }}"{% if form.diet.value == value %} checked{% endif %}><span>{{ label }}</span></label>{% endfor %}
+        </div>
+          <p class="sp-cap">Allergies</p>
+          {% for choice in form.avoid %}<label class="sp-switch">{{ choice.tag }}<span>No {{ choice.data.value }}</span><i aria-hidden="true"></i></label>{% endfor %}
+        </div>
+      </details>
+      <details class="sp-chip sp-chip2" data-for-type="farmers_market" data-kind="day" data-label="Opening hours">
+        <summary>Opening hours</summary>
+        <div class="sp-pop sp-pop2">
+          <p class="sp-cap">Day</p>
+          <div class="sp-pills">
+          {% for value, label in form.fields.day.choices %}{% if value %}<label class="sp-pill"><input type="radio" name="day" value="{{ value }}"{% if form.day.value == value %} checked{% endif %}><span>{{ label|slice:":3" }}</span></label>{% endif %}{% endfor %}
+        </div>
+          <p class="sp-cap">Time</p>
+          <div class="sp-pills">{% for value, label in form.fields.market_time.choices %}{% if value %}<label class="sp-pill"><input type="radio" name="market_time" value="{{ value }}"{% if form.market_time.value == value %} checked{% endif %}><span>{{ label }}</span></label>{% endif %}{% endfor %}</div>
+        </div>
+      </details>
+      <details class="sp-chip sp-chip2" data-kind="filters" data-label="Filters">
+        <summary>Filters</summary>
+        <div class="sp-pop sp-pop2">
+          <p class="sp-cap">Area</p>
+          <div class="sp-pills">{% for value, label in form.fields.area.choices %}{% if value %}<label class="sp-pill"><input type="checkbox" name="area" value="{{ value }}"{% if value in form.area.value %} checked{% endif %}><span>{{ label }}</span></label>{% endif %}{% endfor %}</div>
+          <p class="sp-cap">Price</p>
+          <div class="sp-seg">{% for choice in form.price %}<label>{{ choice.tag }}<span>{{ choice.choice_label }}</span></label>{% endfor %}</div>
+          <p class="sp-cap">Rating</p>
+          <div class="sp-seg"><label><input type="radio" name="min_rating" value="3.5"{% if form.min_rating.value == "3.5" %} checked{% endif %}><span>3.5+</span></label><label><input type="radio" name="min_rating" value="4"{% if form.min_rating.value == "4" %} checked{% endif %}><span>4.0+</span></label><label><input type="radio" name="min_rating" value="4.5"{% if form.min_rating.value == "4.5" %} checked{% endif %}><span>4.5+</span></label></div>
+          <p class="sp-cap">Health score</p>
+          <div class="sp-seg"><label><input type="radio" name="min_health" value="40"{% if form.min_health.value == "40" %} checked{% endif %}><span>40+</span></label><label><input type="radio" name="min_health" value="70"{% if form.min_health.value == "70" %} checked{% endif %}><span>70+</span></label><label><input type="radio" name="min_health" value="85"{% if form.min_health.value == "85" %} checked{% endif %}><span>85+</span></label></div>
+        </div>
+      </details>
+    </div>
 
-  <div class="map-legend" aria-label="Map legend">
-    <span><span class="swatch swatch--restaurant_google" aria-hidden="true"></span> Restaurant</span>
-    <span><span class="swatch swatch--farmers_market" aria-hidden="true"></span> Farmers market</span>
-    <span><span class="swatch swatch--grocery" aria-hidden="true"></span> Grocery</span>
-  </div>
-  <p id="map-status" class="muted map-status" role="status">Loading map…</p>
-  {% csrf_token %}
-  <div class="combined-map-layout">
-    <div class="combined-map-frame">
-      <div id="combined-map" class="combined-map" role="region" aria-label="Map of matching NYC food locations"></div>
-      <div class="community-panel-slot">
-        <button
-          type="button"
-          id="community-panel-collapse"
-          class="panel-edge-tab panel-edge-tab--collapse"
-          aria-label="Collapse details back to map popup"
-        >
-          <span aria-hidden="true">‹</span>
-        </button>
-        <div
-          id="combined-map-splitter"
-          class="combined-map-splitter"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize reviews panel"
-          aria-valuemin="200"
-          aria-valuemax="480"
-          aria-valuenow="300"
-          tabindex="0"
-        ></div>
-        <aside id="community-panel" class="community-panel" aria-live="polite">
-          <h2>Reviews</h2>
-          <p class="muted">Click a pin or a result to see ratings, comments, and photos. Log in to add your own.</p>
-        </aside>
+    <p id="map-status" class="sp-vh" role="status">Loading map…</p>
+    {% csrf_token %}
+    <div class="combined-map-layout">
+      <div class="combined-map-frame">
+        <div id="combined-map" class="combined-map" role="region" aria-label="Map of matching NYC food locations"></div>
+        <div class="community-panel-slot">
+          <button type="button" id="community-panel-collapse" class="panel-edge-tab panel-edge-tab--collapse" aria-label="Collapse details back to map popup"><span aria-hidden="true">‹</span></button>
+          <div id="combined-map-splitter" class="combined-map-splitter" role="separator" aria-orientation="vertical" aria-label="Resize reviews panel" aria-valuemin="200" aria-valuemax="480" aria-valuenow="300" tabindex="0"></div>
+        </div>
       </div>
     </div>
-  </div>
-
-  <div class="find-food-layout">
-    <div class="results-list">
-      {% for item in items %}
-        <article class="result" data-key="{{ item.key }}" data-index="{{ forloop.counter0 }}">
-          <h2>{% if item.url %}<a href="{{ item.url }}"{% if item.external_url %} target="_blank" rel="noopener"{% endif %}>{{ item.name }}</a>{% else %}{{ item.name }}{% endif %}</h2>
-          <div class="muted">{{ item.address|default:"No address listed" }}</div>
-          {% if item.details %}<div class="result-details">{{ item.details|join:" · " }}</div>{% endif %}
-          <div class="tags">
-            <span class="tag type-tag"><span class="swatch swatch--{{ item.category }}" aria-hidden="true"></span> {{ item.type_label }}</span>
-            {% if item.price %}<span class="tag">{{ item.price }}</span>{% endif %}
-            {% if item.rating %}<span class="tag">★ {{ item.rating }}{% if item.rating_count %} ({{ item.rating_count }}){% endif %}</span>{% endif %}
-            {% if item.distance_mi is not None %}<span class="tag">{{ item.distance_mi|floatformat:2 }} mi away</span>{% endif %}
-            {% if item.lat is None %}<span class="tag location-missing">Location not found</span>{% elif item.location_source == "google" and item.kind != "restaurant_google" %}<span class="tag" title="This record had no coordinates; the location comes from Google Places.">Located via Google</span>{% endif %}
-          </div>
-        </article>
-      {% empty %}
-        <p class="empty">No results: nothing matches these filters. Try another borough, a wider distance, or fewer filters.</p>
-      {% endfor %}
-      {% include "search/_pagination.html" %}
-    </div>
-  </div>
-{% endif %}
-</div>
+  </section>
 </div>
 
 {{ map_points|json_script:"combined-map-data" }}
@@ -197,5 +163,109 @@
 
 {% block scripts %}
 <script src="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.js"></script>
-<script src="{% static 'search/combined_map.js' %}?v=7" defer></script>
+<script src="{% static 'search/search_page.js' %}?v=17"></script>
+<script src="{% static 'search/combined_map.js' %}?v=182" defer></script>
+
+
+<script>
+  // step171: fold the list; tab is fixed on the page right beside the list.
+  (function () {
+    function init() {
+      var sp = document.querySelector(".sp");
+      var side = sp && (sp.querySelector(".sp-side") || sp.querySelector("aside"));
+      if (!sp || !side) return;
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "sp-fold";
+      document.body.appendChild(b);
+      function place() {
+        var r = sp.getBoundingClientRect(), s = side.getBoundingClientRect();
+        var folded = sp.classList.contains("sp--folded");
+        b.style.left = (folded ? r.left : s.right) + "px";
+        var top = Math.max(r.top, 0), bot = Math.min(r.bottom, window.innerHeight);
+        b.style.top = ((top + bot) / 2) + "px";
+        b.style.display = bot - top > 60 ? "block" : "none";
+      }
+      function set(f) {
+        sp.classList.toggle("sp--folded", f);
+        b.textContent = f ? "\u203A" : "\u2039";
+        b.setAttribute("aria-label", f ? "Show list" : "Hide list");
+        b.title = f ? "Show list" : "Hide list";
+        try { sessionStorage.setItem("spFolded", f ? "1" : ""); } catch (e) {}
+        place();
+        // step172: follow the list while it slides, then resize the map.
+        var t0 = performance.now();
+        (function tick(t) { place(); if (t - t0 < 450) requestAnimationFrame(tick);
+          else window.dispatchEvent(new Event("resize")); })(t0);
+      }
+      b.addEventListener("click", function () { set(!sp.classList.contains("sp--folded")); });
+      window.addEventListener("resize", place);
+      window.addEventListener("scroll", place, { passive: true });
+      var saved = ""; try { saved = sessionStorage.getItem("spFolded"); } catch (e) {}
+      set(saved === "1");
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
+  })();
+</script>
+
+
+<script>
+  // step203: remember the place when a logged-out user heads to log in; reopen it after.
+  (function () {
+    var loggedIn = !!document.querySelector('.site-header form[action*="logout"]');
+    function activeKey() { var c = document.querySelector(".result.active[data-key]"); return c ? c.dataset.key : ""; }
+    if (!loggedIn) {
+      document.addEventListener("click", function (e) {
+        var el = e.target.closest && e.target.closest("a, button");
+        if (!el || el.closest(".site-header")) return;
+        var href = el.getAttribute("href") || "";
+        if (/\/(login|signup)/.test(href) || /write a review|log in/i.test(el.textContent)) {
+          var k = activeKey();
+          try { if (k) sessionStorage.setItem("reviewKey", k); } catch (x) {}
+        }
+      }, true);
+      return;
+    }
+    var key = ""; try { key = sessionStorage.getItem("reviewKey") || ""; sessionStorage.removeItem("reviewKey"); } catch (x) {}
+    if (!key) return;
+    var tries = 0;
+    (function openCard() {
+      var card = Array.prototype.find.call(document.querySelectorAll(".result[data-key]"), function (c) { return c.dataset.key === key; });
+      if (!card || !window.maplibregl) { if (++tries < 60) setTimeout(openCard, 150); return; }
+      setTimeout(function () {
+        card.click(); card.scrollIntoView({ block: "nearest" });
+        var n = 0;
+        (function openBox() { // step205
+          function vis(el) { return el && el.offsetParent !== null; }
+          var all = Array.prototype.slice.call(document.querySelectorAll("a, button"));
+          var write = all.find(function (b) { return vis(b) && /^\s*Write a review\s*$/i.test(b.textContent); });
+          if (write) {
+            write.click();
+            setTimeout(function () { var t = document.querySelector(".community-form--visitor textarea, form textarea[name=text]"); if (vis(t)) t.focus(); }, 200);
+            return;
+          }
+          var tab = all.find(function (b) { return vis(b) && /^\s*Reviews\b/i.test(b.textContent) && !b.closest(".site-header"); });
+          if (tab && !tab.dataset.s205) { tab.dataset.s205 = "1"; tab.click(); }
+          if (++n < 80) setTimeout(openBox, 150);
+        })();
+      }, 400);
+    })();
+  })();
+</script>
+
+<script>
+  // step207: ?focus=<key> -> select that result once the map is ready.
+  (function () {
+    var p = new URLSearchParams(location.search), key = p.get("focus");
+    if (!key) return;
+    p.delete("focus");
+    history.replaceState(null, "", location.pathname + (p.toString() ? "?" + p : ""));
+    var tries = 0;
+    (function go() {
+      var card = Array.prototype.find.call(document.querySelectorAll(".result[data-key]"), function (c) { return c.dataset.key === key; })
+        || (document.querySelectorAll(".result[data-key]").length === 1 ? document.querySelector(".result[data-key]") : null);
+      if (!card || !window.maplibregl) { if (++tries < 60) setTimeout(go, 150); return; }
+      setTimeout(function () { card.click(); card.scrollIntoView({ block: "nearest" }); }, 500);
+    })();
+  })();
+</script>
 {% endblock %}

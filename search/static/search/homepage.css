@@ -1159,3 +1159,41 @@
     background-position: 0 0, 50% -10.1vw;
   }
 }
+
+/* 62: Explore more header (option B). */
+.restaurant-list-section .restaurant-list-header {
+  display: flex !important; align-items: flex-end; justify-content: space-between; gap: 16px;
+  padding: 8px 2px 16px !important; margin-bottom: 20px !important;
+  border-bottom: 1px solid var(--border, #ddd) !important; background: none !important;
+}
+.xm-head { display: flex; flex-direction: column; gap: 2px; }
+.xm-head .xm-kicker {
+  margin: 0 0 4px !important; font-size: 0.72rem !important; font-weight: 700 !important;
+  letter-spacing: 0.14em; text-transform: uppercase; color: #185fa5 !important;
+}
+.xm-head .xm-title { margin: 0 !important; font-size: clamp(1.8rem, 3vw, 2.4rem) !important; line-height: 1.1 !important; }
+.xm-head .xm-sub { margin: 4px 0 0 !important; font-size: 0.95rem !important; color: var(--muted, #6b6f76) !important; }
+:root[data-theme="dark"] .xm-head .xm-kicker { color: #a8c7fa !important; }
+
+/* 63: Health+ tag on cards; price on the rating line; Explore more box. */
+.hp-tag {
+  position: absolute; top: 10px; right: 10px; z-index: 2; display: inline-flex; align-items: center; gap: 4px;
+  height: 26px; padding: 0 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; line-height: 1;
+  border: 1px solid; box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+.hp-tag b { font-weight: 800; }
+.hp-tag--hi { background: #e1f5ee; color: #085041; border-color: #5dcaa5; }
+.hp-tag--mid { background: #faeeda; color: #633806; border-color: #ef9f27; }
+.hp-tag--lo { background: #faece7; color: #712b13; border-color: #f0997b; }
+.top-pick-card__art, .restaurant-card__art { position: relative; }
+.top-pick-card__price-inline { font-weight: 700; color: var(--ink, inherit); }
+.restaurant-card__meta { display: flex; align-items: center; gap: 4px; margin: 6px 0 0; font-size: 0.85rem; }
+.restaurant-card__meta .rc-star { color: #e2a33a; }
+.restaurant-card__meta .rc-mu { color: var(--muted, #6b6f76); }
+.restaurant-list-section {
+  margin: 0 0 44px !important; padding: 26px 28px 30px !important;
+  background: #fff !important; border: 1px solid var(--border, #e3e7e5) !important; border-radius: 20px !important;
+  box-shadow: 0 6px 24px rgba(20,35,32,.08) !important;
+}
+.restaurant-list-section--with-divider::before { display: none !important; }
+:root[data-theme="dark"] .restaurant-list-section { background: #161b22 !important; border-color: #30363d !important; box-shadow: none !important; }

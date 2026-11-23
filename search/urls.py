@@ -9,6 +9,7 @@ urlpatterns = [
     path("rerank/", views.rerank_top_picks, name="rerank_top_picks"),
     path("location/", views.save_location, name="save_location"),
     path("search/", views.index, name="index"),
+    path("search/panel/", views.place_panel, name="place_panel"),
     path(
         "restaurant/<str:place_id>/", views.restaurant_detail, name="restaurant_detail"
     ),

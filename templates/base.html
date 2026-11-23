@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="{% static 'search/fresh.css' %}?v=9">
   <link rel="stylesheet" href="{% static 'assistant/chat.css' %}">
   <script>window.__theme=function(){try{var t=localStorage.getItem('theme');if(t)return t}catch(e){}var m=document.cookie.match(/(?:^|; )theme=(\w+)/);return m?m[1]:'light'};(function(){if(window.__theme()==='dark')document.documentElement.setAttribute('data-theme','dark')})();</script>
+  <link rel="stylesheet" href="{% static 'search/late.css' %}?v=215">
 </head>
 <body>
   {% with view=request.resolver_match.view_name %}
@@ -50,7 +51,11 @@
               var next = r.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
               try { localStorage.setItem('theme', next); } catch (e) {}
               document.cookie = 'theme=' + next + '; path=/; max-age=31536000';
-              if (document.getElementById('combined-map')) { location.reload(); return; }
+              if (document.getElementById('combined-map')) { /* step182: no reload */
+                if (next === 'dark') r.setAttribute('data-theme', 'dark'); else r.removeAttribute('data-theme');
+                window.dispatchEvent(new CustomEvent('sp-theme', { detail: next })); return; }
+              r.classList.add('theme-fade');
+              setTimeout(function () { r.classList.remove('theme-fade'); }, 700);
               if (next === 'dark') r.setAttribute('data-theme', 'dark'); else r.removeAttribute('data-theme');
             });
           })();
@@ -116,5 +121,152 @@
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run); else run();
   })();
   </script>
+<script>
+  // 67: signup looks exactly like the Log in link.
+  (function () {
+    var nav = document.querySelector('.site-header nav');
+    if (!nav) return;
+    var su = nav.querySelector('a[href*="signup"]');
+    var li = Array.prototype.find.call(nav.querySelectorAll('a'), function (a) {
+      return a !== su && !a.hasAttribute('aria-current') && !a.classList.contains('is-active') && !a.classList.contains('active');
+    });
+    if (!su || !li) return;
+    var st = getComputedStyle(li);
+    ['color', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'padding-top', 'padding-right',
+     'padding-bottom', 'padding-left', 'margin-top', 'margin-bottom', 'display', 'align-self', 'vertical-align',
+     'background-color', 'background-image', 'border-top-width', 'border-radius', 'box-shadow', 'text-decoration', 'height']
+      .forEach(function (k) { su.style.setProperty(k, st.getPropertyValue(k), 'important'); });
+    su.style.setProperty('-webkit-text-fill-color', st.getPropertyValue('color'), 'important');
+    // 104: current page (Sign up page) keeps the underline like other current links.
+    if (su.hasAttribute('aria-current') || location.pathname.indexOf('/signup') === 0) {
+      su.style.setProperty('text-decoration', 'underline', 'important');
+      su.style.setProperty('text-decoration-thickness', '3px', 'important');
+      su.style.setProperty('text-underline-offset', '10px', 'important');
+      su.style.setProperty('font-weight', '700', 'important');
+    }
+  })();
+</script>
+<script>
+  // 119: tag links - a Health+ tag opens the restaurant's score page.
+  (function () {
+    function placeOf(tag) {
+      var row = tag.closest("[data-key]");
+      if (row && /^google:/.test(row.dataset.key)) return row.dataset.key.slice(7);
+      var card = tag.closest('[id^="pick-"], [id^="r-"]');
+      if (card) return card.id.replace(/^(pick|r)-/, "");
+      var panel = tag.closest(".community-panel, .pp");
+      var link = panel && panel.querySelector('a[href^="/restaurant/"]');
+      if (link) return decodeURIComponent(link.getAttribute("href").split("/")[2] || "");
+      var fav = panel && panel.querySelector("[data-place]");
+      return fav ? fav.dataset.place : "";
+    }
+    document.addEventListener("click", function (e) {
+      var tag = e.target.closest(".sp-health, .hp-tag, .pp-health");
+      if (!tag) return;
+      var id = placeOf(tag);
+      if (!id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var url = "/restaurant/" + encodeURIComponent(id) + "/";
+      if (location.pathname.indexOf("/search") === 0) url += "?back=" + encodeURIComponent(location.pathname + location.search);
+      if (e.metaKey || e.ctrlKey) window.open(url, "_blank"); else window.location.href = url;
+    }, true);
+  })();
+</script>
+<script>
+  // step180: remember each plain button's own colors so hover/press keep them.
+  (function () {
+    function isPlain(bg) {
+      var m = bg.match(/rgba?\(([^)]+)\)/); if (!m) return true;
+      var p = m[1].split(",").map(parseFloat);
+      if (p.length > 3 && p[3] < 0.2) return true;
+      return p[0] + p[1] + p[2] > 600;   // white / near-white
+    }
+    function mark(btn) {
+      if (btn.matches('[aria-pressed], [class*="like"], [class*="fav"], [class*="heart"]')) { btn.classList.remove("is-plain", "is-solid"); return; } // step210
+      if (btn.dataset.plainChecked || btn.matches(":hover")) return;
+      btn.dataset.plainChecked = "1";
+      var st = getComputedStyle(btn);
+      if (!isPlain(st.backgroundColor)) return;
+      btn.classList.add("is-plain");
+      btn.style.setProperty("--plain-bg", st.backgroundColor);
+      btn.style.setProperty("--plain-fg", st.color);
+      btn.style.setProperty("--plain-bd", st.borderTopColor);
+    }
+    function scan(root) { (root.querySelectorAll ? root.querySelectorAll("button") : []).forEach(mark); if (root.tagName === "BUTTON") mark(root); }
+    function start() {
+      scan(document);
+      new MutationObserver(function (ms) { ms.forEach(function (m) { m.addedNodes.forEach(function (n) { if (n.nodeType === 1) scan(n); }); }); })
+        .observe(document.body, { childList: true, subtree: true });
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
+  })();
+</script>
+<script>
+  // step201: remember colored buttons' own look (re-read when the theme flips).
+  (function () {
+    function plainBg(bg) {
+      var m = bg.match(/rgba?\(([^)]+)\)/); if (!m) return true;
+      var p = m[1].split(",").map(parseFloat);
+      return (p.length > 3 && p[3] < 0.2) || p[0] + p[1] + p[2] > 600;
+    }
+    function mark(btn) {
+      if (btn.matches('[aria-pressed], [class*="like"], [class*="fav"], [class*="heart"]')) { btn.classList.remove("is-plain", "is-solid"); return; } // step210
+      if (btn.matches(":hover") || btn.classList.contains("is-plain")) return;
+      btn.classList.remove("is-solid");
+      var st = getComputedStyle(btn);
+      if (plainBg(st.backgroundColor) && st.backgroundImage === "none") return;
+      btn.classList.add("is-solid");
+      btn.style.setProperty("--solid-bg", st.backgroundColor);
+      btn.style.setProperty("--solid-img", st.backgroundImage);
+      btn.style.setProperty("--solid-fg", st.color);
+      btn.style.setProperty("--solid-bd", st.borderTopColor);
+    }
+    function scan() { document.querySelectorAll('button, input[type="submit"]').forEach(mark); }
+    function start() {
+      scan();
+      new MutationObserver(function () { setTimeout(scan, 30); })
+        .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+      new MutationObserver(function (ms) {
+        ms.forEach(function (m) { m.addedNodes.forEach(function (n) {
+          if (n.nodeType !== 1) return;
+          if (n.matches('button, input[type="submit"]')) mark(n);
+          n.querySelectorAll && n.querySelectorAll('button, input[type="submit"]').forEach(mark);
+        }); });
+      }).observe(document.body, { childList: true, subtree: true });
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
+  })();
+</script>
+<script>
+  // step203: Log in / Sign up links remember this page.
+  (function () {
+    if (/^\/(login|signup)/.test(location.pathname)) return;
+    function fix(a) {
+      var href = a.getAttribute("href") || "";
+      if (!/\/(login|signup)\/?(\?|$)/.test(href) || /[?&]next=/.test(href)) return;
+      a.setAttribute("href", href.split("?")[0] + "?next=" + encodeURIComponent(location.pathname + location.search));
+    }
+    document.addEventListener("click", function (e) { var a = e.target.closest && e.target.closest("a[href]"); if (a) fix(a); }, true);
+    document.querySelectorAll("a[href]").forEach(fix);
+  })();
+</script>
+<script>
+  // step214: mark text-style buttons by their label.
+  (function () {
+    var RE = /^\s*(show more|show less|see all|load more|more reviews|comment|reply|cancel)\b/i;
+    function mark(root) {
+      (root.querySelectorAll ? root.querySelectorAll("button") : []).forEach(function (b) {
+        if (!b.classList.contains("btn") && RE.test(b.textContent)) { b.classList.add("is-textbtn"); b.classList.remove("is-solid"); }
+      });
+    }
+    function start() {
+      mark(document);
+      new MutationObserver(function (ms) { ms.forEach(function (m) { m.addedNodes.forEach(function (n) { if (n.nodeType === 1) mark(n.parentNode || n); }); }); })
+        .observe(document.body, { childList: true, subtree: true, characterData: true });
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
+  })();
+</script>
 </body>
 </html>

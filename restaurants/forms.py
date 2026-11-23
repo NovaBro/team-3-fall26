@@ -17,10 +17,10 @@ DIET_CHOICES = [("", "Any"), *GOOGLE_DIET_CHOICES]
 # Miles; labels are roughly walking time for a student between classes.
 DISTANCE_CHOICES = [
     ("", "Any distance"),
-    ("0.25", "5 min walk (¼ mi)"),
-    ("0.5", "10 min walk (½ mi)"),
-    ("1", "20 min walk (1 mi)"),
-    ("2", "2 mi"),
+    ("0.25", "5 min walk"),
+    ("0.5", "10 min walk"),
+    ("1", "20 min walk"),
+    ("2", "40 min walk"),
 ]
 MIN_RATING_CHOICES = [
     ("", "Any rating"),

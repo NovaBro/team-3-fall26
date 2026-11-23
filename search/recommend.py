@@ -331,6 +331,7 @@ TAG_FITS_ENERGY = "Fits your energy"
 TAG_CLOSER_ENERGY = "Closer for your energy"
 TAG_COMFORT_MOOD = "Comfort for your mood"
 TAG_HEALTHY_REVIEWS = "Healthy reviews"
+HEALTHY_REVIEWS_AI_MIN = 0.6  # AI review score needed for the tag
 TAG_LOWER_CALORIE = "Lower-calorie menu"
 TAG_MENU_BASED = "Menu-based estimate"
 TAG_BUDGET = "Budget-friendly"
@@ -1288,7 +1289,12 @@ def score_restaurant(
     candidates.extend(mood_tags)
     if has_menu:
         candidates.append(TAG_MENU_BASED)
-    if total and healthy_n >= 2 and (healthy_n / total) >= 0.40:
+    # The AI review score decides when we have it; the keyword count is only a
+    # fallback (words like "fresh" or "salad" show up at diners too).
+    if ai_health is not None:
+        if ai_health >= HEALTHY_REVIEWS_AI_MIN:
+            candidates.append(TAG_HEALTHY_REVIEWS)
+    elif total and healthy_n >= 2 and (healthy_n / total) >= 0.40:
         candidates.append(TAG_HEALTHY_REVIEWS)
     if c is not None and c >= LOWER_CALORIE_TAG_THRESHOLD:
         candidates.append(TAG_LOWER_CALORIE)

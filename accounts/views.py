@@ -163,10 +163,21 @@ def quick_checkin(request):
 def profile(request):
     instance, _created = UserProfile.objects.get_or_create(user=request.user)
     mood_history = MoodLog.objects.filter(user=request.user)[:MOOD_HISTORY_LIMIT]
+    edit_log_id = None
     today_mood = MoodLog.objects.filter(user=request.user, log_date=today_ny()).first()
 
     if request.method == "POST":
-        if request.POST.get("action") == "log_mood":
+        if request.POST.get("action") == "edit_mood":  # step175
+            log = get_object_or_404(MoodLog, pk=request.POST.get("log_id") or 0, user=request.user)
+            mood_form = MoodLogForm(request.POST, instance=log)
+            fixed_form = UserProfileForm(instance=instance)
+            if mood_form.is_valid():
+                mood_form.save()
+                messages.success(request, "Check-in updated.")
+                return redirect(reverse("accounts:profile") + "#checkin-log")
+            messages.error(request, "Please fix the errors below.")
+            edit_log_id = log.pk
+        elif request.POST.get("action") == "log_mood":
             mood_form = MoodLogForm(request.POST, instance=today_mood)
             fixed_form = UserProfileForm(instance=instance)
             if mood_form.is_valid():
@@ -202,6 +213,7 @@ def profile(request):
         {
             "fixed_form": fixed_form,
             "mood_form": mood_form,
+            "edit_log_id": edit_log_id,
             "mood_history": mood_history,
             "today_mood": today_mood,
             "wide_fields": WIDE_FIELDS,

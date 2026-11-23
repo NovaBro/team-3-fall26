@@ -421,7 +421,7 @@ class ViewTests(TestCase):
         ), patch("search.views._profile_for", return_value=profile(allergies="Nuts")):
             html = self.client.get(url).content.decode()
         self.assertIn("Picked for you", html)
-        self.assertIn("Add a health goal", html)
+        self.assertIn("Set your goal", html)
         self.assertIn("Not suggested: Walnut and fresh greens salad lists walnut", html)
         self.assertEqual(html.count("what-to-order__dish--picked"), 2)
         self.assertIn("400 kcal", html)

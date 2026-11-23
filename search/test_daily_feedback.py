@@ -200,7 +200,7 @@ class FeedbackViewTests(TestCase):
     def test_anonymous_hides_mood_pickers(self):
         response, _names = self.picks()
         self.assertNotContains(response, "mood-pick__btn")
-        self.assertContains(response, "Down for a healthy bite?")
+        self.assertContains(response, "Something new, every day")
 
     def test_quick_checkin_requires_login(self):
         response = self.client.post(

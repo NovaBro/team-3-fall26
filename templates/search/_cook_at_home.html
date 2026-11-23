@@ -1,41 +1,12 @@
 {% if cook_at_home.show %}
-<section class="cook-at-home" aria-labelledby="cook-at-home-title">
-  <div class="cook-at-home__header">
-    <h3 id="cook-at-home-title" class="cook-at-home__title">Cook at home today</h3>
-    <p class="cook-at-home__subtitle muted">
-      High mood and energy — farmers markets and Shop Healthy stores make home cooking the healthier pick.
-    </p>
-  </div>
+<section class="cook-glass" aria-labelledby="cook-at-home-title">
+  <h3 id="cook-at-home-title" class="cook-glass__title">How about cooking today?</h3>
   {% if cook_at_home.markets or cook_at_home.stores %}
-  <ul class="cook-at-home__list">
-    {% for place in cook_at_home.markets %}
-    <li class="cook-at-home__item">
-      <span class="cook-at-home__kind">Farmers market</span>
-      <strong class="cook-at-home__name">{{ place.name }}</strong>
-      <span class="cook-at-home__meta muted">
-        {% if place.borough %}{{ place.borough }}{% endif %}{% if place.borough and place.address %} · {% endif %}{{ place.address }}
-      </span>
-      {% if place.days or place.hours %}
-      <span class="cook-at-home__hours muted">{{ place.days }}{% if place.days and place.hours %} · {% endif %}{{ place.hours }}</span>
-      {% endif %}
-    </li>
-    {% endfor %}
-    {% for place in cook_at_home.stores %}
-    <li class="cook-at-home__item">
-      <span class="cook-at-home__kind">Shop Healthy</span>
-      <strong class="cook-at-home__name">{{ place.name }}</strong>
-      <span class="cook-at-home__meta muted">
-        {% if place.borough %}{{ place.borough }}{% endif %}{% if place.borough and place.address %} · {% endif %}{{ place.address }}
-      </span>
-      {% if place.year_awarded %}
-      <span class="cook-at-home__hours muted">Recognized {{ place.year_awarded }}</span>
-      {% endif %}
-    </li>
-    {% endfor %}
-  </ul>
+  <div class="cook-glass__chips">
+    {% for place in cook_at_home.markets %}<a class="cook-glass__chip" href="/search/?q={{ place.name|urlencode }}&amp;types=farmers_market" title="{{ place.borough }}{% if place.days %} · {{ place.days }}{% endif %}{% if place.hours %} · {{ place.hours }}{% endif %}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21c.5-4.5 2.5-8 7-10"/><path d="M9 18c6.2 0 10.5-3.3 11-12V4h-4.3C9 4 7 8.7 7 13v1c0 .6.4 1 1 1"/></svg>{{ place.name }}</a>{% endfor %}
+    {% for place in cook_at_home.stores %}<a class="cook-glass__chip" href="/search/?q={{ place.name|urlencode }}&amp;types=grocery" title="{{ place.borough }} · Shop Healthy"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 10l7-6 7 6"/><path d="M3 10h18l-2 9H5z"/></svg>{{ place.name }}</a>{% endfor %}
+  </div>
   {% endif %}
-  <p class="cook-at-home__cta">
-    <a class="cook-at-home__link" href="{{ cook_at_home.find_food_url }}">Browse markets and healthy stores</a>
-  </p>
+  <a class="cook-glass__link" href="{{ cook_at_home.find_food_url }}">Browse markets and healthy stores →</a>
 </section>
 {% endif %}
