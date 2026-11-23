@@ -7,11 +7,15 @@
     restaurant_google: "Restaurant",
   };
 
+  // Restaurants in the site blue, farmers markets mint, groceries coral.
+  // Both restaurant sources share the blue.
+  const DARK = window.__theme && window.__theme() === "dark";
   const PIN_COLORS = {
-    farmers_market: "#1f5fbf",
-    grocery: "#2e8b57",
-    restaurant_google: "#9b59b6",
+    farmers_market: DARK ? "#3cc9b2" : "#2bb59f",
+    grocery: DARK ? "#f59682" : "#ef7c66",
+    restaurant_google: DARK ? "#6f95e6" : "#3458a5",
   };
+  const PIN_STROKE = DARK ? "#0e1116" : "#ffffff";
 
   const state = {
     map: null,
@@ -722,6 +726,10 @@
     popup.on("close", () => {
       if (state.popup === popup) state.popup = null;
       if (state.docked) return;
+      if (state.selectedMarker) {
+        state.selectedMarker.remove();
+        state.selectedMarker = null;
+      }
       restorePanelHome();
     });
     state.popup = popup;
@@ -729,9 +737,26 @@
     state.map.easeTo({ center: [point.lng, point.lat], offset: [0, 170] });
   }
 
+  // A blue drop marks the place that is open.
+  function markSelected(point) {
+    if (state.selectedMarker) state.selectedMarker.remove();
+    state.selectedMarker = null;
+    if (!state.map || !window.maplibregl || point.lat == null || point.lng == null) return;
+    const el = document.createElement("div");
+    el.className = "selected-pin";
+    el.innerHTML =
+      '<svg width="34" height="44" viewBox="0 0 34 44" aria-hidden="true">' +
+      '<path d="M17 2C9 2 3 8 3 16c0 10 14 25 14 25s14-15 14-25C31 8 25 2 17 2z" fill="#3458a5" stroke="#ffffff" stroke-width="2.5"/>' +
+      '<circle cx="17" cy="16" r="5.5" fill="#ffffff"/></svg>';
+    state.selectedMarker = new maplibregl.Marker({ element: el, anchor: "bottom" })
+      .setLngLat([point.lng, point.lat])
+      .addTo(state.map);
+  }
+
   function openPoint(point) {
     state.openKey = point.key || "";
     state.openPoint = point;
+    markSelected(point);
     highlightCard(state.openKey, true);
     if (state.docked) {
       if (state.popup) {
@@ -927,27 +952,86 @@
       }
     });
 
+    // Far out, nearby places merge into one bubble with a count (MapLibre
+    // clustering); zooming in or clicking a bubble splits them up.
     function addPinLayers() {
       if (state.map.getSource(CATEGORIES[0])) return;
+      if (!DARK && state.map.getLayer("water")) {
+        state.map.setPaintProperty("water", "fill-color", "#dde8f6");
+      }
       CATEGORIES.forEach((category) => {
-        state.map.addSource(category, { type: "geojson", data: featureCollection(category) });
+        const visibility = state.visibility[category] ? "visible" : "none";
+        state.map.addSource(category, {
+          type: "geojson",
+          data: featureCollection(category),
+          cluster: true,
+          clusterRadius: 48,
+          clusterMaxZoom: 14,
+        });
+        state.map.addLayer({
+          id: `${category}-clusters`,
+          type: "circle",
+          source: category,
+          filter: ["has", "point_count"],
+          layout: { visibility },
+          paint: {
+            "circle-color": PIN_COLORS[category],
+            "circle-opacity": 0.6,
+            // Bigger bubble for more places: 2 places ~14px, 5,000+ ~56px.
+            "circle-radius": [
+              "interpolate", ["linear"], ["get", "point_count"],
+              2, 14, 10, 18, 50, 24, 200, 31, 1000, 41, 5000, 56,
+            ],
+          },
+        });
+        state.map.addLayer({
+          id: `${category}-count`,
+          type: "symbol",
+          source: category,
+          filter: ["has", "point_count"],
+          layout: {
+            visibility,
+            "text-field": ["get", "point_count_abbreviated"],
+            "text-font": ["Noto Sans Bold"],
+            "text-size": [
+              "interpolate", ["linear"], ["get", "point_count"],
+              2, 11, 200, 13, 1000, 15, 5000, 17,
+            ],
+            "text-allow-overlap": true,
+          },
+          paint: { "text-color": "#ffffff" },
+        });
         state.map.addLayer({
           id: category,
           type: "circle",
           source: category,
-          layout: { visibility: state.visibility[category] ? "visible" : "none" },
+          filter: ["!", ["has", "point_count"]],
+          layout: { visibility },
           paint: {
-            "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 14, 9],
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 5, 14, 7, 17, 9],
             "circle-color": PIN_COLORS[category],
-            "circle-stroke-color": "#0e1116",
+            "circle-stroke-color": PIN_STROKE,
             "circle-stroke-width": 2,
           },
         });
-        state.map.on("mouseenter", category, () => {
-          state.map.getCanvas().style.cursor = "pointer";
+        [category, `${category}-clusters`].forEach((layer) => {
+          state.map.on("mouseenter", layer, () => {
+            state.map.getCanvas().style.cursor = "pointer";
+          });
+          state.map.on("mouseleave", layer, () => {
+            state.map.getCanvas().style.cursor = "";
+          });
         });
-        state.map.on("mouseleave", category, () => {
-          state.map.getCanvas().style.cursor = "";
+        state.map.on("click", `${category}-clusters`, async (event) => {
+          const feature = event.features && event.features[0];
+          if (!feature) return;
+          const source = state.map.getSource(category);
+          try {
+            const zoom = await source.getClusterExpansionZoom(feature.properties.cluster_id);
+            state.map.easeTo({ center: feature.geometry.coordinates, zoom });
+          } catch (error) {
+            state.map.easeTo({ center: feature.geometry.coordinates, zoom: state.map.getZoom() + 2 });
+          }
         });
       });
 

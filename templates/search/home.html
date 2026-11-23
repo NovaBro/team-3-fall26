@@ -66,17 +66,8 @@
   <section class="restaurant-list-section {% if top_picks %}restaurant-list-section--with-divider{% endif %}" aria-labelledby="restaurant-list-title">
     <div class="restaurant-list-header">
       <div class="restaurant-list-header__copy">
-        <p class="restaurant-list-header__eyebrow">Explore more</p>
-        <h2 id="restaurant-list-title">
-          {% if selected_boro %}
-            Restaurants in {{ selected_boro|title }}
-          {% else %}
-            Good food is closer than you think. Let's find it!
-          {% endif %}
-        </h2>
-        <p class="muted">
-          Showing {{ page_obj.paginator.count }} verified NYC restaurant record{{ page_obj.paginator.count|pluralize }}
-        </p>
+        <h2 id="restaurant-list-title">Explore more{% if selected_boro %} in {{ selected_boro|title }}{% endif %}</h2>
+        <p class="top-picks__subtitle muted">More places to try{% if selected_boro %} in {{ selected_boro|title }}{% else %} across New York{% endif %}, picked fresh every day.</p>
       </div>
 
       <nav class="restaurant-pagination" aria-label="Restaurant pages">
