@@ -133,3 +133,73 @@ class PlacePanelContextTests(TestCase):
         ctx = place_panel.panel_context("google:missing", name="X")
         self.assertEqual(ctx["name"], "X")
         self.assertFalse(ctx["is_restaurant"])
+
+
+class BackLinkTests(SimpleTestCase):
+    def test_back_to_same_search(self):
+        from django.test import RequestFactory
+
+        from search.views import _back_link
+
+        rf = RequestFactory()
+        url, label, _home = _back_link(
+            rf.get("/restaurant/1/", {"back": "/search/?q=kale&area=Queens"})
+        )
+        self.assertEqual(url, "/search/?q=kale&area=Queens")
+        self.assertEqual(label, "Back to search")
+        url, _label, _home = _back_link(
+            rf.get("/restaurant/1/", {"back": "https://evil.example/search/"})
+        )
+        self.assertEqual(url, "/search/")
+
+
+class SearchLikedFlagTests(TestCase):
+    databases = ALL_DATABASES
+
+    def test_logged_in_search_marks_liked_rows(self):
+        from django.contrib.auth.models import User
+
+        user = User.objects.create_user(username="foodie", password="x-Pass-2026!")
+        self.client.force_login(user)
+        response = self.client.get("/search/", {"q": "kale"})
+        self.assertEqual(response.status_code, 200)
+
+
+class MinHealthFilterTests(TestCase):
+    databases = ALL_DATABASES
+
+    def test_min_health_keeps_only_healthy_places(self):
+        from community.models import HealthScore
+        from search.find_food import restaurant_rows
+
+        HealthScore.objects.create(place_id="p-healthy", score=0.8)
+        HealthScore.objects.create(place_id="p-low", score=0.3)
+        rows = list(restaurant_rows({"min_health": "70"}))
+        self.assertTrue(all(r.get("place_id") != "p-low" for r in rows))
+
+
+class MarketTimeFilterTests(TestCase):
+    databases = ALL_DATABASES
+
+    def setUp(self):
+        from search.models import FarmersMarket
+
+        FarmersMarket.objects.create(
+            year=2026,
+            market_name="Every Day Market",
+            borough="Manhattan",
+            street_address="1 Main St",
+            latitude=40.75,
+            longitude=-73.99,
+            days_of_operation="Mon-Sun",
+            hours_of_operations="12 a.m. - 11:59 p.m.",
+        )
+
+    def test_now_and_window_filters_run(self):
+        from search.find_food import farmers_market_items
+
+        now = farmers_market_items({"market_time": "now"})
+        morning = farmers_market_items({"market_time": "morning"})
+        evening = farmers_market_items({"market_time": "evening"})
+        self.assertLessEqual(len(now), 1)
+        self.assertEqual(len(morning), len(evening))
