@@ -1094,7 +1094,23 @@
     state.map = new maplibregl.Map(mapOptions);
     // step182: theme toggle swaps the map style in place.
     window.addEventListener("sp-theme", (e) => {
-      state.map.setStyle("https://tiles.openfreemap.org/styles/" + (e.detail === "dark" ? "dark" : "positron"));
+      // step219: keep our sources/layers (pins, clusters, selected dot) across the swap.
+      state.map.setStyle(
+        "https://tiles.openfreemap.org/styles/" + (e.detail === "dark" ? "dark" : "positron"),
+        {
+          transformStyle: (prev, next) => {
+            if (!prev) return next;
+            const baseSources = new Set(Object.keys(next.sources || {}));
+            const baseLayers = new Set((next.layers || []).map((l) => l.id));
+            const sources = { ...next.sources };
+            Object.keys(prev.sources || {}).forEach((id) => {
+              if (!baseSources.has(id) && !/^openmaptiles$|^ne2_|^natural_earth/.test(id)) sources[id] = prev.sources[id];
+            });
+            const ours = (prev.layers || []).filter((l) => !baseLayers.has(l.id) && l.source && sources[l.source] && !baseSources.has(l.source));
+            return { ...next, sources, layers: [...next.layers, ...ours] };
+          },
+        },
+      );
     });
     state.map.on("moveend", () => {
       try {
