@@ -5,38 +5,18 @@ on:
     branches: [develop, main]
   pull_request:
     branches: [develop, main]
-  # Fork PRs into develop. A `pull_request` run from a fork gets no AWS
-  # credentials on a public repo, so it can test but not deploy. This run has
-  # them, so it only does anything for fork PRs opened by owners, members and
-  # collaborators (see TRUSTED_FORK_PR below); every other PR is skipped here.
-  # GitHub reads this file from the base branch (develop), not from the PR.
-  pull_request_target:
-    branches: [develop]
   schedule:
     - cron: "0 9 * * *"
   workflow_dispatch:
 
 jobs:
   test:
-    # TRUSTED_FORK_PR: a fork PR into develop whose author is an owner, member
-    # or collaborator. The same check gates deploy-integration below.
-    if: >
-      github.event_name != 'pull_request_target' ||
-      (
-        github.event.pull_request.head.repo.full_name != github.repository &&
-        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
-      )
     runs-on: ubuntu-22.04
     steps:
       # Scheduled runs always start from the default branch (develop); test main instead.
-      # pull_request_target starts from develop too; test the PR merged into develop,
-      # the same commit a `pull_request` run tests.
       - uses: actions/checkout@v4
         with:
-          ref: >-
-            ${{ github.event_name == 'pull_request_target'
-                && format('refs/pull/{0}/merge', github.event.pull_request.number)
-                || (github.event_name == 'schedule' && 'main' || '') }}
+          ref: ${{ github.event_name == 'schedule' && 'main' || '' }}
           persist-credentials: false
 
       - name: Record checked-out commit
@@ -88,25 +68,9 @@ jobs:
 
   deploy-integration:
     needs: test
-    # Integration: develop pushes, same-repo PRs into develop (pull_request),
-    # and TRUSTED_FORK_PRs into develop (pull_request_target). Fork PRs from
-    # anyone else only run tests. Production stays push-to-main only.
-    if: >
-      github.repository == 'gcivil-nyu-org/team-3-fall26' &&
-      (
-        (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
-        (
-          github.event_name == 'pull_request' &&
-          github.base_ref == 'develop' &&
-          github.event.pull_request.head.repo.full_name == github.repository
-        ) ||
-        (
-          github.event_name == 'pull_request_target' &&
-          github.base_ref == 'develop' &&
-          github.event.pull_request.head.repo.full_name != github.repository &&
-          contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
-        )
-      )
+    # Integration deploys only on a push to develop (a merged PR). Pull
+    # requests, from the repo or forks, only run tests.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && github.repository == 'gcivil-nyu-org/team-3-fall26'
     runs-on: ubuntu-22.04
     concurrency:
       group: nycfood-integration-deploy
@@ -115,13 +79,8 @@ jobs:
       id-token: write
       contents: read
     steps:
-      # A fork PR deploys the PR merged into develop, like a same-repo PR.
       - uses: actions/checkout@v4
         with:
-          ref: >-
-            ${{ github.event_name == 'pull_request_target'
-                && format('refs/pull/{0}/merge', github.event.pull_request.number)
-                || '' }}
           persist-credentials: false
 
       - uses: actions/setup-python@v5
