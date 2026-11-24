@@ -406,16 +406,19 @@
       }
       var mSet = setOf(mood), eSet = setOf(energy);
       var sig = [mSet, eSet, word(mood, "mood"), word(energy, "energy")].join("|");
-      if (line.dataset.sig === sig && line.contains(box)) return;
+      var any = mSet || eSet; // step226: check the actual words around the box
+      var pre = any ? "For your " : "Pick your ", suf = any ? " today." : " for today.";
+      var ok = line.dataset.sig === sig && box.parentNode === line && line.childNodes.length === 3 &&
+        line.firstChild.nodeValue === pre && line.lastChild.nodeValue === suf;
+      if (ok) return;
       busy = true;
-      var any = mSet || eSet;
       box.textContent = "";
       box.append(mood);
       if (mSet) box.append(" mood");
       box.append(" and ", energy);
       if (eSet) box.append(" energy");
       line.textContent = "";
-      line.append(any ? "For your " : "Pick your ", box, any ? " today." : " for today.");
+      line.append(pre, box, suf);
       line.dataset.sig = sig;
       busy = false;
     }
