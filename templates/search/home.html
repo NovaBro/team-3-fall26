@@ -5,7 +5,7 @@
 {% block main_class %}restaurant-main{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=39">
+<link rel="stylesheet" href="{% static 'search/homepage.css' %}?v=69">
 <script src="{% static 'search/explore_like.js' %}?v=4" defer></script>
 <script src="{% static 'search/mood_checkin.js' %}?v=5" defer></script>
 <script>window.TOP_PICKS_RERANK_URL = "{% url 'search:rerank_top_picks' %}";</script>
@@ -14,7 +14,7 @@
 {% block content %}
 <header class="ui-hero home-hero">
   <h1 id="home-hero-title">{{ hero_title }}</h1>
-  <p class="ui-lede" id="home-hero-lede">{{ hero_lede }}</p>
+  <p class="ui-lede" id="home-hero-lede">{% if user.is_authenticated %}{{ hero_lede }}{% else %}Sign up and find great places picked just for you.{% endif %}</p>
 </header>
 <section class="restaurant-home" aria-labelledby="restaurant-home-title">
   
@@ -43,7 +43,7 @@
       </div>
       {% endif %}
       </div>
-      <p class="top-picks__subtitle muted">{{ top_picks_subtitle }}</p>
+      <p class="top-picks__subtitle muted">{% if user.is_authenticated %}{{ top_picks_subtitle }}{% else %}<span class="tp-nudge">Picks for everyone today. <a href="{% url 'accounts:login' %}">Log in</a> or <a href="{% url 'accounts:signup' %}">sign up</a> to make them yours.{# step209 #}</span>{% endif %}</p>
     </div>
     <div class="top-picks__grid">
       {% include "search/_top_picks_grid.html" %}
@@ -65,18 +65,10 @@
   {% if restaurants %}
   <section class="restaurant-list-section {% if top_picks %}restaurant-list-section--with-divider{% endif %}" aria-labelledby="restaurant-list-title">
     <div class="restaurant-list-header">
-      <div class="restaurant-list-header__copy">
-        <p class="restaurant-list-header__eyebrow">Explore more</p>
-        <h2 id="restaurant-list-title">
-          {% if selected_boro %}
-            Restaurants in {{ selected_boro|title }}
-          {% else %}
-            Good food is closer than you think. Let's find it!
-          {% endif %}
-        </h2>
-        <p class="muted">
-          Showing {{ page_obj.paginator.count }} verified NYC restaurant record{{ page_obj.paginator.count|pluralize }}
-        </p>
+      <div class="restaurant-list-header__copy xm-head">
+        <p class="xm-kicker">More to try</p>
+        <h2 id="restaurant-list-title" class="xm-title">Explore more</h2>
+        <p class="xm-sub">Fresh places across <span class="xm-place">{% if selected_boro %}{{ selected_boro|title }}{% else %}New York{% endif %}</span>, every day.</p>
       </div>
 
       <nav class="restaurant-pagination" aria-label="Restaurant pages">
@@ -96,7 +88,7 @@
             alt="{{ restaurant.name }}"
             loading="lazy"
             onerror="this.onerror=null;this.src='{{ fallback_img|escapejs }}';">
-            {% if restaurant.google.price %}<span class="restaurant-card__price">{{ restaurant.google.price }}</span>{% endif %}
+            {% if restaurant.health is not None %}<span class="hp-tag hp-tag--{% if restaurant.health >= 70 %}hi{% elif restaurant.health >= 40 %}mid{% else %}lo{% endif %}" title="AI health score from reviews (MiniLM), 0-100"><span class="hs-ring" style="--p:{{ restaurant.health }}"><span>{{ restaurant.health }}</span></span><span class="hs-word">Health+</span></span>{% endif %}
           </div>
           <div class="restaurant-card__body">
             <div class="restaurant-card__topline">
@@ -125,6 +117,7 @@
             <p class="restaurant-card__description">
               {% if restaurant.google.address %}{{ restaurant.google.address }}{% else %}{{ restaurant.street }}{% if restaurant.boro %}, {{ restaurant.boro }}{% endif %}{% if restaurant.zipcode %} {{ restaurant.zipcode }}{% endif %}{% endif %}
             </p>
+            {% if restaurant.google.rating or restaurant.google.price %}<p class="restaurant-card__meta">{% if restaurant.google.rating %}<span class="rc-star">★</span> {{ restaurant.google.rating }}{% if restaurant.google.rating_count %} <span class="rc-mu">({{ restaurant.google.rating_count }})</span>{% endif %}{% endif %}{% if restaurant.google.price %} <span class="rc-mu">·</span> {{ restaurant.google.price }}{% endif %}</p>{% endif %}
           </div>
         </article>
       {% endfor %}
@@ -138,5 +131,258 @@
 {% endblock %}
 
 {% block scripts %}{{ block.super }}
+{% if user.is_authenticated %}{# step169 #}
+<script>
+  // 156: one pill - mood and energy words inside the buttons.
+  (function () {
+    document.querySelectorAll(".mood-pick__btn").forEach(function (btn) {
+      if (btn.querySelector(".mood-pick__word")) return;
+      var menu = btn.parentNode.querySelector(".mood-pick__menu");
+      var on = menu && menu.querySelector(".mood-pick__opt.is-on span");
+      var word = document.createElement("span");
+      word.className = "mood-pick__word";
+      word.textContent = on ? on.textContent.trim() : (btn.dataset.kind === "energy" ? "Energy" : "Mood");
+      btn.insertBefore(word, btn.querySelector(".mood-pick__chev"));
+    });
+  })();
+</script>
+{% endif %}
+<script>
+  // 136/139: photo size = earlier + 80px; text at the bottom of the photo.
+  (function () {
+    var hero = document.querySelector(".home-hero");
+    if (!hero) return;
+    var st = getComputedStyle(hero);
+    var pt = parseFloat(st.paddingTop) || 0, pb = parseFloat(st.paddingBottom) || 0;
+    hero.style.setProperty("padding-top", (pt + 40) + "px", "important");
+    hero.style.setProperty("padding-bottom", (pb + 40) + "px", "important");
+    var full = hero.offsetHeight;
+    hero.style.setProperty("min-height", full + "px", "important");
+    hero.style.setProperty("padding-bottom", Math.max(28, pb) + "px", "important");
+    hero.classList.add("hero-text-bottom");
+    // 140 (kept): 50px taller below.
+    hero.style.setProperty("min-height", (hero.offsetHeight + 50) + "px", "important");
+  })();
+</script>
+<script>
+  // 123: header on hero (home only).
+  (function () {
+    var hero = document.querySelector(".home-hero"), header = document.querySelector(".site-header");
+    if (!hero || !header) return;
+    hero.prepend(header);
+    header.classList.add("on-hero");
+    hero.classList.add("has-nav");
+    document.body.classList.add("nav-on-hero");
+  })();
+</script>
+<script>
+  // 91: cook card sits on the hero photo.
+  (function () {
+    var hero = document.querySelector(".home-hero"), slot = document.getElementById("cook-at-home-slot");
+    if (hero && slot) hero.appendChild(slot);
+  })();
+</script>
+<script>
+  // 64: same title look for Explore more as Top picks.
+  (function () {
+    var a = document.getElementById("top-picks-title"), b = document.getElementById("restaurant-list-title");
+    if (!a || !b) return;
+    var st = getComputedStyle(a);
+    ["fontSize", "fontFamily", "fontWeight", "letterSpacing", "lineHeight"].forEach(function (k) { b.style.setProperty(k.replace(/[A-Z]/g, function (m) { return "-" + m.toLowerCase(); }), st[k], "important"); });
+  })();
+</script>
 <script src="{% static 'search/boro_reel.js' %}?v=3"></script>
+
+<script>
+  // step188: region picker - same look day/night, blue-gray.
+  (function () {
+    function paint() {
+      var dark = document.documentElement.getAttribute("data-theme") === "dark";
+      var c = dark ? "#9fb3c8" : "#647f9c", line = dark ? "#4d5c6d" : "#b9c4d0";
+      function set(el, props) { Object.keys(props).forEach(function (k) { el.style.setProperty(k, props[k], "important"); }); }
+      document.querySelectorAll(".boro-reel__window").forEach(function (w) {
+        set(w, { "background": "transparent", "box-shadow": "none", "border": "0", "border-radius": "0",
+                 "border-bottom": "2px dashed " + line });
+      });
+      document.querySelectorAll(".boro-reel, .boro-reel__item, .xm-place").forEach(function (el) {
+        set(el, { "color": c, "background": "transparent", "-webkit-text-fill-color": c });
+      });
+      document.querySelectorAll(".boro-reel__arrow").forEach(function (a) {
+        set(a, { "color": c, "background": "transparent", "box-shadow": "none", "border": "0" });
+        if (!a.classList.contains("boro-reel__arrow--down")) set(a, { "display": "none" });
+        a.querySelectorAll("svg, path").forEach(function (s) { set(s, { "stroke": c, "color": c }); });
+      });
+      document.querySelectorAll(".mood-pick [data-kind] svg, .mood-pick__chev").forEach(function (s) {
+        set(s, { "color": c });
+      });
+    }
+    function start() {
+      paint();
+      new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
+    window.addEventListener("load", paint);
+  })();
+</script>
+
+
+
+
+
+{% if user.is_authenticated %}{# step204 #}
+<script>
+  // step193: 'For your [mood] mood and [energy] energy today.'
+  (function () {
+    var box = document.querySelector(".mood-pick");
+    if (!box) return;
+    var line = null;
+    document.querySelectorAll(".top-picks__subtitle, .top-picks__header p").forEach(function (p) {
+      if (!line && /mood and energy|Ranked with/i.test(p.textContent)) line = p;
+    });
+    line = line || document.querySelector(".top-picks__subtitle");
+    var dds = box.querySelectorAll(".mood-pick__dd");
+    if (!line || dds.length < 2) return;
+    var mood = dds[0], energy = dds[1];
+    dds.forEach(function (d) { var b = d.querySelector(".mood-pick__btn"); if (b && b.dataset.kind === "energy") energy = d; else if (b) mood = d; });
+    box.textContent = "";
+    box.append(mood, document.createTextNode(" mood and "), energy);
+    line.textContent = "";
+    line.classList.add("mood-sentence");
+    line.append("For your ", box, " energy today.");
+    // step194: if something rewrites the line, put the sentence back.
+    var busy = false;
+    new MutationObserver(function () {
+      if (busy) return;
+      var cur = null;
+      document.querySelectorAll(".top-picks__subtitle, .top-picks__header p").forEach(function (p) {
+        if (!cur && p !== line && /Ranked with|mood and energy check-in/i.test(p.textContent)) cur = p;
+      });
+      if (!cur && line.isConnected && line.contains(box)) return;
+      cur = cur || (line.isConnected ? line : null);
+      if (!cur) return;
+      busy = true;
+      var extra = document.querySelectorAll(".mood-pick");
+      extra.forEach(function (b) { if (b !== box) b.remove(); });
+      cur.textContent = "";
+      cur.classList.add("mood-sentence");
+      cur.append("For your ", box, " energy today.");
+      line = cur;
+      busy = false;
+    }).observe(document.querySelector(".top-picks") || document.body, { childList: true, subtree: true, characterData: true });
+  })();
+</script>
+{% endif %}
+
+
+{% if user.is_authenticated %}{# step204 #}
+<script>
+  // step197: word in the sentence = the option marked is-on (or just clicked).
+  (function () {
+    function wordOf(dd) {
+      var b = dd.querySelector(".mood-pick__btn");
+      var w = b.querySelector(".mood-pick__word");
+      if (!w) {
+        w = document.createElement("span"); w.className = "mood-pick__word";
+        b.insertBefore(w, b.querySelector(".mood-pick__chev"));
+      }
+      return w;
+    }
+    function sync(dd, opt) {
+      opt = opt || dd.querySelector(".mood-pick__opt.is-on");
+      var s = opt && opt.querySelector("span");
+      if (s) wordOf(dd).textContent = s.textContent.trim();
+    }
+    document.querySelectorAll(".mood-pick__dd").forEach(function (dd) {
+      sync(dd);
+      var menu = dd.querySelector(".mood-pick__menu");
+      if (menu) new MutationObserver(function () { sync(dd); })
+        .observe(menu, { attributes: true, attributeFilter: ["class"], subtree: true });
+    });
+    document.addEventListener("click", function (e) {
+      var opt = e.target.closest && e.target.closest(".mood-pick__opt");
+      var dd = opt && opt.closest(".mood-pick__dd");
+      if (dd) sync(dd, opt);
+    }, true);
+  })();
+</script>
+{% endif %}
+
+
+<script>
+  // step200 (+199): minimal pager; Explore pages swap in place so Top picks stay.
+  (function () {
+    var KEEP = {NYC:1,BBQ:1,LLC:1,INC:1,USA:1,NY:1,BK:1,II:1,III:1,KFC:1,BX:1,DC:1,CO:1,LP:1,LTD:1,NE:1,NW:1,SE:1,SW:1};
+    function titleCase(root) {
+      root.querySelectorAll(".restaurant-card h2, .restaurant-card__description").forEach(function (el) {
+        var w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), n;
+        while ((n = w.nextNode())) n.nodeValue = n.nodeValue
+          .replace(/[A-Z][A-Z']+/g, function (x) { return KEEP[x] ? x : x.charAt(0) + x.slice(1).toLowerCase(); })
+          .replace(/(\d)(ST|ND|RD|TH)\b/g, function (m, d, x) { return d + x.toLowerCase(); });
+      });
+    }
+    function pager(root) {
+      var nav = root.querySelector(".restaurant-pagination");
+      if (!nav || nav.classList.contains("pg-min")) return;
+      var label = Array.prototype.find.call(nav.querySelectorAll("span"), function (s) { return /Page\s+\d+\s+of\s+\d+/i.test(s.textContent); });
+      if (!label) return;
+      var m = label.textContent.match(/Page\s+(\d+)\s+of\s+(\d+)/i), cur = +m[1], tot = +m[2];
+      var prev = null, next = null;
+      nav.querySelectorAll("a").forEach(function (a) {
+        if (label.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_PRECEDING) prev = a; else next = next || a;
+      });
+      function arrow(a, ch, name) {
+        var el = a || document.createElement("span");
+        el.textContent = ch; el.className = "pg-arrow" + (a ? "" : " is-off");
+        el.setAttribute("aria-label", name);
+        return el;
+      }
+      var p = arrow(prev, "‹", "Previous page"), n = arrow(next, "›", "Next page");
+      label.className = "pg-count";
+      label.innerHTML = "<b>" + (cur < 10 ? "0" + cur : cur) + "</b> — " + tot;
+      nav.textContent = "";
+      nav.classList.add("pg-min");
+      nav.append(p, label, n);
+    }
+    function load(url, push) {
+      var sec = document.querySelector(".restaurant-list-section");
+      if (!sec) { location.href = url; return; }
+      sec.style.opacity = ".5";
+      fetch(url, { credentials: "same-origin" }).then(function (r) { return r.text(); }).then(function (html) {
+        var doc = new DOMParser().parseFromString(html, "text/html");
+        var fresh = doc.querySelector(".restaurant-list-section");
+        if (!fresh) { location.href = url; return; }
+        var oldTitle = sec.querySelector("#restaurant-list-title"), newTitle = fresh.querySelector("#restaurant-list-title");
+        if (oldTitle && newTitle) newTitle.setAttribute("style", oldTitle.getAttribute("style") || "");
+        sec.replaceWith(fresh);
+        titleCase(fresh); pager(fresh);
+        if (push) history.pushState({ explore: url }, "", url);
+        var top = fresh.getBoundingClientRect().top + window.scrollY - 80;
+        if (window.scrollY > top) window.scrollTo({ top: top, behavior: "smooth" });
+      }).catch(function () { location.href = url; });
+    }
+    document.addEventListener("click", function (e) {
+      var a = e.target.closest && e.target.closest(".restaurant-pagination a");
+      if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      e.preventDefault();
+      load(a.href, true);
+    });
+    window.addEventListener("popstate", function () { load(location.href, false); });
+    pager(document);
+  })();
+</script>
+
+<script>
+  // step207: Top picks name -> Search, focused on that place.
+  (function () {
+    document.addEventListener("click", function (e) {
+      var a = e.target.closest && e.target.closest(".top-pick-card h3 a[href*='/restaurant/'], .restaurant-card h2 a[href*='/restaurant/']" /* step208 */);
+      if (!a || e.metaKey || e.ctrlKey) return;
+      var m = a.getAttribute("href").match(/\/restaurant\/([^/?]+)/);
+      if (!m) return;
+      e.preventDefault();
+      var name = a.textContent.trim();
+      location.href = "/search/?q=" + encodeURIComponent(name) + "&focus=" + encodeURIComponent("camis:" + decodeURIComponent(m[1]));
+    }, true);
+  })();
+</script>
 {% endblock %}

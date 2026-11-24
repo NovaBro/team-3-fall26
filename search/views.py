@@ -32,6 +32,7 @@ from accounts.checkin import DEFAULT_HEADLINE, picker_context, todays_log
 from assistant.recommend import personalized_picks
 from community.keys import GOOGLE as GOOGLE_KIND, google_key
 from community.models import (
+    HealthScore,
     PRICE_LEVEL_LABELS,
     CommunitySubject,
     PlaceEnrichment,
@@ -41,7 +42,7 @@ from community.models import (
     Restaurant,
     UserRating,
 )
-from restaurants.diet_filters import ALLERGY_CHOICES
+from restaurants.diet_filters import ALLERGY_CHOICES, HOMEPAGE_DIET_CHOICES
 from restaurants.places import PlacesError
 from search import ai_scores, find_food, menu_estimate, reason_writer, what_to_order
 from search.cook_at_home import (
@@ -153,9 +154,19 @@ def index(request):
         "notes": [],
         "location": None,
         "store_types": STORE_TYPE_CHOICES,
+        "diet_pills": HOMEPAGE_DIET_CHOICES,
     }
     if form.is_valid():
         context.update(_find_food(form))
+        # 89: liked = favorite heart on the list rows.
+        if request.user.is_authenticated:
+            _liked = set(
+                RecommendationFeedback.objects.filter(
+                    user_id=request.user.pk, value=RecommendationFeedback.LIKE
+                ).values_list("place_id", flat=True)
+            )
+            for _i in context.get("items", []):
+                _i["liked"] = _i.get("place_id") in _liked
     return render(request, "search/index.html", context)
 
 
@@ -191,6 +202,15 @@ def _find_food(form):
                     radius_m,
                 )
                 rows = None
+                # 66: health order: highest score first, even near you.
+                from community.models import HealthScore as _HS
+
+                _sc = dict(
+                    _HS.objects.filter(
+                        place_id__in=[r.get("place_id") for r in restaurants]
+                    ).values_list("place_id", "score")
+                )
+                restaurants.sort(key=lambda r: -(_sc.get(r.get("place_id")) or -1))
     if form.google_only_filters_ignored:
         notes.append("The open-now filter only applies to live Google results.")
 
@@ -206,6 +226,38 @@ def _find_food(form):
     items = list(page_obj.object_list)
     resolve(items, fetch=True)
     find_food.set_distances(items, lat, lng)
+    # 49: MiniLM health score (0-100) for restaurants already scored.
+    ids = [i["place_id"] for i in items if i.get("place_id")]
+    if ids:
+        from community.models import HealthScore
+
+        scores = dict(
+            HealthScore.objects.filter(place_id__in=ids).values_list(
+                "place_id", "score"
+            )
+        )
+        for i in items:
+            score = scores.get(i.get("place_id"))
+            i["health"] = round(score * 100) if score is not None else None
+        # 72: goal tags (same names and bars as Top picks; stored scores only).
+        from search.recommend import GOAL_TAG_MIN, GOAL_TAG_MIN_BY_GOAL, GOAL_TAGS
+
+        goal_rows = dict(
+            HealthScore.objects.filter(
+                place_id__in=ids, goal_scores__isnull=False
+            ).values_list("place_id", "goal_scores")
+        )
+        for i in items:
+            goals = goal_rows.get(i.get("place_id")) or {}
+            fits = sorted(
+                (
+                    (v, GOAL_TAGS[k])
+                    for k, v in goals.items()
+                    if k in GOAL_TAGS and v >= GOAL_TAG_MIN_BY_GOAL.get(k, GOAL_TAG_MIN)
+                ),
+                reverse=True,
+            )
+            i["tags"] = [label for _v, label in fits[:2]]
 
     on_map = {}
     restaurants_on_map = (
@@ -592,6 +644,7 @@ def _top_picks(request, count=3, boro=""):
         nutrition = menu_nutrition_for_name(pick_name)
         calorie = None if nutrition is None else nutrition["score"]
         ai_health, ai_goals = _ai_scores(place_id, pick_name, reviews)
+        pick["health"] = round(ai_health * 100) if ai_health is not None else None
         score_kwargs = dict(
             name=pick_name,
             cuisine=pick.get("cuisine") or "",
@@ -639,6 +692,7 @@ def _top_picks(request, count=3, boro=""):
         pick["place_lat"] = place_lat
         pick["place_lng"] = place_lng
         pick["score"] = score
+        pick["health"] = round(score)  # 94: adjusted score on the Top picks tag
         pick["reason_tags"] = tags
         pick["calorie_score"] = calorie
         pick["confidence"] = breakdown["confidence"]
@@ -870,6 +924,15 @@ def home(request):
         row["liked"] = row["place_id"] in liked  # heart under the photo
         row["google"] = google_card(row)  # stored Google data: no API calls
         row["photo_url"] = _photo_url_for(row["google"])
+    # 63: Explore health: stored MiniLM scores for this page, one query.
+    _scores = dict(
+        HealthScore.objects.filter(
+            place_id__in=[row["place_id"] for row in restaurants]
+        ).values_list("place_id", "score")
+    )
+    for row in restaurants:
+        _s = _scores.get(row["place_id"])
+        row["health"] = round(_s * 100) if _s is not None else None
 
     today_mood = _mood_check_in_for(request)
     cook_at_home = _cook_at_home_context(request, selected_boro, today_mood)
@@ -1156,6 +1219,12 @@ def _reason_blurb(place_id, restaurant=None, place=None):
 
 def _back_link(request):
     """Where "Back" on a detail page goes: Top picks if we came from there."""
+    # 168: back to the same search (filters kept).
+    back = request.GET.get("back", "")
+    if back.startswith("/search/") and url_has_allowed_host_and_scheme(
+        back, allowed_hosts={request.get_host()}
+    ):
+        return back, "Back to search", False
     if request.GET.get("from") != "home":
         return reverse("search:index"), "Back to search", False
     params = {key: request.GET[key] for key in ("boro", "page") if request.GET.get(key)}
@@ -1246,6 +1315,9 @@ def restaurant_detail(request, place_id):
             "street": restaurant.street,
             "zipcode": restaurant.zipcode,
             "cuisine": restaurant.cuisine,
+            "score_chips": __import__(
+                "search.score_chips", fromlist=["build_chips"]
+            ).build_chips(score_breakdown),
             "restaurant": restaurant,
             "place": place,
             "menu_picks": menu_picks,
@@ -1343,3 +1415,38 @@ def refresh_place(request, place_id):
     else:
         messages.success(request, "Google data updated.")
     return redirect("search:restaurant_detail", place_id=place_id)
+
+
+def place_panel(request):
+    # HTML for the Search page left panel (list click or map dot click).
+    from search.place_panel import panel_context
+
+    def _num(name):
+        try:
+            return float(request.GET.get(name, ""))
+        except ValueError:
+            return None
+
+    ctx = panel_context(
+        request.GET.get("key", "")[:600],
+        name=request.GET.get("name", "")[:255],
+        address=request.GET.get("address", "")[:512],
+        category=request.GET.get("category", "")[:40],
+        lat=_num("lat"),
+        lng=_num("lng"),
+    )
+    # 89: liked = favorite heart in the panel.
+    _key = request.GET.get("key", "")
+    ctx["place_id"] = ""
+    if _key.startswith("google:"):
+        ctx["place_id"] = _key[len("google:") :]  # noqa: E203
+    ctx["liked"] = bool(
+        ctx["place_id"]
+        and request.user.is_authenticated
+        and RecommendationFeedback.objects.filter(
+            user_id=request.user.pk,
+            place_id=ctx["place_id"],
+            value=RecommendationFeedback.LIKE,
+        ).exists()
+    )
+    return render(request, "search/_place_panel.html", ctx)

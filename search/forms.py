@@ -1,15 +1,15 @@
 from django import forms
 
 from restaurants.diet_filters import DIETS
-from restaurants.forms import RestaurantFilterForm
+from restaurants.forms import AREA_CHOICES, CUISINE_CHOICES, RestaurantFilterForm
 
 FARMERS_MARKET = "farmers_market"
 GROCERY = "grocery"
 RESTAURANT = "restaurant"
 STORE_TYPE_CHOICES = [
-    (RESTAURANT, "Restaurants"),
-    (FARMERS_MARKET, "Farmers markets"),
-    (GROCERY, "Grocery (Shop Healthy)"),
+    (RESTAURANT, "restaurants"),
+    (FARMERS_MARKET, "markets"),
+    (GROCERY, "groceries"),
 ]
 
 SAVED = "saved"
@@ -49,7 +49,7 @@ class FindFoodForm(RestaurantFilterForm):
         required=False,
         max_length=100,
         strip=True,
-        widget=forms.TextInput(attrs={"placeholder": "Any name"}),
+        widget=forms.TextInput(attrs={"placeholder": "Search a place"}),
     )
     zip = forms.RegexField(
         required=False,
@@ -69,6 +69,40 @@ class FindFoodForm(RestaurantFilterForm):
         required=False,
         choices=DAY_CHOICES,
         error_messages={"invalid_choice": "%(value)s is not a day of the week."},
+    )
+    # 168: several areas at once on the Search page.
+    area = forms.MultipleChoiceField(
+        required=False,
+        choices=[c for c in AREA_CHOICES if c[0]],
+        widget=forms.CheckboxSelectMultiple,
+        error_messages={
+            "invalid_choice": (
+                "%(value)s is not a valid borough. Choose one from the list."
+            )
+        },
+    )
+    # 100: several cuisines at once on the Search page.
+    cuisine = forms.MultipleChoiceField(
+        required=False,
+        choices=[c for c in CUISINE_CHOICES if c[0]],
+        widget=forms.CheckboxSelectMultiple,
+        error_messages={"invalid_choice": "Choose a cuisine from the list."},
+    )
+    market_time = forms.ChoiceField(
+        required=False,
+        choices=[
+            ("", "Any time"),
+            ("now", "Open now"),
+            ("morning", "Morning"),
+            ("afternoon", "Afternoon"),
+            ("evening", "Evening"),
+        ],
+        error_messages={"invalid_choice": "Choose a time from the list."},
+    )
+    min_health = forms.ChoiceField(
+        required=False,
+        choices=[("", "Any"), ("40", "40+"), ("70", "70+"), ("85", "85+")],
+        error_messages={"invalid_choice": "Choose a health score from the list."},
     )
 
     def __init__(self, *args, **kwargs):

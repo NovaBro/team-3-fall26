@@ -5,47 +5,52 @@
 
 {% block content %}
 <a class="back-link" href="{{ back_url }}">&larr; {{ back_label }}</a>
-<h1>{{ name }}</h1>
-<p class="muted">{% if cuisine %}{{ cuisine }} &middot; {% endif %}{{ street }}, {{ boro }} {{ zipcode }}</p>
+<div class="dh">
+  {% if score_breakdown %}<div class="hs-big hs-big--{% if healthiness_score >= 70 %}hi{% elif healthiness_score >= 40 %}mid{% else %}lo{% endif %}" style="--p:{{ healthiness_score|floatformat:0 }}"><span data-count="{{ healthiness_score|floatformat:0 }}">{{ healthiness_score|floatformat:0 }}</span></div>{% endif %}
+  <div class="dh__text">
+    <h1>{{ name }}</h1>
+<p class="muted">{% if cuisine %}{{ cuisine }} &middot; {% endif %}{{ street|title }}, {{ boro }}</p>
+    {% if score_breakdown %}<div class="dh__score"><h2 id="healthiness-score-title" class="healthiness-score__title">Health score</h2>
+      <p class="hs-sub">Out of 100 · Healthy index adjusted by reviews{% if score_breakdown.mode == "personal" or score_breakdown.health_focus %} and your goals{% endif %}</p>
+      {% if reason_tags %}
+      <p class="healthiness-score__tags">
+        {% for tag in reason_tags %}<span class="healthiness-score__tag{% if tag == "Allergy check" %} healthiness-score__tag--warn{% endif %}">{{ tag }}</span>{% endfor %}
+      </p>
+      {% endif %}</div>{% endif %}
+  </div>
+</div>
 
 {% if score_breakdown %}
-<section class="healthiness-score" aria-labelledby="healthiness-score-title">
-  <div class="healthiness-score__headline">
-    <h2 id="healthiness-score-title" class="healthiness-score__title">Health estimate</h2>
-    <p class="healthiness-score__value mono">{{ healthiness_score|floatformat:1 }}</p>
-    <p class="muted healthiness-score__sub">
-      Top Picks formula{% if score_breakdown.mode == "personal" %} · includes your Personal fit{% endif %}
-      {% if score_breakdown.confidence %}· <span class="healthiness-score__confidence">{{ score_breakdown.confidence }} confidence</span>{% endif %}
-      {% if score_breakdown.has_menu %}· menu-based{% elif score_breakdown.estimated_menu_health is not None %}· prior + AI-estimated menu{% elif score_breakdown.has_calories == False %}· prior only (no MenuStat link){% endif %}
-      {% if score_breakdown.health_focus %}· personalized weights{% endif %}
-    </p>
-  </div>
-  {% if reason_tags %}
-  <p class="healthiness-score__tags">
-    {% for tag in reason_tags %}
-      <span class="healthiness-score__tag{% if tag == "Allergy check" %} healthiness-score__tag--warn{% endif %}">{{ tag }}</span>
-    {% endfor %}
-  </p>
-  {% endif %}
+<section class="healthiness-score hs-page" aria-labelledby="healthiness-score-title">
+  <div class="hs-top hs-top--moved" aria-hidden="true"></div>
+
   {% if score_breakdown.reasons %}
-  <h3 class="healthiness-score__how">Why we recommend it</h3>
+  <h3 class="healthiness-score__how">{% if healthiness_score >= 70 %}Why it's a good pick{% elif healthiness_score >= 40 %}What to know{% else %}Why it scores lower{% endif %}</h3>
   {% if reason_blurb %}
   <p class="healthiness-score__blurb">{{ reason_blurb }}</p>
-  {% endif %}
+  {% else %}
   <ul class="healthiness-score__why">
-    {% for reason in score_breakdown.reasons %}
-      <li>{{ reason }}</li>
-    {% endfor %}
+    {% for reason in score_breakdown.reasons %}<li>{{ reason }}</li>{% endfor %}
   </ul>
   {% endif %}
-  <h3 class="healthiness-score__how">How this score is calculated</h3>
-  <ul class="healthiness-score__parts">
+  {% endif %}
+
+  
+  {% if score_chips.helped %}<p class="hs-cap">What helped</p>
+  <div class="hs-chips">{% for t in score_chips.helped %}<span class="hs-chip hs-chip--up">+ {{ t }}</span>{% endfor %}</div>{% endif %}
+  {% if score_chips.held %}<p class="hs-cap">What held it back</p>
+  <div class="hs-chips">{% for t in score_chips.held %}<span class="hs-chip hs-chip--down">− {{ t }}</span>{% endfor %}</div>{% endif %}
+  {% if score_chips.notes %}<div class="hs-chips hs-chips--notes">{% for t in score_chips.notes %}<span class="hs-chip">{{ t }}</span>{% endfor %}</div>{% endif %}
+  <details class="hs-math" open>
+    <summary>See how it's calculated</summary>
+    <ul class="healthiness-score__parts hs-bars">
     {% for part in score_breakdown.parts %}
       <li class="healthiness-score__part">
         <details>
           <summary>
-            <span class="healthiness-score__part-label">{{ part.label }}</span>
-            <span class="mono muted">{{ part.value_0_1|floatformat:2 }} × {{ part.weight_pct|floatformat:1 }}% = {{ part.points|floatformat:1 }} pts</span>
+            <span class="healthiness-score__part-label">{% if part.label|slice:":6" == "Health" %}Healthy index{% elif part.label == "Rating" %}Reviews{% else %}{{ part.label }}{% endif %}</span>
+            <span class="hs-track"><i style="width:{% widthratio part.value_0_1 1 100 %}%"></i></span>
+            <span class="hs-num">{{ part.points|floatformat:0 }} / {{ part.weight_pct|floatformat:0 }}</span>
           </summary>
           {% if part.steps %}
           <dl class="healthiness-score__steps">
@@ -57,25 +62,143 @@
         </details>
       </li>
     {% endfor %}
-    <li class="healthiness-score__total">
-      <span class="healthiness-score__part-label">Ranking total</span>
-      <span class="mono">{{ score_breakdown.total|floatformat:1 }}</span>
-    </li>
   </ul>
+  </details>
+  <script>
+    // 117: steps hierarchy (plain words, 0-100 points).
+    (function () {
+      var pts = function (s) {
+        s = String(s).trim();
+        if (s.indexOf("=") !== -1) s = s.split("=").pop().trim();
+        if (s.indexOf("→") !== -1) s = s.split("→").pop().trim();
+        s = s.replace(/\(0 to 1\)/, "").trim();
+        var m = s.match(/^([+\-−]?)(\d*\.?\d+)$/);
+        if (!m) return s;
+        var n = parseFloat(m[2]);
+        if (n > 1.5) return s;
+        var v = Math.round(n * 100);
+        return (m[1] === "+" && v ? "+" : (m[1] && v ? "−" : "")) + v;
+      };
+      var neg = function (s) { return /^\s*[\-−]/.test(String(s)); };
+      // [pattern, new label (or null = drop row), level: 0 base, 1 adjustment, 2 subtotal, 3 final, group title before]
+      var rules = [
+        [/^Starting point$/, function () { return "Base score"; }, 0, "Food type"],
+        [/^Cuisine \((.+)\)$/, function (m) { return "Food type: " + m[1]; }, 1],
+        [/^AI review score/, function (m, v) { return neg(v) ? "Reviews don't sound very healthy" : "Reviews sound healthy"; }, 1],
+        [/^Review keywords/, function (m, v) { return neg(v) ? "Reviews mention less healthy food" : "Reviews mention healthy food"; }, 1],
+        [/^Fast-food chain$/, function (m, v) { return pts(v) === "0" ? "Not a fast-food chain" : "Fast-food chain"; }, 1],
+        [/^Kept between 0 and 1$/, function (m, v) { return /→\s*1(\.0+)?$/.test(v) ? "Capped at 100" : "Food type total"; }, 2],
+        [/^Prior health$/, null],
+        [/^AI-estimated menu/, function () { return "Median meal calories"; }, 2, "Menu"],
+        [/^Lighter typical meal on MenuStat/, function () { return "Median meal calories"; }, 2, "Menu"],
+        [/^(MenuStat match|Latest menu year|Qualifying meals)$/, null],
+        [/^Menu nutrition$/, null],
+        [/^Blend/, function () { return "Final score"; }, 3],
+        [/^Health$/, function () { return "Final score"; }, 3],
+        [/^Google$/, function () { return "Google reviews"; }, 1, "Reviews"],
+        [/^Our app$/, function () { return "Healthy Eats reviews"; }, 1],
+        [/^Adjusted with (\d+) virtual/, function (m) { return "Adjusted"; }, 2],
+        [/^Rating$/, function () { return "Final score"; }, 3],
+        [/^Personal fit$/, function () { return "Final score"; }, 3],
+      ];
+      document.querySelectorAll(".hs-math .healthiness-score__steps").forEach(function (dl) {
+        var rows = Array.prototype.slice.call(dl.children), finals = 0;
+        rows.forEach(function (row) {
+          var dt = row.querySelector("dt"), dd = row.querySelector("dd");
+          if (!dt || !dd) return;
+          var label = dt.textContent.trim(), value = dd.textContent.trim(), lvl = 1, hit = false;
+          for (var i = 0; i < rules.length; i++) {
+            var m = label.match(rules[i][0]);
+            if (!m) continue;
+            hit = true;
+            if (rules[i][1] === null) { row.remove(); return; }
+            dt.textContent = rules[i][1](m, value);
+            lvl = rules[i][2];
+            if (rules[i][3]) {
+              var g = document.createElement("div");
+              g.className = "hs-grp";
+              g.textContent = rules[i][3];
+              row.before(g);
+            }
+            break;
+          }
+          if (!hit && row === rows[rows.length - 1]) lvl = 3;
+          dd.textContent = pts(value);
+          row.classList.add("hs-l" + lvl);
+          if (lvl === 3) { finals++; row.classList.add("is-result"); }
+        });
+        // only the last "Final score" stays final
+        var f = dl.querySelectorAll(".hs-l3");
+        for (var k = 0; k < f.length - 1; k++) { f[k].classList.remove("hs-l3", "is-result"); f[k].classList.add("hs-l2"); }
+      });
+    })();
+  </script>
+  <aside class="hs-box" hidden><p class="hs-box__title"></p><dl class="hs-box__steps"></dl></aside>
+  <script>
+    // 82: a bar's steps open in the box on the right.
+    (function () {
+      var rows = Array.prototype.slice.call(document.querySelectorAll(".hs-math .hs-bars details"));
+      var box = document.querySelector(".hs-box");
+      var math = document.querySelector(".hs-math");
+      if (!rows.length || !box) return;
+      // 83: level with "What helped" (or the first block after the top row).
+      var kids = Array.prototype.slice.call(box.parentNode.children);
+      var cap = box.parentNode.querySelector(":scope > .hs-cap") || box.parentNode.querySelector(":scope > .hs-math");
+      if (cap) box.style.gridRow = (kids.indexOf(cap) + 1) + " / span 40";
+      // 110: bottom of the section: span to the last row, sit at its end.
+      box.style.gridRow = "2 / " + (kids.length + 1);
+      box.style.alignSelf = "end";
+      var wide = function () { return window.innerWidth >= 900; };
+      // 85: same size for every bar's box (the tallest one).
+      function sizeBox() {
+        if (!wide()) { box.style.minHeight = ""; return; }
+        var was = box.hidden, title = box.querySelector(".hs-box__title").textContent, html = box.querySelector(".hs-box__steps").innerHTML, tallest = 0;
+        box.style.minHeight = ""; box.hidden = false;
+        rows.forEach(function (o) {
+          box.querySelector(".hs-box__title").textContent = o.querySelector(".healthiness-score__part-label").textContent;
+          var st = o.querySelector(".healthiness-score__steps");
+          box.querySelector(".hs-box__steps").innerHTML = st ? st.innerHTML : "";
+          tallest = Math.max(tallest, box.offsetHeight);
+        });
+        box.querySelector(".hs-box__title").textContent = title;
+        box.querySelector(".hs-box__steps").innerHTML = html;
+        box.hidden = was;
+        box.style.minHeight = tallest + "px";
+      }
+      sizeBox();
+      window.addEventListener("resize", sizeBox);
+      rows.forEach(function (x) {
+        x.querySelector("summary").addEventListener("click", function (e) {
+          if (!wide()) return;
+          e.preventDefault();
+          var again = x.classList.contains("is-picked");
+          rows.forEach(function (o) { o.classList.remove("is-picked"); });
+          if (again) { box.hidden = true; return; }
+          x.classList.add("is-picked");
+          box.querySelector(".hs-box__title").textContent = x.querySelector(".healthiness-score__part-label").textContent;
+          var steps = x.querySelector(".healthiness-score__steps");
+          box.querySelector(".hs-box__steps").innerHTML = steps ? steps.innerHTML : "";
+          box.hidden = false;
+        });
+      });
+      // 86: default view = first bar picked, box shown.
+      if (wide()) rows[0].querySelector("summary").click();
+      math.addEventListener("toggle", function () {
+        if (!math.open) { box.hidden = true; rows.forEach(function (o) { o.classList.remove("is-picked"); }); }
+      });
+    })();
+  </script>
+
   {% if score_breakdown.allergy_warnings %}
   <p class="allergy-note" role="note">{{ score_breakdown.allergy_warnings|join:", " }} {% if score_breakdown.allergy_warnings|length > 1 %}are{% else %}is{% endif %} common in {{ cuisine }} food. Always confirm allergies with the restaurant.</p>
   {% endif %}
-  {% if score_breakdown.has_calories == False or score_breakdown.has_menu == False %}
-  {% if score_breakdown.estimated_menu_health is not None %}
-  <p class="muted healthiness-score__note">No MenuStat menu match — nutrition blends a soft prior with calories from an AI-estimated menu (a guess, not the real menu).</p>
-  {% else %}
-  <p class="muted healthiness-score__note">No MenuStat menu match — calorie/menu weight uses a soft prior.</p>
-  {% endif %}
+  {% if not score_breakdown.has_menu %}
+  <p class="hs-note">Press Healthy index or Reviews to see the detailed numbers.</p>
   {% endif %}
 </section>
 {% endif %}
 
-<h2>Menu</h2>
+<h2>What to order</h2>
 <div class="what-to-order" id="what-to-order" data-url="{% url 'search:what_to_order' place_id %}" aria-live="polite" aria-busy="true">
   <p class="muted what-to-order__empty">Reading the menu…</p>
 </div>
@@ -108,6 +231,24 @@
 </table>
 </div>
 {% endif %}
+<script>
+  // 115: fill the ring and count up when the page opens.
+  (function () {
+    var ring = document.querySelector(".dh .hs-big"), num = ring && ring.querySelector("[data-count]");
+    if (!ring || !num) return;
+    var target = parseFloat(num.dataset.count) || 0, start = null, dur = 1100;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    ring.style.setProperty("--pv", 0); num.textContent = "0";
+    function step(t) {
+      if (start === null) start = t;
+      var k = Math.min(1, (t - start) / dur), e = 1 - Math.pow(1 - k, 3);
+      ring.style.setProperty("--pv", (target * e).toFixed(2));
+      num.textContent = Math.round(target * e);
+      if (k < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  })();
+</script>
 {% endblock %}
 
 {% block scripts %}

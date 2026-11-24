@@ -150,10 +150,10 @@ class RestaurantSearchTests(TestCase):
         self.assertTrue(breakdown["parts"])
         self.assertIn(breakdown["confidence"], ("high", "medium", "low"))
         content = response.content.decode()
-        self.assertIn("Health estimate", content)
-        self.assertIn("confidence", content.casefold())
-        self.assertIn("How this score is calculated", content)
-        self.assertIn("pts", content)
+        self.assertIn("Health score", content)
+        self.assertIn("Out of 100", content)
+        self.assertIn("See how it", content)
+        self.assertIn("hs-track", content)
 
     def test_detail_missing_returns_404(self):
         response = self.client.get(reverse("search:restaurant_detail", args=["999"]))

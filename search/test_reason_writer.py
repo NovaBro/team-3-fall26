@@ -171,16 +171,15 @@ class WriteReasonsCommandTests(TestCase):
         self.assertEqual(self.client.get(url).context["reason_blurb"], GOOD)
         self.assertEqual(views._reason_blurb("88"), GOOD)
 
-    def test_detail_page_shows_the_paragraph_above_the_list(self):
+    def test_detail_page_shows_the_paragraph_instead_of_the_list(self):
         ReasonBlurb.objects.create(
             place_id="88", text=GOOD, model_name=reason_writer.model_tag("m")
         )
         page = self.client.get(reverse("search:restaurant_detail", args=["88"]))
         html = page.content.decode()
         self.assertIn(f'<p class="healthiness-score__blurb">{GOOD}</p>', html)
-        self.assertLess(
-            html.index("healthiness-score__blurb"), html.index("healthiness-score__why")
-        )
+        # Sentence or list, never both.
+        self.assertNotIn("healthiness-score__why", html)
 
 
 @override_settings(GEMINI_API_KEY="test-key")

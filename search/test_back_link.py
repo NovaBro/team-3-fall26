@@ -52,5 +52,6 @@ class SearchHeadlineTests(TestCase):
 
     def test_search_page_headline(self):
         html = self.client.get(reverse("search:index")).content.decode()
-        self.assertIn("<h1>Down for a healthy bite?</h1>", html)
-        self.assertIn("Find your place, your way", html)
+        # The search page is a map app: no big headline above it.
+        self.assertNotIn("Something new, every day", html)
+        self.assertIn('id="filter-form"', html)

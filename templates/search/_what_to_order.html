@@ -6,7 +6,7 @@
         {% if result.goal_labels %}
           <span class="menu-picks__basis">Based on your goal{{ result.goal_labels|pluralize }}: {{ result.goal_labels|join:", "|lower }}</span>
         {% else %}
-          <a class="menu-picks__basis" href="{% url 'accounts:profile' %}">Add a health goal for picks that fit you</a>
+          <a class="menu-picks__goal" href="{% url 'accounts:profile' %}" title="Add a health goal for picks that fit you"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>Set your goal</a>
         {% endif %}
       </div>
       <ul class="menu-picks__list">

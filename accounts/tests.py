@@ -263,7 +263,7 @@ class ProfileTests(TestCase):
         self.assertContains(response, "Food preferences")
         # The photo control sits in Account details but saves with the form.
         self.assertContains(response, 'form="profile-form"')
-        self.assertContains(response, "Daily check-in")
+        self.assertContains(response, "Check-in log")  # step175
 
     def test_profile_page_shows_saved_name_and_contact_email(self):
         self.user.email = "sam@example.com"

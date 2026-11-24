@@ -254,7 +254,7 @@ class CookAtHomeHomeViewTests(TestCase):
         )
         response = self.client.get(reverse("search:home"), {"boro": "Brooklyn"})
         self.assertTrue(response.context["cook_at_home"]["show"])
-        self.assertContains(response, "Cook at home today")
+        self.assertContains(response, "How about cooking today?")
         self.assertContains(response, "Home Test Market")
         self.assertContains(response, "Home Test Store")
         self.assertContains(response, "Browse markets and healthy stores")
@@ -290,9 +290,9 @@ class CookAtHomeHomeViewTests(TestCase):
         )
         response = self.client.get(reverse("search:home"))
         self.assertFalse(response.context["cook_at_home"]["show"])
-        self.assertNotContains(response, "Cook at home today")
+        self.assertNotContains(response, "How about cooking today?")
 
     def test_anonymous_hides_cook_at_home(self):
         response = self.client.get(reverse("search:home"))
         self.assertFalse(response.context["cook_at_home"]["show"])
-        self.assertNotContains(response, "Cook at home today")
+        self.assertNotContains(response, "How about cooking today?")

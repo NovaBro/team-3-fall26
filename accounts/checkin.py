@@ -20,7 +20,10 @@ NEW_YORK = ZoneInfo("America/New_York")
 EMPTY_ICONS = {"mood": "mood-plus", "energy": "battery-charging"}
 FIELDS = {"mood": "mood", "energy": "energy_level"}
 
-DEFAULT_HEADLINE = ("Down for a healthy bite?", "Find your place, your way")
+DEFAULT_HEADLINE = (
+    "Something new, every day",
+    "Fresh healthy spots picked for you each morning",
+)
 
 # (mood level, energy level) -> (headline, line under it). Levels: 2 high
 # (Good, Great / Alert, Energized), 1 middle (Okay), 0 low (the two lowest).

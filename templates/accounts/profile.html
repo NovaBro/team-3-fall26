@@ -84,13 +84,29 @@
   </form>
 </section>
 
-<section class="form-section">
+<section class="form-section" id="checkin-log">{# step175 #}
   <div class="section-head">
-    <h2>Daily check-in</h2>
-    <p class="muted">How are you feeling today? Saving again updates today's entry (one per day).</p>
+    <h2>Check-in log</h2>
+    <p class="muted">Tap Edit to change a check-in.</p>
   </div>
-  <form method="post" action="{% url 'accounts:profile' %}" class="checkin-form">
+  {% if mood_history %}
+    <ul class="checkin-history">
+      {% for log in mood_history %}
+        <li data-id="{{ log.pk }}" data-mood="{{ log.mood|default_if_none:'' }}" data-energy="{{ log.energy_level|default_if_none:'' }}">
+          <span class="checkin-history__when muted">{{ log.created_at|date:"N j, P" }}</span>
+          <span class="checkin-history__item">{{ log.mood_icon }}{{ log.mood_display_label }}</span>
+          <span class="checkin-history__item">{{ log.energy_icon }}{{ log.energy_display_label }}</span>
+          <button type="button" class="checkin-edit-btn">Edit</button>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="empty">No check-ins yet.</p>
+  {% endif %}
+  {# step176 #}
+  <form method="post" action="{% url 'accounts:profile' %}" class="checkin-form checkin-edit" id="checkin-edit" hidden>
     {% csrf_token %}
+    <input type="hidden" name="log_id" value="">
     {% if mood_form.non_field_errors %}
       <ul class="errorlist">{{ mood_form.non_field_errors }}</ul>
     {% endif %}
@@ -103,24 +119,40 @@
         {% endfor %}
       </div>
     {% endfor %}
-    <button type="submit" class="btn" name="action" value="log_mood">Log check-in</button>
+    <div class="checkin-edit__actions">
+      <button type="submit" class="btn" name="action" value="edit_mood">Save</button>
+      <button type="button" class="btn btn-secondary checkin-edit__cancel">Cancel</button>
+    </div>
   </form>
-
-  <h2>Recent check-ins</h2>
-  {% if mood_history %}
-    <ul class="checkin-history">
-      {% for log in mood_history %}
-        <li>
-          <span class="checkin-history__when muted">{{ log.log_date|date:"N j, Y" }}</span>
-          <span class="checkin-history__item">{{ log.mood_icon }}{{ log.mood_display_label }}</span>
-          <span class="checkin-history__item">{{ log.energy_icon }}{{ log.energy_display_label }}</span>
-        </li>
-      {% endfor %}
-    </ul>
-  {% else %}
-    <p class="empty">No check-ins yet. Log your first one above.</p>
-  {% endif %}
 </section>
+<script>
+  // step175: open the edit form under the tapped entry, prefilled.
+  (function () {
+    var form = document.getElementById("checkin-edit");
+    if (!form) return;
+    // step177: names show on hover.
+    form.querySelectorAll(".checkin-option").forEach(function (o) {
+      var s = o.querySelector("span"); if (s) o.title = s.textContent.trim();
+    });
+    function pick(name, val) {
+      form.querySelectorAll('input[name="' + name + '"]').forEach(function (r) { r.checked = (r.value === String(val)); });
+    }
+    document.querySelectorAll(".checkin-edit-btn").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var li = b.closest("li");
+        if (!form.hidden && form.previousElementSibling === li) { form.hidden = true; return; }
+        form.querySelector('[name="log_id"]').value = li.dataset.id;
+        pick("mood", li.dataset.mood); pick("energy_level", li.dataset.energy);
+        li.after(form); form.hidden = false;
+      });
+    });
+    form.querySelector(".checkin-edit__cancel").addEventListener("click", function () { form.hidden = true; });
+    {% if edit_log_id %}
+    var li = document.querySelector('.checkin-history li[data-id="{{ edit_log_id }}"]');
+    if (li) { form.querySelector('[name="log_id"]').value = li.dataset.id; li.after(form); form.hidden = false; }
+    {% endif %}
+  })();
+</script>
 {% endblock %}
 
 {% block scripts %}

@@ -1,0 +1,456 @@
+/* Fresh look (Nov 2026): a solid blue header, soft pastel blobs, the banner
+   as a rounded photo box, pill tags and softer cards. Layout is
+   unchanged; this file only restyles. Loaded last (base.html), so equal
+   selectors here win over homepage.css and theme.css. */
+:root {
+  --fresh-blue: #3458a5;
+  --fresh-blue-dark: #23367a;
+  --fresh-sky: #6fa8ff;
+  --fresh-lilac: #9d8cff;
+  --fresh-pink: #f08aa4;
+  --fresh-pink-ink: #8a2846;
+  --fresh-pink-bg: #fde8ee;
+  --fresh-blue-bg: #e9efff;
+  --fresh-lilac-bg: #f2eefc;
+  --fresh-lilac-ink: #4b3a8a;
+  --fresh-shadow: 0 16px 40px rgba(35, 54, 122, 0.12);
+}
+:root[data-theme="dark"] {
+  --fresh-pink-ink: #f7b4c6;
+  --fresh-pink-bg: rgba(240, 138, 164, 0.16);
+  --fresh-blue-bg: rgba(111, 168, 255, 0.16);
+  --fresh-lilac-bg: rgba(157, 140, 255, 0.16);
+  --fresh-lilac-ink: #c9bfff;
+  --fresh-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+
+/* Header: a solid blue bar on every page. */
+:root .site-header,
+:root[data-theme="dark"] .site-header { background: var(--fresh-blue); border-bottom: 0; }
+:root[data-theme="dark"] .site-header { background: #1d2b4f; }
+:root .site-header .brand,
+:root[data-theme="dark"] .site-header .brand { color: #ffffff; }
+:root .site-header .brand-nyc,
+:root[data-theme="dark"] .site-header .brand-nyc { border-color: rgba(255, 255, 255, 0.85); color: #ffffff; }
+:root .site-header nav a,
+:root .site-header .nav-link-button,
+:root[data-theme="dark"] .site-header nav a,
+:root[data-theme="dark"] .site-header .nav-link-button,
+:root:not([data-theme="dark"]) .site-header .nav-link-button,
+:root:not([data-theme="dark"]) .site-header .theme-toggle { color: #ffffff; background: transparent; border: 0; }
+:root .site-header nav a:hover,
+:root[data-theme="dark"] .site-header nav a:hover,
+:root:not([data-theme="dark"]) .site-header .theme-toggle:hover,
+:root .site-header .nav-link-button:hover { background: rgba(255, 255, 255, 0.14); color: #ffffff; }
+:root .site-header nav a[aria-current="page"],
+:root[data-theme="dark"] .site-header nav a[aria-current="page"] {
+  background: transparent; color: #ffffff; font-weight: 600;
+  text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 7px;
+}
+:root .site-header nav a[href$="/signup/"],
+:root[data-theme="dark"] .site-header nav a[href$="/signup/"] {
+  padding: 8px 18px; border-radius: 8px; text-decoration: none;
+  background: linear-gradient(90deg, var(--fresh-sky), var(--fresh-lilac)); font-weight: 500;
+}
+:root .site-header nav a[href$="/signup/"]:hover { filter: brightness(1.06); }
+:root .site-header .theme-toggle,
+:root:not([data-theme="dark"]) .site-header .theme-toggle,
+:root[data-theme="dark"] .site-header .theme-toggle { border-radius: 50%; background: rgba(255, 255, 255, 0.14); }
+
+/* Soft pastel blobs behind every page. */
+body {
+  background:
+    radial-gradient(520px 460px at 92% 560px, rgba(201, 216, 255, 0.55), transparent 70%),
+    radial-gradient(420px 380px at 80% 760px, rgba(236, 217, 255, 0.5), transparent 70%),
+    radial-gradient(520px 460px at 4% 1400px, rgba(253, 227, 236, 0.5), transparent 70%),
+    var(--bg);
+}
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(520px 460px at 92% 560px, rgba(52, 88, 165, 0.22), transparent 70%),
+    radial-gradient(420px 380px at 80% 760px, rgba(157, 140, 255, 0.12), transparent 70%),
+    var(--bg);
+}
+
+/* Banner (Top picks and Search): the skyline photo in a rounded box, a blue
+   fade from the left, headline on the left.
+   Replaces the full-width banner with the arch. */
+:root .ui-hero,
+:root[data-theme="dark"] .ui-hero {
+  box-sizing: border-box;
+  width: auto;
+  min-height: clamp(260px, 26vw, 360px);
+  margin: 4px 0 28px;
+  padding: 40px clamp(24px, 4vw, 52px) 54px;
+  border-radius: 24px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  text-align: left;
+}
+:root .ui-hero {
+  background: linear-gradient(90deg, rgba(35, 54, 122, 0.85) 0%, rgba(52, 88, 165, 0.48) 48%, rgba(52, 88, 165, 0) 82%),
+    url("images/hero-day.jpg") center 63% / cover, #5b7fa6;
+}
+:root[data-theme="dark"] .ui-hero {
+  background: linear-gradient(90deg, rgba(10, 16, 36, 0.9) 0%, rgba(29, 43, 79, 0.55) 50%, rgba(29, 43, 79, 0.1) 85%),
+    url("images/hero-night.jpg") center 63% / cover, #0b1426;
+}
+:root .ui-hero::after { display: none; }
+:root .ui-hero h1,
+:root[data-theme="dark"] .ui-hero h1 { max-width: 680px; color: #ffffff; }
+:root .ui-hero .ui-lede,
+:root[data-theme="dark"] .ui-hero .ui-lede { color: #eef2ff; }
+/* Top picks banner: the skyline photo (day; night fades in on its own layer). */
+:root .ui-hero.home-hero {
+  background: linear-gradient(90deg, rgba(35, 54, 122, 0.82) 0%, rgba(52, 88, 165, 0.45) 48%, rgba(52, 88, 165, 0) 80%),
+    url("images/hero-day.jpg") center 63% / cover, #5b7fa6;
+}
+:root[data-theme="dark"] .ui-hero.home-hero {
+  background: linear-gradient(90deg, rgba(35, 54, 122, 0.82) 0%, rgba(52, 88, 165, 0.45) 48%, rgba(52, 88, 165, 0) 80%),
+    url("images/hero-day.jpg") center 63% / cover, #0b1426;
+}
+.ui-hero.home-hero::before {
+  background: linear-gradient(90deg, rgba(8, 12, 28, 0.88) 0%, rgba(14, 22, 48, 0.5) 50%, rgba(14, 22, 48, 0.1) 85%),
+    url("images/hero-night.jpg") center 63% / cover, #0b1426;
+}
+@media (min-width: 1000px) {
+  :root .ui-hero.home-hero,
+  :root[data-theme="dark"] .ui-hero.home-hero,
+  .ui-hero.home-hero::before {
+    background-size: 100% 100%, cover;
+    background-position: 0 0, center 63%;
+  }
+}
+@media (max-width: 600px) {
+  :root .ui-hero,
+  :root[data-theme="dark"] .ui-hero { border-radius: 18px; padding-bottom: 40px; }
+}
+
+/* Top picks header: date pill, borough in blue,
+   mood / energy as white pills. */
+.top-picks__date {
+  display: inline-flex;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: 0 4px 14px rgba(35, 54, 122, 0.08);
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+.top-picks__dot { background: #3fbf7f; }
+:root .top-picks .top-picks__boro,
+:root[data-theme="dark"] .top-picks .top-picks__boro {
+  color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m5 7.5 5 5 5-5' stroke='%233458a5' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+:root[data-theme="dark"] .top-picks .top-picks__boro { color: #98b6ee; }
+/* The borough reel (boro_reel.js) that replaces the select. */
+.boro-reel__window,
+:root[data-theme="dark"] .boro-reel__window {
+  background: var(--fresh-blue-bg);
+  color: var(--accent);
+}
+:root[data-theme="dark"] .boro-reel__window { color: #98b6ee; }
+:root .top-picks .boro-reel__arrow { color: var(--accent); }
+:root[data-theme="dark"] .top-picks .boro-reel__arrow { color: #98b6ee; }
+:root .top-picks .mood-pick__btn,
+:root[data-theme="dark"] .top-picks .mood-pick__btn {
+  min-height: 40px;
+  padding: 6px 10px 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--accent);
+}
+:root .top-picks .mood-pick__btn:hover { background: var(--fresh-blue-bg); }
+:root .top-picks .mood-pick__btn.is-set { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+:root .top-picks .mood-pick__opt:hover,
+:root .top-picks .mood-pick__opt:focus-visible,
+:root .top-picks .mood-pick__opt.is-on { background: var(--fresh-blue-bg); }
+:root .top-picks .mood-pick__opt:hover .mood-pick__ic,
+:root .top-picks .mood-pick__opt.is-on .mood-pick__ic,
+:root .top-picks .mood-pick__opt.is-on { color: var(--accent); }
+
+/* Top pick cards: no gold frame, a soft blue shadow, pill tags. */
+.top-pick-card,
+:root[data-theme="dark"] .top-pick-card {
+  border: 0;
+  box-shadow: var(--fresh-shadow);
+}
+.top-pick-card:hover,
+:root[data-theme="dark"] .top-pick-card:hover {
+  border-color: transparent;
+  box-shadow: 0 22px 48px rgba(35, 54, 122, 0.18);
+}
+.top-pick-card__rank,
+:root[data-theme="dark"] .top-picks .top-pick-card__rank {
+  background: #ffffff;
+  color: var(--fresh-blue-dark);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.top-pick-card__category,
+:root[data-theme="dark"] .top-pick-card__category {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--fresh-blue-bg);
+  color: var(--accent);
+  letter-spacing: 0.06em;
+}
+:root[data-theme="dark"] .top-pick-card__category { color: #98b6ee; }
+.top-pick-card__boro-tag {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fresh-lilac-bg);
+  color: var(--fresh-lilac-ink);
+}
+.top-pick-card__reason {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fresh-pink-bg);
+  color: var(--fresh-pink-ink);
+}
+.top-pick-card__review,
+:root[data-theme="dark"] .top-pick-card__review {
+  border: 0;
+  border-radius: 12px;
+  background: var(--fresh-lilac-bg);
+}
+.top-pick-card__feedback-btn {
+  min-height: 40px;
+  border-radius: 10px;
+  background: var(--panel);
+}
+.top-pick-card__feedback-btn:hover { border-color: var(--accent); }
+.top-pick-card__feedback-btn.is-active {
+  border-color: transparent;
+  background: linear-gradient(90deg, var(--fresh-blue), var(--fresh-sky));
+  color: #ffffff;
+}
+
+/* Explore more: pill pagination, rounder cards with the same soft shadow. */
+.restaurant-pagination a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  text-decoration: none;
+}
+.restaurant-pagination a:hover { background: var(--fresh-blue-bg); text-decoration: none; }
+.restaurant-card,
+:root[data-theme="dark"] .restaurant-card {
+  border: 0;
+  border-radius: 16px;
+  box-shadow: 0 10px 28px rgba(35, 54, 122, 0.09);
+}
+.restaurant-card:hover { box-shadow: 0 16px 36px rgba(35, 54, 122, 0.15); }
+
+/* Search page: filter bar, result cards and the map panel as soft cards. */
+.filters,
+:root[data-theme="dark"] .filters { border: 0; box-shadow: var(--fresh-shadow); }
+.filters button,
+.btn:not(.btn-danger) {
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--fresh-blue), var(--fresh-sky));
+  color: #ffffff;
+}
+.filters button:hover,
+.btn:not(.btn-danger):hover {
+  background: linear-gradient(90deg, var(--fresh-blue-dark), var(--fresh-blue));
+  color: #ffffff;
+}
+.result,
+:root[data-theme="dark"] .result {
+  border: 1px solid transparent;
+  border-radius: 14px;
+  box-shadow: 0 8px 22px rgba(35, 54, 122, 0.08);
+}
+.result:hover { border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.result.active { border-color: var(--accent); }
+.tag { border-radius: 999px; }
+.community-panel,
+.combined-map-frame { border-radius: 16px; }
+
+/* Profile: sections as soft cards, rounder inputs, a gradient ring on the
+   photo, check-ins as pill rows. */
+.form-section,
+:root[data-theme="dark"] .form-section {
+  border: 0;
+  border-radius: 18px;
+  box-shadow: var(--fresh-shadow);
+}
+.field input[type="text"],
+.field input[type="email"],
+.field input[type="number"],
+.field input[type="password"],
+.field select { border-radius: 10px; background: var(--panel); }
+.field input:focus,
+.field select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--fresh-blue-bg);
+  outline: none;
+}
+.account-photo__img {
+  border: 3px solid transparent;
+  background: linear-gradient(var(--panel), var(--panel)) padding-box,
+    linear-gradient(135deg, var(--fresh-blue), var(--fresh-lilac), var(--fresh-pink)) border-box;
+}
+.account-photo__initial { color: var(--accent); }
+.checkin-history li {
+  border: 0;
+  border-radius: 999px;
+  background: var(--fresh-blue-bg);
+}
+.checkin-history__item {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--accent);
+}
+
+/* Explore more card cuisine in blue (was gold). */
+.restaurant-card__category,
+:root[data-theme="dark"] .restaurant-card__category { color: var(--accent); }
+:root[data-theme="dark"] .restaurant-card__category { color: #98b6ee; }
+
+/* Type: DM Serif Display for the Today's Top Picks and Explore more titles
+   (and the borough in them); everything else keeps Lexend, Fraunces and
+   Krona One. */
+.restaurant-list-header h2,
+.top-picks .top-picks__title-form h2,
+.top-picks .top-picks__title-form h2 .boro-reel__window,
+:root .top-picks .top-picks__boro {
+  font-family: "DM Serif Display", Georgia, "Times New Roman", serif;
+  font-weight: 400;
+}
+.restaurant-list-header h2,
+.top-picks .top-picks__title-form h2 {
+  font-size: clamp(1.9rem, 3.3vw, 2.6rem);
+  letter-spacing: -0.005em;
+  line-height: 1.15;
+}
+
+/* Search map: legend colors match the pins (combined_map.js), rounder
+   controls and popup, and the blue drop on the open place. */
+.swatch--farmers_market { background: #2bb59f; }
+.swatch--grocery { background: #ef7c66; }
+:root[data-theme="dark"] .swatch--farmers_market { background: #3cc9b2; }
+:root[data-theme="dark"] .swatch--grocery { background: #f59682; }
+.swatch--restaurant_dohmh,
+.swatch--restaurant_google,
+.swatch--restaurant { background: #3458a5; }
+:root[data-theme="dark"] .swatch--restaurant_dohmh,
+:root[data-theme="dark"] .swatch--restaurant_google,
+:root[data-theme="dark"] .swatch--restaurant { background: #6f95e6; }
+.maplibregl-ctrl-group:not(:empty) {
+  border-radius: 12px;
+  box-shadow: 0 6px 16px rgba(35, 54, 122, 0.16);
+  overflow: hidden;
+}
+.maplibregl-ctrl-group button { width: 36px; height: 36px; }
+.maplibregl-popup-content {
+  border: 0;
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(35, 54, 122, 0.2);
+}
+.selected-pin { width: 34px; height: 44px; filter: drop-shadow(0 6px 8px rgba(35, 54, 122, 0.35)); }
+.selected-pin svg { display: block; }
+
+/* Show filters: the checkbox itself carries the map pin color (no separate dot). */
+.check .swatch { display: none; }
+.check input[type="checkbox"][value="restaurant"],
+.check input[type="checkbox"][value="farmers_market"],
+.check input[type="checkbox"][value="grocery"] {
+  --pin: #3458a5;
+  --tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-6.5' fill='none' stroke='%23ffffff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  appearance: none;
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  margin: 0 8px 0 0;
+  border: 2px solid var(--pin);
+  border-radius: 5px;
+  background: transparent center / 16px no-repeat;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.check input[type="checkbox"][value="farmers_market"] {
+  --pin: #2bb59f;
+  --tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-6.5' fill='none' stroke='%230e1116' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.check input[type="checkbox"][value="grocery"] {
+  --pin: #ef7c66;
+  --tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-6.5' fill='none' stroke='%230e1116' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.check input[type="checkbox"][value="restaurant"]:checked,
+.check input[type="checkbox"][value="farmers_market"]:checked,
+.check input[type="checkbox"][value="grocery"]:checked {
+  background-color: var(--pin);
+  background-image: var(--tick);
+}
+.check input[type="checkbox"][value="restaurant"]:focus-visible,
+.check input[type="checkbox"][value="farmers_market"]:focus-visible,
+.check input[type="checkbox"][value="grocery"]:focus-visible {
+  outline: 2px solid var(--pin);
+  outline-offset: 2px;
+}
+:root[data-theme="dark"] .check input[type="checkbox"][value="restaurant"] { --pin: #6f95e6; }
+:root[data-theme="dark"] .check input[type="checkbox"][value="farmers_market"] { --pin: #3cc9b2; }
+:root[data-theme="dark"] .check input[type="checkbox"][value="grocery"] { --pin: #f59682; }
+
+/* Checked = filled with the pin color, no tick mark. */
+.check input[type="checkbox"][value="restaurant"]:checked,
+.check input[type="checkbox"][value="farmers_market"]:checked,
+.check input[type="checkbox"][value="grocery"]:checked {
+  background-image: none;
+}
+
+/* Pastel category colors: checkboxes, result tags and map pins match. */
+.check input[type="checkbox"][value="restaurant"]     { --pin: #a7bdf2; border-color: #7d9be0; }
+.check input[type="checkbox"][value="farmers_market"] { --pin: #9ee3d3; border-color: #5cc4ad; }
+.check input[type="checkbox"][value="grocery"]        { --pin: #f8b9a6; border-color: #ee9177; }
+:root[data-theme="dark"] .check input[type="checkbox"][value="restaurant"]     { --pin: #a7bdf2; }
+:root[data-theme="dark"] .check input[type="checkbox"][value="farmers_market"] { --pin: #9ee3d3; }
+:root[data-theme="dark"] .check input[type="checkbox"][value="grocery"]        { --pin: #f8b9a6; }
+
+/* Result type tag: the whole tag carries the color, no dot. */
+.type-tag .swatch { display: none; }
+.type-tag:has(.swatch--restaurant_google),
+.type-tag:has(.swatch--restaurant) { background: #a7bdf2; color: #1f2a28; }
+.type-tag:has(.swatch--farmers_market) { background: #9ee3d3; color: #1f2a28; }
+.type-tag:has(.swatch--grocery) { background: #f8b9a6; color: #1f2a28; }
+
+/* Back to the original category colors (pastel dropped). */
+.check input[type="checkbox"][value="restaurant"]     { --pin: #3458a5; border-color: var(--pin); }
+.check input[type="checkbox"][value="farmers_market"] { --pin: #2bb59f; border-color: var(--pin); }
+.check input[type="checkbox"][value="grocery"]        { --pin: #ef7c66; border-color: var(--pin); }
+:root[data-theme="dark"] .check input[type="checkbox"][value="restaurant"]     { --pin: #6f95e6; }
+:root[data-theme="dark"] .check input[type="checkbox"][value="farmers_market"] { --pin: #3cc9b2; }
+:root[data-theme="dark"] .check input[type="checkbox"][value="grocery"]        { --pin: #f59682; }
+
+.type-tag:has(.swatch--restaurant_google),
+.type-tag:has(.swatch--restaurant) { background: #3458a5; color: #ffffff; }
+.type-tag:has(.swatch--farmers_market) { background: #2bb59f; color: #0e1116; }
+.type-tag:has(.swatch--grocery) { background: #ef7c66; color: #0e1116; }
+:root[data-theme="dark"] .type-tag:has(.swatch--restaurant_google),
+:root[data-theme="dark"] .type-tag:has(.swatch--restaurant) { background: #6f95e6; color: #0e1116; }
+:root[data-theme="dark"] .type-tag:has(.swatch--farmers_market) { background: #3cc9b2; color: #0e1116; }
+:root[data-theme="dark"] .type-tag:has(.swatch--grocery) { background: #f59682; color: #0e1116; }
+
+/* Result type tag: a light tint of the category color. */
+.type-tag:has(.swatch--restaurant_google),
+.type-tag:has(.swatch--restaurant) { background: rgba(52, 88, 165, 0.2); color: #1f2a28; }
+.type-tag:has(.swatch--farmers_market) { background: rgba(43, 181, 159, 0.2); color: #1f2a28; }
+.type-tag:has(.swatch--grocery) { background: rgba(239, 124, 102, 0.2); color: #1f2a28; }
+:root[data-theme="dark"] .type-tag:has(.swatch--restaurant_google),
+:root[data-theme="dark"] .type-tag:has(.swatch--restaurant) { background: rgba(111, 149, 230, 0.25); color: #e8edf5; }
+:root[data-theme="dark"] .type-tag:has(.swatch--farmers_market) { background: rgba(60, 201, 178, 0.25); color: #e8edf5; }
+:root[data-theme="dark"] .type-tag:has(.swatch--grocery) { background: rgba(245, 150, 130, 0.25); color: #e8edf5; }

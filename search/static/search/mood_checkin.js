@@ -292,7 +292,7 @@
           grid.innerHTML = data.html;
         }
         var subtitle = document.querySelector(".top-picks__subtitle");
-        if (subtitle && data.subtitle) {
+        if (subtitle && data.subtitle && !subtitle.querySelector(".tp-nudge")) {
           subtitle.textContent = data.subtitle;
         }
         var cookSlot = document.getElementById("cook-at-home-slot");
