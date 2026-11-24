@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Log in - NYC Food Search{% endblock %}
 
@@ -27,4 +28,8 @@
 </form>
 
 <p class="muted">No account yet? <a href="{% url 'accounts:signup' %}">Sign up</a></p>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'accounts/auth_csrf_retry.js' %}"></script>
 {% endblock %}

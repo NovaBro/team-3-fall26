@@ -70,16 +70,15 @@ def signup(request):
         form = SignupForm(request.POST)
         if form.is_valid():
             user = form.save(commit=False)
-            user.is_active = False
+            # TEMP: email verification disabled for local test-account creation.
+            # Restore `user.is_active = False` + `_send_verification_email(...)`
+            # before shipping.
+            user.is_active = True
             user.save()
             UserProfile.objects.get_or_create(
                 user=user, defaults={"name": form.cleaned_data["name"]}
             )
-            _send_verification_email(request, user)
-            messages.success(
-                request,
-                "Almost there! We emailed you a link to confirm your account.",
-            )
+            messages.success(request, "Account created! You can log in now.")
             return redirect("accounts:login")
         if "email" in form.errors and any(
             "already exists" in error for error in form.errors["email"]
