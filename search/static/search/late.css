@@ -1144,3 +1144,25 @@ html[data-theme="dark"] body .checkin-edit .checkin-edit__actions button.btn[val
 
 /* step217: hide the list while jumping straight to a place */
 html.sp-focusing .sp-side { visibility: hidden; }
+
+/* step218: night food chips = outline */
+html[data-theme="dark"] body button.food-chip,
+html[data-theme="dark"] body button.food-chip:hover,
+html[data-theme="dark"] body button.food-chip:active,
+html[data-theme="dark"] body button.food-chip:focus {
+  background: transparent !important; background-image: none !important; filter: none !important;
+  border: 1px solid #3b4252 !important; color: #c9ccd1 !important; -webkit-text-fill-color: #c9ccd1 !important;
+  box-shadow: none !important; }
+html[data-theme="dark"] body button.food-chip:hover { border-color: #5a6e9e !important; color: #e6e7ea !important;
+  -webkit-text-fill-color: #e6e7ea !important; }
+html[data-theme="dark"] body button.food-chip .food-chip__icon { color: #8a9099 !important; }
+html[data-theme="dark"] body button.food-chip.is-favorite,
+html[data-theme="dark"] body button.food-chip.is-favorite:hover {
+  border-color: #5f80d0 !important; background: rgba(95, 128, 208, .12) !important;
+  color: #9fb0d8 !important; -webkit-text-fill-color: #9fb0d8 !important; }
+html[data-theme="dark"] body button.food-chip.is-favorite .food-chip__icon { color: #9fb0d8 !important; }
+html[data-theme="dark"] body button.food-chip.is-disliked,
+html[data-theme="dark"] body button.food-chip.is-disliked:hover {
+  border-color: #c0605e !important; background: rgba(192, 96, 94, .12) !important;
+  color: #e3a19f !important; -webkit-text-fill-color: #e3a19f !important; }
+html[data-theme="dark"] body button.food-chip.is-disliked .food-chip__icon { color: #e3a19f !important; }
