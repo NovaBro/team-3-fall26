@@ -187,7 +187,7 @@
       if (btn.dataset.plainChecked || btn.matches(":hover")) return;
       btn.dataset.plainChecked = "1";
       var st = getComputedStyle(btn);
-      if (!isPlain(st.backgroundColor)) return;
+      if (!isPlain(st.backgroundColor) || (st.backgroundImage && st.backgroundImage !== "none")) return; // step227
       btn.classList.add("is-plain");
       btn.style.setProperty("--plain-bg", st.backgroundColor);
       btn.style.setProperty("--plain-fg", st.color);
