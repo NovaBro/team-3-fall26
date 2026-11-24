@@ -1,5 +1,4 @@
 import io
-import re
 import tempfile
 from datetime import datetime, timedelta
 from io import BytesIO
@@ -24,12 +23,6 @@ from nycfood.test_utils import ALL_DATABASES
 VALID_PASSWORD = "sTr0ngPass!2026x"
 
 
-def _verify_url_from_outbox():
-    body = mail.outbox[-1].body
-    match = re.search(r"http://\S+/verify/\S+/", body)
-    return match.group(0)
-
-
 def _png_upload(name="me.png"):
     buffer = io.BytesIO()
     Image.new("RGB", (4, 4)).save(buffer, "PNG")
@@ -39,7 +32,7 @@ def _png_upload(name="me.png"):
 class SignupTests(TestCase):
     databases = ALL_DATABASES
 
-    def test_signup_creates_inactive_user_and_profile_and_emails_a_link(self):
+    def test_signup_creates_active_user_and_profile(self):
         response = self.client.post(
             reverse("accounts:signup"),
             {
@@ -53,13 +46,11 @@ class SignupTests(TestCase):
         self.assertRedirects(response, reverse("accounts:login"))
         user = User.objects.get(username="foodie")
         self.assertEqual(user.email, "foodie@example.com")
-        self.assertFalse(user.is_active)
+        self.assertTrue(user.is_active)
         self.assertTrue(user.profile)
         self.assertEqual(user.profile.name, "Sam Rivera")
         self.assertNotIn("_auth_user_id", self.client.session)
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].to, ["foodie@example.com"])
-        self.assertIn("/verify/", mail.outbox[0].body)
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_signup_does_not_leak_the_verification_link_in_the_response(self):
         response = self.client.post(
@@ -75,7 +66,7 @@ class SignupTests(TestCase):
         )
         self.assertNotContains(response, "/verify/")
 
-    def test_cannot_log_in_before_verifying_email(self):
+    def test_can_log_in_immediately_after_signup(self):
         self.client.post(
             reverse("accounts:signup"),
             {
@@ -90,49 +81,8 @@ class SignupTests(TestCase):
             reverse("accounts:login"),
             {"username": "foodie", "password": VALID_PASSWORD},
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Please confirm your email before logging in")
-        self.assertNotIn("_auth_user_id", self.client.session)
-
-    def test_verify_link_activates_account_and_logs_in(self):
-        self.client.post(
-            reverse("accounts:signup"),
-            {
-                "username": "foodie",
-                "name": "Sam Rivera",
-                "email": "foodie@example.com",
-                "password1": VALID_PASSWORD,
-                "password2": VALID_PASSWORD,
-            },
-        )
-        verify_url = _verify_url_from_outbox()
-
-        response = self.client.get(verify_url)
-
         self.assertRedirects(response, reverse("accounts:profile"))
-        user = User.objects.get(username="foodie")
-        self.assertTrue(user.is_active)
-        self.assertEqual(int(self.client.session["_auth_user_id"]), user.pk)
-
-    def test_reusing_a_verify_link_does_not_grant_a_fresh_session(self):
-        self.client.post(
-            reverse("accounts:signup"),
-            {
-                "username": "foodie",
-                "name": "Sam Rivera",
-                "email": "foodie@example.com",
-                "password1": VALID_PASSWORD,
-                "password2": VALID_PASSWORD,
-            },
-        )
-        verify_url = _verify_url_from_outbox()
-        self.client.get(verify_url)
-        self.client.logout()
-
-        response = self.client.get(verify_url)
-
-        self.assertRedirects(response, reverse("accounts:login"))
-        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertIn("_auth_user_id", self.client.session)
 
     def test_verify_link_cannot_be_reused_as_a_password_reset_token(self):
         user = User.objects.create_user(
