@@ -198,7 +198,7 @@
   (function () {
     function paint() {
       var dark = document.documentElement.getAttribute("data-theme") === "dark";
-      var c = dark ? "#9fb3c8" : "#647f9c", line = dark ? "#4d5c6d" : "#b9c4d0";
+      var c = dark ? "#c3d3e6" : "#647f9c", line = dark ? "#6b7d92" : "#b9c4d0"; // step220
       function set(el, props) { Object.keys(props).forEach(function (k) { el.style.setProperty(k, props[k], "important"); }); }
       document.querySelectorAll(".boro-reel__window").forEach(function (w) {
         set(w, { "background": "transparent", "box-shadow": "none", "border": "0", "border-radius": "0",
@@ -385,4 +385,49 @@
     }, true);
   })();
 </script>
+
+{% if user.is_authenticated %}
+<script>
+  // step220: "Pick your mood and energy for today." / "For your Good mood and Alert energy today."
+  (function () {
+    var busy = false;
+    function render() {
+      var line = document.querySelector(".mood-sentence"), box = document.querySelector(".mood-pick");
+      if (!line || !box || busy) return;
+      var dds = box.querySelectorAll(".mood-pick__dd");
+      if (dds.length < 2) return;
+      var mood = dds[0], energy = dds[1];
+      dds.forEach(function (d) { var b = d.querySelector("[data-kind]"); if (b && b.dataset.kind === "energy") energy = d; else if (b) mood = d; });
+      function setOf(d) { return !!d.querySelector(".mood-pick__opt.is-on"); }
+      function word(d, fallback) {
+        var w = d.querySelector(".mood-pick__word");
+        if (w && !setOf(d)) w.textContent = fallback;
+        return w ? w.textContent : "";
+      }
+      var mSet = setOf(mood), eSet = setOf(energy);
+      var sig = [mSet, eSet, word(mood, "mood"), word(energy, "energy")].join("|");
+      if (line.dataset.sig === sig && line.contains(box)) return;
+      busy = true;
+      var any = mSet || eSet;
+      box.textContent = "";
+      box.append(mood);
+      if (mSet) box.append(" mood");
+      box.append(" and ", energy);
+      if (eSet) box.append(" energy");
+      line.textContent = "";
+      line.append(any ? "For your " : "Pick your ", box, any ? " today." : " for today.");
+      line.dataset.sig = sig;
+      busy = false;
+    }
+    function soon() { requestAnimationFrame(render); }
+    function start() {
+      render();
+      var root = document.querySelector(".top-picks") || document.body;
+      new MutationObserver(soon).observe(root, { childList: true, subtree: true, characterData: true,
+        attributes: true, attributeFilter: ["class"] });
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
+  })();
+</script>
+{% endif %}
 {% endblock %}

@@ -96,7 +96,7 @@
           <span class="checkin-history__when muted">{{ log.created_at|date:"N j, P" }}</span>
           <span class="checkin-history__item">{{ log.mood_icon }}{{ log.mood_display_label }}</span>
           <span class="checkin-history__item">{{ log.energy_icon }}{{ log.energy_display_label }}</span>
-          <button type="button" class="checkin-edit-btn">Edit</button>
+          {% if log.is_today %}<button type="button" class="checkin-edit-btn">Edit</button>{% else %}<form method="post" action="{% url 'accounts:profile' %}" class="checkin-del" onsubmit="return confirm('Delete this check-in?');">{% csrf_token %}<input type="hidden" name="action" value="delete_mood"><input type="hidden" name="log_id" value="{{ log.pk }}"><button type="submit" class="checkin-del-btn">Delete</button></form>{% endif %}{# step224 #}
         </li>
       {% endfor %}
     </ul>

@@ -1450,3 +1450,47 @@ def place_panel(request):
         ).exists()
     )
     return render(request, "search/_place_panel.html", ctx)
+
+
+def search_suggest(request):
+    """Up to 5 place names for the Search box (step222). Local data only."""
+    from django.http import JsonResponse
+
+    from community.models import Restaurant
+    from search.models import FarmersMarket, HealthyStore
+
+    q = (request.GET.get("q") or "").strip()[:60]
+    if not q:
+        return JsonResponse({"items": []})
+    look = "istartswith" if len(q) == 1 else "icontains"
+    items, seen = [], set()
+
+    def add(name, kind, key=""):
+        low = (name or "").strip().lower()
+        if low and low not in seen and len(items) < 5:
+            seen.add(low)
+            items.append({"name": name.strip(), "kind": kind, "key": key})
+
+    rows = (
+        Restaurant.pool.exclude(name="")
+        .filter(**{"name__" + look: q})
+        .order_by("-rating_count", "name")
+        .values_list("name", "place_id")[:10]
+    )
+    for name, place_id in rows:
+        add(name, "Restaurant", "google:" + place_id if place_id else "")
+    if len(items) < 5:
+        for name in (
+            FarmersMarket.pool.filter(**{"market_name__" + look: q})
+            .order_by("market_name")
+            .values_list("market_name", flat=True)[:10]
+        ):
+            add(name, "Market")
+    if len(items) < 5:
+        for name in (
+            HealthyStore.objects.filter(**{"store_name__" + look: q})
+            .order_by("store_name")
+            .values_list("store_name", flat=True)[:10]
+        ):
+            add(name, "Grocery")
+    return JsonResponse({"items": items})

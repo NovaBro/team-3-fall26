@@ -1126,3 +1126,111 @@ html[data-theme="dark"] body button.is-textbtn.community-reply-toggle { border: 
 /* step215: no box */
 html[data-theme="dark"] body button.is-textbtn, html[data-theme="dark"] body button.is-textbtn:hover { border: 0 !important; }
 html[data-theme="dark"] body button.is-textbtn:hover { text-decoration: underline; }
+
+/* step216: Edit / Save in the check-in log = text links, both modes */
+html body button.checkin-edit-btn, html body button.checkin-edit-btn:hover,
+html[data-theme="dark"] body button.checkin-edit-btn, html[data-theme="dark"] body button.checkin-edit-btn:hover,
+html body .checkin-edit .checkin-edit__actions button.btn[value="edit_mood"],
+html[data-theme="dark"] body .checkin-edit .checkin-edit__actions button.btn[value="edit_mood"],
+html[data-theme="dark"] body .checkin-edit .checkin-edit__actions button.btn[value="edit_mood"]:hover {
+  background: transparent !important; background-image: none !important; border: 0 !important;
+  box-shadow: none !important; filter: none !important; }
+html[data-theme="dark"] body button.checkin-edit-btn,
+html[data-theme="dark"] body .checkin-edit .checkin-edit__actions button.btn[value="edit_mood"] {
+  color: #a8adb5 !important; -webkit-text-fill-color: #a8adb5 !important; }
+html[data-theme="dark"] body button.checkin-edit-btn:hover,
+html[data-theme="dark"] body .checkin-edit .checkin-edit__actions button.btn[value="edit_mood"]:hover {
+  color: #e6e7ea !important; -webkit-text-fill-color: #e6e7ea !important; }
+
+/* step217: hide the list while jumping straight to a place */
+html.sp-focusing .sp-side { visibility: hidden; }
+
+/* step218: night food chips = outline */
+html[data-theme="dark"] body button.food-chip,
+html[data-theme="dark"] body button.food-chip:hover,
+html[data-theme="dark"] body button.food-chip:active,
+html[data-theme="dark"] body button.food-chip:focus {
+  background: transparent !important; background-image: none !important; filter: none !important;
+  border: 1px solid #3b4252 !important; color: #c9ccd1 !important; -webkit-text-fill-color: #c9ccd1 !important;
+  box-shadow: none !important; }
+html[data-theme="dark"] body button.food-chip:hover { border-color: #5a6e9e !important; color: #e6e7ea !important;
+  -webkit-text-fill-color: #e6e7ea !important; }
+html[data-theme="dark"] body button.food-chip .food-chip__icon { color: #8a9099 !important; }
+html[data-theme="dark"] body button.food-chip.is-favorite,
+html[data-theme="dark"] body button.food-chip.is-favorite:hover {
+  border-color: #5f80d0 !important; background: rgba(95, 128, 208, .12) !important;
+  color: #9fb0d8 !important; -webkit-text-fill-color: #9fb0d8 !important; }
+html[data-theme="dark"] body button.food-chip.is-favorite .food-chip__icon { color: #9fb0d8 !important; }
+html[data-theme="dark"] body button.food-chip.is-disliked,
+html[data-theme="dark"] body button.food-chip.is-disliked:hover {
+  border-color: #c0605e !important; background: rgba(192, 96, 94, .12) !important;
+  color: #e3a19f !important; -webkit-text-fill-color: #e3a19f !important; }
+html[data-theme="dark"] body button.food-chip.is-disliked .food-chip__icon { color: #e3a19f !important; }
+
+/* step220: night contrast for New York + mood sentence */
+html[data-theme="dark"] .mood-sentence { color: #b8bdc6 !important; }
+html[data-theme="dark"] body .top-picks .mood-sentence .mood-pick__btn,
+html[data-theme="dark"] body .mood-sentence .mood-pick__btn .mood-pick__word,
+html[data-theme="dark"] body .mood-sentence .mood-pick__chev {
+  color: #c3d3e6 !important; -webkit-text-fill-color: #c3d3e6 !important; border-bottom-color: #6b7d92 !important; }
+html[data-theme="dark"] body .xm-place { color: #c3d3e6 !important; -webkit-text-fill-color: #c3d3e6 !important; }
+
+/* step221: no autofill block in the search box */
+.sp-search input:-webkit-autofill, .sp-search input:-webkit-autofill:hover,
+.sp-search input:-webkit-autofill:focus, .sp-search input:autofill {
+  -webkit-box-shadow: 0 0 0 1000px transparent inset !important;
+  box-shadow: 0 0 0 1000px transparent inset !important;
+  -webkit-text-fill-color: currentColor !important; caret-color: currentColor;
+  transition: background-color 600000s 0s, color 600000s 0s; }
+
+/* step222: search suggestions */
+.sp-suggest { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 1000; margin: 0; padding: 6px;
+  list-style: none; background: #fff; border: 1px solid #e3e6ea; border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .12); }
+.sp-suggest li { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.sp-suggest li:hover, .sp-suggest li.is-active { background: #eef2f6; }
+.sp-suggest__name { color: #222; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-suggest__kind { color: #8a9099; font-size: .78rem; flex: none; }
+html[data-theme="dark"] .sp-suggest { background: #1f232a; border-color: #343a46; box-shadow: 0 10px 28px rgba(0, 0, 0, .45); }
+html[data-theme="dark"] .sp-suggest li:hover, html[data-theme="dark"] .sp-suggest li.is-active { background: #2a303a; }
+html[data-theme="dark"] .sp-suggest__name { color: #e6e7ea; }
+
+/* step223: edit form in two rows, aligned with the log row above */
+.checkin-edit:not([hidden]) {
+  display: grid !important; grid-template-columns: 120px minmax(0, 1fr) !important;
+  column-gap: 16px !important; row-gap: 8px !important; align-items: center !important;
+  padding: 12px 2px !important; flex-wrap: nowrap !important; }
+.checkin-edit .checkin-field { display: contents !important; }
+.checkin-edit .checkin-field__label { grid-column: 1; margin: 0 !important; padding-left: 10px;
+  font-size: .78rem !important; color: var(--muted, #888) !important; }
+.checkin-edit .checkin-scale { grid-column: 2; display: grid !important;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important; gap: 6px !important; max-width: 560px; }
+.checkin-edit .checkin-option { justify-content: center !important; width: auto !important; min-width: 0 !important;
+  white-space: nowrap; overflow: hidden; }
+.checkin-edit .checkin-option > span { overflow: hidden; text-overflow: ellipsis; }
+.checkin-edit .errorlist, .checkin-edit .field-errors { grid-column: 1 / -1; }
+.checkin-edit .checkin-edit__actions { grid-column: 1 / -1; justify-self: end; margin: 0 !important; padding-right: 10px; }
+@media (max-width: 640px) {
+  .checkin-edit:not([hidden]) { grid-template-columns: 1fr !important; }
+  .checkin-edit .checkin-field__label, .checkin-edit .checkin-scale { grid-column: 1; }
+}
+
+/* step224: Delete link for past check-ins (looks like Edit) */
+.checkin-del { margin: 0 0 0 auto; }
+html body button.checkin-del-btn, html body button.checkin-del-btn:hover,
+html[data-theme="dark"] body button.checkin-del-btn, html[data-theme="dark"] body button.checkin-del-btn:hover {
+  background: transparent !important; background-image: none !important; border: 0 !important; box-shadow: none !important;
+  filter: none !important; padding: 4px 6px !important; font: inherit; font-size: .85rem !important;
+  text-decoration: underline; cursor: pointer; color: #9a6b6a !important; -webkit-text-fill-color: #9a6b6a !important; }
+html body button.checkin-del-btn:hover { color: #b3413e !important; -webkit-text-fill-color: #b3413e !important; }
+html[data-theme="dark"] body button.checkin-del-btn { color: #c99a98 !important; -webkit-text-fill-color: #c99a98 !important; }
+html[data-theme="dark"] body button.checkin-del-btn:hover { color: #e3a19f !important; -webkit-text-fill-color: #e3a19f !important; }
+
+/* step225: Save at the end of the Energy row */
+.checkin-edit:not([hidden]) { grid-template-columns: 120px minmax(0, 1fr) auto !important; }
+.checkin-edit .checkin-edit__actions { grid-column: 3 !important; grid-row: 2 !important;
+  align-self: center; justify-self: end; padding-right: 12px; }
+@media (max-width: 640px) {
+  .checkin-edit .checkin-edit__actions { grid-column: 1 !important; grid-row: auto !important; }
+}

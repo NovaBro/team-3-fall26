@@ -164,7 +164,7 @@
 {% block scripts %}
 <script src="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.js"></script>
 <script src="{% static 'search/search_page.js' %}?v=17"></script>
-<script src="{% static 'search/combined_map.js' %}?v=182" defer></script>
+<script src="{% static 'search/combined_map.js' %}?v=219" defer></script>
 
 
 <script>
@@ -252,20 +252,98 @@
   })();
 </script>
 
+
 <script>
-  // step207: ?focus=<key> -> select that result once the map is ready.
+  // step217 (replaces 207): ?focus=<key> -> open that place's panel right away.
   (function () {
     var p = new URLSearchParams(location.search), key = p.get("focus");
     if (!key) return;
+    document.documentElement.classList.add("sp-focusing");
     p.delete("focus");
     history.replaceState(null, "", location.pathname + (p.toString() ? "?" + p : ""));
+    function done() { document.documentElement.classList.remove("sp-focusing"); }
+    setTimeout(done, 3000); // never stay hidden
     var tries = 0;
     (function go() {
-      var card = Array.prototype.find.call(document.querySelectorAll(".result[data-key]"), function (c) { return c.dataset.key === key; })
-        || (document.querySelectorAll(".result[data-key]").length === 1 ? document.querySelector(".result[data-key]") : null);
-      if (!card || !window.maplibregl) { if (++tries < 60) setTimeout(go, 150); return; }
-      setTimeout(function () { card.click(); card.scrollIntoView({ block: "nearest" }); }, 500);
+      var cards = document.querySelectorAll(".result[data-key]");
+      var card = Array.prototype.find.call(cards, function (c) { return c.dataset.key === key; })
+        || (cards.length === 1 ? cards[0] : null);
+      if (!card || !window.maplibregl) { if (++tries < 80) return setTimeout(go, 50); return done(); }
+      setTimeout(function () {
+        card.click();
+        var n = 0;
+        (function wait() {   // show the side again once the panel is in
+          var back = Array.prototype.find.call(document.querySelectorAll(".sp-side a, .sp-side button"),
+            function (b) { return /Back to results/i.test(b.textContent) && b.offsetParent !== null; });
+          if (back || ++n > 60) return done();
+          setTimeout(wait, 50);
+        })();
+      }, 60);
     })();
+  })();
+</script>
+
+<script>
+  // step221: no browser autofill suggestions in the search box.
+  (function () {
+    document.querySelectorAll('.sp-search input, #filter-form input[name="q"]').forEach(function (i) {
+      i.setAttribute("autocomplete", "off");
+    });
+  })();
+</script>
+
+<script>
+  // step222: suggestions under the search box (from 1 letter, up to 5).
+  (function () {
+    var input = document.querySelector('.sp-search input, #filter-form input[name="q"]');
+    if (!input) return;
+    var form = input.form, wrap = input.closest(".sp-search") || input.parentNode;
+    wrap.style.position = "relative";
+    var list = document.createElement("ul");
+    list.className = "sp-suggest"; list.hidden = true; list.setAttribute("role", "listbox");
+    wrap.appendChild(list);
+    var items = [], active = -1, timer = null, last = "";
+    function close() { list.hidden = true; active = -1; }
+    function paint() {
+      list.innerHTML = "";
+      items.forEach(function (it, i) {
+        var li = document.createElement("li");
+        li.setAttribute("role", "option");
+        li.className = i === active ? "is-active" : "";
+        var n = document.createElement("span"); n.className = "sp-suggest__name"; n.textContent = it.name;
+        var k = document.createElement("span"); k.className = "sp-suggest__kind"; k.textContent = it.kind;
+        li.append(n, k);
+        li.addEventListener("mousedown", function (e) { e.preventDefault(); pick(it); });
+        list.appendChild(li);
+      });
+      list.hidden = !items.length;
+    }
+    function pick(it) {
+      close();
+      input.value = it.name;
+      if (it.key) { location.href = "/search/?q=" + encodeURIComponent(it.name) + "&focus=" + encodeURIComponent(it.key); return; }
+      if (form) form.submit();
+    }
+    input.addEventListener("input", function () {
+      var q = input.value.trim();
+      clearTimeout(timer);
+      if (!q) { items = []; close(); return; }
+      timer = setTimeout(function () {
+        last = q;
+        fetch("/search/suggest/?q=" + encodeURIComponent(q)).then(function (r) { return r.json(); }).then(function (d) {
+          if (q !== last) return;
+          items = d.items || []; active = -1; paint();
+        }).catch(close);
+      }, 150);
+    });
+    input.addEventListener("keydown", function (e) {
+      if (list.hidden) return;
+      if (e.key === "ArrowDown") { active = (active + 1) % items.length; paint(); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { active = (active - 1 + items.length) % items.length; paint(); e.preventDefault(); }
+      else if (e.key === "Enter" && active >= 0) { e.preventDefault(); pick(items[active]); }
+      else if (e.key === "Escape") close();
+    });
+    input.addEventListener("blur", function () { setTimeout(close, 120); });
   })();
 </script>
 {% endblock %}

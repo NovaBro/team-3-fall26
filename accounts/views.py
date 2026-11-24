@@ -164,13 +164,26 @@ def profile(request):
     instance, _created = UserProfile.objects.get_or_create(user=request.user)
     mood_history = MoodLog.objects.filter(user=request.user)[:MOOD_HISTORY_LIMIT]
     edit_log_id = None
+    mood_history = list(mood_history)  # step224
+    for _log in mood_history:
+        _log.is_today = _is_today_ny(_log.created_at)
     today_mood = MoodLog.objects.filter(user=request.user, log_date=today_ny()).first()
 
     if request.method == "POST":
+        if request.POST.get("action") == "delete_mood":  # step224
+            log = get_object_or_404(
+                MoodLog, pk=request.POST.get("log_id") or 0, user=request.user
+            )
+            log.delete()
+            messages.success(request, "Check-in deleted.")
+            return redirect(reverse("accounts:profile") + "#checkin-log")
         if request.POST.get("action") == "edit_mood":  # step175
             log = get_object_or_404(
                 MoodLog, pk=request.POST.get("log_id") or 0, user=request.user
             )
+            if not _is_today_ny(log.created_at):  # step224
+                messages.error(request, "Only today's check-in can be edited.")
+                return redirect(reverse("accounts:profile") + "#checkin-log")
             mood_form = MoodLogForm(request.POST, instance=log)
             fixed_form = UserProfileForm(instance=instance)
             if mood_form.is_valid():
@@ -489,3 +502,14 @@ def logout_view(request):
     logout(request)
     messages.success(request, "You have been logged out.")
     return redirect("search:index")
+
+
+def _is_today_ny(when):
+    """True if a timestamp falls on today's date in New York (step224)."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from django.utils import timezone
+
+    ny = ZoneInfo("America/New_York")
+    return timezone.localtime(when, ny).date() == datetime.now(ny).date()

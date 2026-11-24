@@ -5,6 +5,7 @@ from search import views
 app_name = "search"
 
 urlpatterns = [
+    path("search/suggest/", views.search_suggest, name="suggest"),  # step222
     path("", views.home, name="home"),
     path("rerank/", views.rerank_top_picks, name="rerank_top_picks"),
     path("location/", views.save_location, name="save_location"),
