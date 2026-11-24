@@ -1126,3 +1126,21 @@ html[data-theme="dark"] body button.is-textbtn.community-reply-toggle { border: 
 /* step215: no box */
 html[data-theme="dark"] body button.is-textbtn, html[data-theme="dark"] body button.is-textbtn:hover { border: 0 !important; }
 html[data-theme="dark"] body button.is-textbtn:hover { text-decoration: underline; }
+
+/* step216: Edit / Save in the check-in log = text links, both modes */
+html body button.checkin-edit-btn, html body button.checkin-edit-btn:hover,
+html[data-theme="dark"] body button.checkin-edit-btn, html[data-theme="dark"] body button.checkin-edit-btn:hover,
+html body .checkin-edit .checkin-edit__actions button.btn[value="edit_mood"],
+html[data-theme="dark"] body .checkin-edit .checkin-edit__actions button.btn[value="edit_mood"],
+html[data-theme="dark"] body .checkin-edit .checkin-edit__actions button.btn[value="edit_mood"]:hover {
+  background: transparent !important; background-image: none !important; border: 0 !important;
+  box-shadow: none !important; filter: none !important; }
+html[data-theme="dark"] body button.checkin-edit-btn,
+html[data-theme="dark"] body .checkin-edit .checkin-edit__actions button.btn[value="edit_mood"] {
+  color: #a8adb5 !important; -webkit-text-fill-color: #a8adb5 !important; }
+html[data-theme="dark"] body button.checkin-edit-btn:hover,
+html[data-theme="dark"] body .checkin-edit .checkin-edit__actions button.btn[value="edit_mood"]:hover {
+  color: #e6e7ea !important; -webkit-text-fill-color: #e6e7ea !important; }
+
+/* step217: hide the list while jumping straight to a place */
+html.sp-focusing .sp-side { visibility: hidden; }

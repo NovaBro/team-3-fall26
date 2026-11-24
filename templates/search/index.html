@@ -252,19 +252,33 @@
   })();
 </script>
 
+
 <script>
-  // step207: ?focus=<key> -> select that result once the map is ready.
+  // step217 (replaces 207): ?focus=<key> -> open that place's panel right away.
   (function () {
     var p = new URLSearchParams(location.search), key = p.get("focus");
     if (!key) return;
+    document.documentElement.classList.add("sp-focusing");
     p.delete("focus");
     history.replaceState(null, "", location.pathname + (p.toString() ? "?" + p : ""));
+    function done() { document.documentElement.classList.remove("sp-focusing"); }
+    setTimeout(done, 3000); // never stay hidden
     var tries = 0;
     (function go() {
-      var card = Array.prototype.find.call(document.querySelectorAll(".result[data-key]"), function (c) { return c.dataset.key === key; })
-        || (document.querySelectorAll(".result[data-key]").length === 1 ? document.querySelector(".result[data-key]") : null);
-      if (!card || !window.maplibregl) { if (++tries < 60) setTimeout(go, 150); return; }
-      setTimeout(function () { card.click(); card.scrollIntoView({ block: "nearest" }); }, 500);
+      var cards = document.querySelectorAll(".result[data-key]");
+      var card = Array.prototype.find.call(cards, function (c) { return c.dataset.key === key; })
+        || (cards.length === 1 ? cards[0] : null);
+      if (!card || !window.maplibregl) { if (++tries < 80) return setTimeout(go, 50); return done(); }
+      setTimeout(function () {
+        card.click();
+        var n = 0;
+        (function wait() {   // show the side again once the panel is in
+          var back = Array.prototype.find.call(document.querySelectorAll(".sp-side a, .sp-side button"),
+            function (b) { return /Back to results/i.test(b.textContent) && b.offsetParent !== null; });
+          if (back || ++n > 60) return done();
+          setTimeout(wait, 50);
+        })();
+      }, 60);
     })();
   })();
 </script>
