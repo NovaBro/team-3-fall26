@@ -32,7 +32,9 @@ def _png_upload(name="me.png"):
 class SignupTests(TestCase):
     databases = ALL_DATABASES
 
-    def test_signup_creates_inactive_user_and_profile_and_sends_verification_email(self):
+    def test_signup_creates_inactive_user_and_profile_and_sends_verification_email(
+        self,
+    ):
         response = self.client.post(
             reverse("accounts:signup"),
             {
