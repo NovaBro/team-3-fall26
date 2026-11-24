@@ -32,7 +32,9 @@ def _png_upload(name="me.png"):
 class SignupTests(TestCase):
     databases = ALL_DATABASES
 
-    def test_signup_creates_active_user_and_profile(self):
+    def test_signup_creates_inactive_user_and_profile_and_sends_verification_email(
+        self,
+    ):
         response = self.client.post(
             reverse("accounts:signup"),
             {
@@ -46,11 +48,13 @@ class SignupTests(TestCase):
         self.assertRedirects(response, reverse("accounts:login"))
         user = User.objects.get(username="foodie")
         self.assertEqual(user.email, "foodie@example.com")
-        self.assertTrue(user.is_active)
+        self.assertFalse(user.is_active)
         self.assertTrue(user.profile)
         self.assertEqual(user.profile.name, "Sam Rivera")
         self.assertNotIn("_auth_user_id", self.client.session)
-        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["foodie@example.com"])
+        self.assertIn("/verify/", mail.outbox[0].body)
 
     def test_signup_does_not_leak_the_verification_link_in_the_response(self):
         response = self.client.post(
@@ -66,7 +70,7 @@ class SignupTests(TestCase):
         )
         self.assertNotContains(response, "/verify/")
 
-    def test_can_log_in_immediately_after_signup(self):
+    def test_cannot_log_in_until_email_is_verified(self):
         self.client.post(
             reverse("accounts:signup"),
             {
@@ -81,7 +85,40 @@ class SignupTests(TestCase):
             reverse("accounts:login"),
             {"username": "foodie", "password": VALID_PASSWORD},
         )
-        self.assertRedirects(response, reverse("accounts:profile"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_can_log_in_after_clicking_verification_link(self):
+        self.client.post(
+            reverse("accounts:signup"),
+            {
+                "username": "foodie",
+                "name": "Sam Rivera",
+                "email": "foodie@example.com",
+                "password1": VALID_PASSWORD,
+                "password2": VALID_PASSWORD,
+            },
+        )
+        user = User.objects.get(username="foodie")
+        from django.utils.encoding import force_bytes
+        from django.utils.http import urlsafe_base64_encode
+
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = email_verification_token.make_token(user)
+        verify_response = self.client.get(
+            reverse("accounts:verify_email", args=[uid, token])
+        )
+        self.assertRedirects(verify_response, reverse("accounts:profile"))
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+        self.assertIn("_auth_user_id", self.client.session)
+
+        self.client.logout()
+        login_response = self.client.post(
+            reverse("accounts:login"),
+            {"username": "foodie", "password": VALID_PASSWORD},
+        )
+        self.assertRedirects(login_response, reverse("accounts:profile"))
         self.assertIn("_auth_user_id", self.client.session)
 
     def test_verify_link_cannot_be_reused_as_a_password_reset_token(self):
