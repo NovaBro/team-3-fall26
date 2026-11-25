@@ -193,7 +193,7 @@ diagrams: [`md_guides/scoring-pipeline.md`](md_guides/scoring-pipeline.md).
 Full rules: [`md_guides/scoring-algorithm.md`](md_guides/scoring-algorithm.md).
 
 After pulling changes to the models or datasets, migrate (community first) and
-reload the datasets:
+reload the datasets: 
 
 ```bash
 .venv/bin/python manage.py migrate --database=community

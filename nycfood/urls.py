@@ -1,5 +1,5 @@
 """
-URL configuration for nycfood project.
+URL configuration for nycfood project
 """
 
 from django.conf import settings
