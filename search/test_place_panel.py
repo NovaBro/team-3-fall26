@@ -35,3 +35,23 @@ class PlacePanelTests(TestCase):
         )
         self.assertContains(response, "Union Sq")
         self.assertContains(response, "Farmers market")
+
+
+class TopPicksHealthMatchesPanelTests(TestCase):
+    """The Health+ number on a Top pick is the same one its Search panel shows."""
+
+    databases = "__all__"
+
+    def test_top_pick_health_is_the_stored_ai_score(self):
+        from nycfood.test_utils import make_restaurant
+
+        for i, cuisine in enumerate(["American", "Thai", "Mexican"]):
+            make_restaurant(f"p{i}", name=f"Place {i}", cuisine=cuisine)
+            HealthScore.objects.create(place_id=f"p{i}", score=0.31 + i / 10)
+        picks = self.client.get(reverse("search:home")).context["top_picks"]
+        self.assertTrue(picks)
+        for pick in picks:
+            panel = self.client.get(
+                reverse("search:place_panel"), {"key": f"google:{pick['place_id']}"}
+            )
+            self.assertEqual(panel.context["health"], pick["health"])

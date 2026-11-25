@@ -692,7 +692,6 @@ def _top_picks(request, count=3, boro=""):
         pick["place_lat"] = place_lat
         pick["place_lng"] = place_lng
         pick["score"] = score
-        pick["health"] = round(score)  # 94: adjusted score on the Top picks tag
         pick["reason_tags"] = tags
         pick["calorie_score"] = calorie
         pick["confidence"] = breakdown["confidence"]
